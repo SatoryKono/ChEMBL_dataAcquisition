@@ -2,6 +2,21 @@
 
 The main entry point is :func:`map_chembl_to_uniprot` which performs the
 mapping for a given input CSV file.
+
+Algorithm Notes
+---------------
+The mapping proceeds in the following stages:
+
+* Read the configuration file to obtain I/O and network settings.
+* Load the input CSV and normalise the ChEMBL identifiers.
+* Split unique identifiers into batches and submit them to the UniProt
+  ID-mapping API.
+* Poll the remote service until results are ready and merge them back into the
+  original data set.
+
+The implementation favours simplicity and robustness over raw performance.  It
+relies solely on the public UniProt REST API and does not maintain any local
+state between runs.
 """
 
 from __future__ import annotations
@@ -41,12 +56,29 @@ def _chunked(seq: Sequence[str], size: int) -> Iterable[List[str]]:
 
 @dataclass
 class RateLimiter:
-    """Simple rate limiter based on sleep intervals."""
+    """Simple rate limiter based on sleep intervals.
+
+    Parameters
+    ----------
+    rps:
+        Maximum number of allowed requests per second.  Values less than or
+        equal to zero disable rate limiting.
+    last_call:
+        Internal timestamp of the previous call.  Consumers typically do not
+        need to modify this value directly.
+    """
 
     rps: float
     last_call: float = 0.0
 
     def wait(self) -> None:
+        """Sleep to ensure the configured request rate is not exceeded.
+
+        The method calculates the elapsed time since the last call and, if the
+        interval is shorter than ``1 / rps``, pauses execution for the remaining
+        time.  When ``rps`` is non-positive the method returns immediately.
+        """
+
         if self.rps <= 0:
             return
         interval = 1.0 / self.rps
@@ -234,9 +266,10 @@ def map_chembl_to_uniprot(
     Parameters
     ----------
     input_csv_path:
-        Path to the input CSV file containing a column with ChEMBL identifiers.
+        Path to the input CSV file containing a column with ChEMBL
+        identifiers.
     output_csv_path:
-        Optional path for the output CSV file.  When ``None`` a file with the
+        Optional path for the output CSV file. When ``None`` a file with the
         suffix ``"_with_uniprot.csv"`` is created next to ``input_csv_path``.
     config_path:
         Path to the YAML configuration file which is validated against
@@ -247,6 +280,16 @@ def map_chembl_to_uniprot(
     Path
         Path to the written CSV file containing an extra column with the mapped
         UniProt identifiers.
+
+    Notes
+    -----
+    The function performs several steps:
+
+    #. Validate and load configuration settings.
+    #. Read the CSV file, normalise identifiers and deduplicate them.
+    #. Submit identifiers in batches to the UniProt mapping API while obeying
+       rate limits and retry policies.
+    #. Merge the received mapping results back into the original data frame.
     """
 
     cfg: Config = load_and_validate_config(config_path)
