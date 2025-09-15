@@ -36,9 +36,10 @@ LIB_DIR = ROOT / "library"
 if str(LIB_DIR) not in sys.path:
     sys.path.insert(0, str(LIB_DIR))
 
-from uniprot_enrich import (
+
+from uniprot_enrich import (  # noqa: E402
     enrich_uniprot,
-)  # noqa: E402  # type: ignore[reportMissingImports]
+)  # type: ignore[reportMissingImports]
 
 
 DEFAULT_LOG_LEVEL = "INFO"

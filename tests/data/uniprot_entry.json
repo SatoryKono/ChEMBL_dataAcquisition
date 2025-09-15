@@ -1,0 +1,102 @@
+{
+  "primaryAccession": "P12345",
+  "entryType": "Reviewed",
+  "proteinDescription": {
+    "recommendedName": {
+      "fullName": {"value": "Sample protein"}
+    },
+    "alternativeNames": [
+      {"fullName": {"value": "Alt B"}},
+      {"fullName": {"value": "Alt A"}}
+    ]
+  },
+  "genes": [
+    {
+      "geneName": {"value": "GENE1"},
+      "synonyms": [{"value": "G1"}, {"value": "GENEONE"}]
+    }
+  ],
+  "organism": {
+    "scientificName": "Homo sapiens",
+    "taxonId": 9606,
+    "lineage": [
+      "Eukaryota",
+      "Metazoa",
+      "Chordata",
+      "Mammalia",
+      "Primates",
+      "Hominidae"
+    ]
+  },
+  "proteinExistence": "Evidence at protein level",
+  "sequence": {
+    "value": "MSTNPKPQR",
+    "length": 9,
+    "molWeight": 999,
+    "sequenceChecksum": "abcd"
+  },
+  "comments": [
+    {
+      "commentType": "SUBCELLULAR_LOCATION",
+      "subcellularLocations": [
+        {"location": {"value": "Cytoplasm"}},
+        {"location": {"value": "Membrane"}}
+      ]
+    },
+    {
+      "commentType": "FUNCTION",
+      "texts": [{"value": "Does something."}]
+    },
+    {
+      "commentType": "CATALYTIC_ACTIVITY",
+      "reaction": {"name": "A = B"}
+    },
+    {
+      "commentType": "COFACTOR",
+      "cofactors": [{"name": {"value": "Zn2+"}}, {"name": {"value": "Mg2+"}}]
+    },
+    {
+      "commentType": "PATHWAY",
+      "pathways": [{"value": "Glycolysis"}]
+    },
+    {
+      "commentType": "TISSUE_SPECIFICITY",
+      "texts": [{"value": "Expressed in liver"}]
+    },
+    {
+      "commentType": "EXPRESSION",
+      "texts": [{"value": "Up-regulated"}]
+    },
+    {
+      "commentType": "ALTERNATIVE_PRODUCTS",
+      "isoforms": [
+        {"name": {"value": "Isoform 2"}, "id": "P12345-2"},
+        {"name": {"value": "Isoform 1"}, "id": "P12345-1"}
+      ]
+    }
+  ],
+  "features": [
+    {"type": "Transmembrane", "location": {"start": {"value": 20}, "end": {"value": 40}}},
+    {"type": "Signal peptide", "location": {"start": {"value": 1}, "end": {"value": 10}}},
+    {"type": "Topological domain", "location": {"start": {"value": 41}, "end": {"value": 60}}},
+    {"type": "Glycosylation", "location": {"start": {"value": 5}, "end": {"value": 5}}, "description": "N-linked"},
+    {"type": "Lipidation", "location": {"start": {"value": 80}, "end": {"value": 80}}},
+    {"type": "Disulfide bond", "location": {"start": {"value": 100}, "end": {"value": 200}}},
+    {"type": "Modified residue", "location": {"start": {"value": 150}, "end": {"value": 150}}, "description": "Phosphoserine"}
+  ],
+  "uniProtKBCrossReferences": [
+    {"database": "Pfam", "id": "PF00002", "properties": [{"key": "Entry name", "value": "DomainB"}]},
+    {"database": "Pfam", "id": "PF00001", "properties": [{"key": "Entry name", "value": "DomainA"}]},
+    {"database": "InterPro", "id": "IPR0001", "properties": [{"key": "Entry name", "value": "InterProA"}]},
+    {"database": "PDB", "id": "2DEF"},
+    {"database": "PDB", "id": "1ABC"},
+    {"database": "AlphaFoldDB", "id": "P12345"},
+    {"database": "ChEMBL", "id": "CHEMBL123"},
+    {"database": "HGNC", "id": "HGNC:123"},
+    {"database": "Ensembl", "id": "ENSP000001"}
+  ],
+  "entryAudit": {
+    "lastAnnotationUpdateDate": "2020-01-01",
+    "entryVersion": 3
+  }
+}

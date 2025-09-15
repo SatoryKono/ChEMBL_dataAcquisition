@@ -95,6 +95,24 @@ map_chembl_to_uniprot(
 )
 ```
 
+
+## UniProt dump
+
+The ``get_uniprot_target_data.py`` script retrieves detailed information about
+UniProt targets.  Provide a CSV file with a column containing UniProt accession
+IDs and obtain a normalised dump with deterministic column ordering.
+
+```bash
+python scripts/get_uniprot_target_data.py \
+    --input ids.csv \
+    --output targets.csv \
+    --column uniprot_id \
+    --include-sequence
+```
+
+The behaviour is configured via ``config.yaml``.  Lists are serialised either as
+JSON (default) or as ``|``-delimited strings depending on the configuration.
+
 ### Downloading target metadata
 
 Fetch basic information for targets listed in ``targets.csv`` and write the
@@ -110,6 +128,7 @@ python scripts/get_target_data_main.py \
 
 Nested fields in the output are encoded as JSON strings to ensure
 deterministic, machine-readable results.
+
 
 ## Testing and quality checks
 
