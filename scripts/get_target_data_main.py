@@ -14,6 +14,7 @@ if str(LIB_DIR) not in sys.path:
     sys.path.insert(0, str(LIB_DIR))
 
 from chembl_targets import TargetConfig, fetch_targets  # noqa: E402
+from data_profiling import analyze_table_quality  # noqa: E402
 
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_SEP = ","
@@ -54,6 +55,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     result.to_csv(
         args.output, index=False, sep=cfg.output_sep, encoding=cfg.output_encoding
     )
+    analyze_table_quality(result, table_name=str(Path(args.output).with_suffix("")))
 
     print(args.output)
 

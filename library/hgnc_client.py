@@ -21,6 +21,11 @@ import pandas as pd
 import requests
 import yaml
 
+try:
+    from data_profiling import analyze_table_quality
+except ModuleNotFoundError:  # pragma: no cover
+    from .data_profiling import analyze_table_quality
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -328,4 +333,5 @@ def map_uniprot_to_hgnc(
     if output_csv_path is None:
         output_csv_path = input_csv_path.with_name(f"hgnc_{input_csv_path.stem}.csv")
     out_df.to_csv(output_csv_path, sep=sep, encoding=encoding, index=False)
+    analyze_table_quality(out_df, table_name=str(Path(output_csv_path).with_suffix("")))
     return output_csv_path

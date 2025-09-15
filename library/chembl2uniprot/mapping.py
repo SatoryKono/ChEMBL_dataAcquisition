@@ -37,6 +37,11 @@ from tenacity import (
 from .config import Config, RetryConfig, UniprotConfig, load_and_validate_config
 from .logging_utils import configure_logging
 
+try:
+    from data_profiling import analyze_table_quality
+except ModuleNotFoundError:  # pragma: no cover
+    from ..data_profiling import analyze_table_quality
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -519,4 +524,5 @@ def map_chembl_to_uniprot(
     df[out_col] = df[chembl_col].map(_join_ids)
 
     df.to_csv(output_csv_path, sep=sep, encoding=encoding_out, index=False)
+    analyze_table_quality(df, table_name=str(Path(output_csv_path).with_suffix("")))
     return output_csv_path
