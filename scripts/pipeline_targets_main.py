@@ -10,7 +10,7 @@ import logging
 import sys
 from pathlib import Path
 
-from typing import Any, Callable, Dict, Iterable, List
+from typing import Any, Callable, Dict, Iterable, List, Sequence
 
 import pandas as pd
 import yaml  # type: ignore[import]
@@ -38,6 +38,7 @@ from library.uniprot_enrich.enrich import (
 
 
 from library.protein_classifier import classify_protein
+from library.data_profiling import analyze_table_quality
 
 
 from library.pipeline_targets import (
@@ -647,6 +648,7 @@ def save_output(
     out_path = Path(output).expanduser().resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_path, index=False, sep=sep, encoding=encoding)
+    analyze_table_quality(df, table_name=str(out_path.with_suffix("")))
     return out_path
 
 
@@ -726,7 +728,7 @@ def main() -> None:
     chembl_df = fetch_targets(ids, chembl_cfg, batch_size=args.batch_size)
 
     def _cached_chembl_fetch(
-        _: List[str], __: TargetConfig
+        _: Sequence[str], __: TargetConfig
     ) -> pd.DataFrame:  # pragma: no cover - simple wrapper
         return chembl_df
 
