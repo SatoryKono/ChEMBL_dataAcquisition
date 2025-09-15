@@ -44,7 +44,6 @@ library/
         config.py
     mapping.py
 schemas/
-    default_config.yaml  # Built-in configuration
     config.schema.json   # JSON schema for configuration validation
 scripts/
     chembl2uniprot_main.py  # ChEMBL to UniProt mapper
@@ -52,6 +51,7 @@ scripts/
 tests/
     data/            # Sample config and CSV files used in tests
     test_mapping.py  # Unit tests
+config.yaml         # Unified configuration
 pyproject.toml       # Build system and dependency declaration
 requirements.txt     # Dependency pinning
 .gitignore
@@ -60,17 +60,26 @@ requirements.txt     # Dependency pinning
 ## Usage
 
 
-1. Prepare a configuration file (see ``tests/data/config/valid.yaml`` for an example).
+1. Prepare a configuration file (see ``tests/data/config/valid.yaml`` for an example)
+   or use the bundled ``config.yaml``.
 2. Run the mapper:
 
 ```bash
 python scripts/chembl2uniprot_main.py \
     --input input.csv \
     --output output.csv \
-    --config schemas\config.yaml \
     --log-level INFO \
     --sep , \
     --encoding utf-8
+```
+
+To supply an alternative configuration file:
+
+```bash
+python scripts/chembl2uniprot_main.py \
+    --input input.csv \
+    --output output.csv \
+    --config my_config.yaml
 ```
 
 

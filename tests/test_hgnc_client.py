@@ -7,7 +7,7 @@ import pandas as pd
 from hgnc_client import map_uniprot_to_hgnc
 
 ROOT = Path(__file__).resolve().parents[1]
-CONFIG = ROOT / "schemas" / "hgnc_config.yaml"
+CONFIG = ROOT / "config.yaml"
 
 
 def _write_csv(path: Path, values: list[str]) -> None:
@@ -52,7 +52,7 @@ def test_valid_uniprot_id(requests_mock, tmp_path: Path) -> None:
         },
     )
 
-    map_uniprot_to_hgnc(in_csv, out_csv, CONFIG)
+    map_uniprot_to_hgnc(in_csv, out_csv, CONFIG, config_section="hgnc")
     assert _read_output(out_csv) == [
         {
             "uniprot_id": "P35348",
@@ -74,7 +74,7 @@ def test_non_human_uniprot_id(requests_mock, tmp_path: Path) -> None:
     uniprot_url = "https://rest.uniprot.org/uniprotkb/Q91X72.json"
     uniprot_mock = requests_mock.get(uniprot_url, json={})
 
-    map_uniprot_to_hgnc(in_csv, out_csv, CONFIG)
+    map_uniprot_to_hgnc(in_csv, out_csv, CONFIG, config_section="hgnc")
     assert _read_output(out_csv) == [
         {
             "uniprot_id": "Q91X72",
@@ -119,7 +119,7 @@ def test_duplicate_input_ids(requests_mock, tmp_path: Path) -> None:
         },
     )
 
-    map_uniprot_to_hgnc(in_csv, out_csv, CONFIG)
+    map_uniprot_to_hgnc(in_csv, out_csv, CONFIG, config_section="hgnc")
     assert _read_output(out_csv) == [
         {
             "uniprot_id": "P35348",
