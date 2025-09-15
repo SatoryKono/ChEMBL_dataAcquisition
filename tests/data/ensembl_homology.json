@@ -1,0 +1,31 @@
+{
+  "data": [
+    {
+      "id": "ENSG00000144285",
+      "homologies": [
+        {
+          "type": "ortholog_one2one",
+          "is_high_confidence": 1,
+          "dn_ds": {"dn": 0.1, "ds": 0.2},
+          "target": {
+            "id": "ENSMUSG00000002413",
+            "species": "mus_musculus",
+            "protein_id": "ENSMUSP00000002487",
+            "perc_id": 84.3,
+            "perc_pos": 90.1
+          }
+        },
+        {
+          "type": "ortholog_one2one",
+          "target": {
+            "id": "ENSRNOG00000010957",
+            "species": "rattus_norvegicus",
+            "protein_id": "ENSRNOP00000099453",
+            "perc_id": 83.0,
+            "perc_pos": 88.0
+          }
+        }
+      ]
+    }
+  ]
+}

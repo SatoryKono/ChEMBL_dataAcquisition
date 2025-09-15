@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 import json
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 from tenacity import (
@@ -145,3 +145,60 @@ class UniProtClient:
         if not results:
             return None
         return results[0]
+
+    # ------------------------------------------------------------------
+    def fetch_entry_json(self, accession: str) -> Optional[Dict[str, Any]]:
+        """Retrieve the full UniProt entry for ``accession``.
+
+        Parameters
+        ----------
+        accession:
+            UniProt accession to retrieve.
+
+        Returns
+        -------
+        Optional[Dict[str, Any]]
+            Parsed JSON document or ``None`` when not found.
+        """
+
+        url = f"{self.base_url}/{accession}.json"
+        resp = self._request(url, {})
+        if not resp:
+            return None
+        try:
+            return resp.json()
+        except json.JSONDecodeError:  # pragma: no cover - API guarantees JSON
+            LOGGER.warning("Invalid JSON for %s", accession)
+            return None
+
+    def fetch_isoforms_fasta(self, accession: str) -> List[str]:
+        """Return FASTA headers for ``accession`` including isoforms.
+
+        The UniProt REST API streams FASTA records when the ``includeIsoform``
+        flag is set.  Only the header lines are returned by this method.
+
+        Parameters
+        ----------
+        accession:
+            UniProt accession to retrieve.
+
+        Returns
+        -------
+        List[str]
+            List of FASTA header lines. Empty when the request fails.
+        """
+
+        params = {
+            "query": f"accession:{accession}",
+            "format": "fasta",
+            "includeIsoform": "true",
+        }
+        url = f"{self.base_url}/stream"
+        resp = self._request(url, params)
+        if not resp:
+            return []
+        headers: List[str] = []
+        for line in resp.text.splitlines():
+            if line.startswith(">"):
+                headers.append(line)
+        return headers
