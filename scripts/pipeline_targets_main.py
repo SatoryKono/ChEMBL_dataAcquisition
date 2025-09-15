@@ -35,6 +35,7 @@ from orthologs import EnsemblHomologyClient, OmaClient
 
 
 from pipeline_targets import PipelineConfig, load_pipeline_config, run_pipeline
+from iuphar import ClassificationRecord, IUPHARClassifier, IUPHARData
 
 
 def merge_chembl_fields(
@@ -67,6 +68,80 @@ def merge_chembl_fields(
     return pipeline_df
 
 
+def add_iuphar_classification(
+    pipeline_df: pd.DataFrame,
+    target_csv: str | Path,
+    family_csv: str | Path,
+    *,
+    encoding: str = "utf-8",
+) -> pd.DataFrame:
+    """Append IUPHAR classification columns to ``pipeline_df``.
+
+    Parameters
+    ----------
+    pipeline_df:
+        Data frame produced by :func:`run_pipeline`.
+    target_csv:
+        Path to the ``_IUPHAR_target.csv`` file.
+    family_csv:
+        Path to the ``_IUPHAR_family.csv`` file.
+    encoding:
+        File encoding used when loading the IUPHAR tables.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``pipeline_df`` extended with classification fields. Existing
+        columns are preserved.
+    """
+
+    data = IUPHARData.from_files(target_csv, family_csv, encoding=encoding)
+    classifier = IUPHARClassifier(data)
+
+    def _classify(row: pd.Series) -> pd.Series:
+        # Prioritise an explicit GtoP target ID if available.
+        target_id = row.get("gtop_target_id", "")
+        if not target_id:
+            target_id = data.target_id_by_uniprot(row.get("uniprot_id_primary", ""))
+        if not target_id:
+            target_id = data.target_id_by_hgnc_name(row.get("hgnc_name", ""))
+        if not target_id:
+            target_id = data.target_id_by_hgnc_id(row.get("hgnc_id", ""))
+        if not target_id:
+            target_id = data.target_id_by_gene(row.get("gene_symbol", ""))
+        if not target_id:
+            synonyms = str(row.get("synonyms_all", "")).split("|")
+            mapped = data.target_ids_by_synonyms(synonyms)
+            # Ignore ambiguous mappings returning multiple IDs.
+            if mapped and "|" not in mapped:
+                target_id = mapped
+        record = (
+            classifier.by_target_id(target_id)
+            if target_id
+            else ClassificationRecord()
+        )
+        return pd.Series(
+            {
+                "iuphar_target_id": record.IUPHAR_target_id,
+                "iuphar_family_id": record.IUPHAR_family_id,
+                "iuphar_type": record.IUPHAR_type,
+                "iuphar_class": record.IUPHAR_class,
+                "iuphar_subclass": record.IUPHAR_subclass,
+                "iuphar_chain": ">".join(record.IUPHAR_tree),
+                "iuphar_name": record.IUPHAR_name,
+                "iuphar_full_id_path": data.all_id(record.IUPHAR_target_id)
+                if record.IUPHAR_target_id != "N/A"
+                else "",
+                "iuphar_full_name_path": data.all_name(record.IUPHAR_target_id)
+                if record.IUPHAR_target_id != "N/A"
+                else "",
+            }
+        )
+
+    class_df = pipeline_df.apply(_classify, axis=1)
+    return pd.concat([pipeline_df, class_df], axis=1)
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the pipeline."""
 
@@ -85,6 +160,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--primary-target-only", default="true")
     parser.add_argument("--with-isoforms", action="store_true")
     parser.add_argument("--with-orthologs", action="store_true")
+    parser.add_argument("--iuphar-target", help="Path to _IUPHAR_target.csv")
+    parser.add_argument("--iuphar-family", help="Path to _IUPHAR_family.csv")
     return parser.parse_args()
 
 
@@ -253,6 +330,13 @@ def main() -> None:
             progress_callback=pbar.update,
         )
     out_df = merge_chembl_fields(out_df, chembl_df)
+    if args.iuphar_target and args.iuphar_family:
+        out_df = add_iuphar_classification(
+            out_df,
+            args.iuphar_target,
+            args.iuphar_family,
+            encoding=args.encoding,
+        )
     out_df.to_csv(args.output, index=False, sep=args.sep, encoding=args.encoding)
 
 

@@ -1,6 +1,10 @@
+import sys
+from pathlib import Path
+
 import pandas as pd
 
-from scripts.pipeline_targets_main import merge_chembl_fields
+sys.path.insert(0, str(Path("scripts")))
+from pipeline_targets_main import add_iuphar_classification, merge_chembl_fields
 
 
 def test_merge_chembl_fields_adds_columns():
@@ -22,3 +26,25 @@ def test_merge_chembl_fields_adds_columns():
     assert "species_group_flag" in merged.columns
     assert "hgnc_name" in merged.columns
     assert merged.loc[0, "hgnc_id"] == "HGNC:1"
+
+
+def test_add_iuphar_classification():
+    df = pd.DataFrame(
+        {
+            "uniprot_id_primary": ["P12345"],
+            "gtop_target_id": [""],
+            "hgnc_name": ["ABC1"],
+            "hgnc_id": ["1"],
+            "gene_symbol": ["ABC1"],
+            "synonyms_all": ["Alpha|Beta"],
+        }
+    )
+    out = add_iuphar_classification(
+        df,
+        Path("tests/data/iuphar_target.csv"),
+        Path("tests/data/iuphar_family.csv"),
+    )
+    row = out.iloc[0]
+    assert row["iuphar_target_id"] == "0001"
+    assert row["iuphar_family_id"] == "F001"
+    assert row["iuphar_type"] == "Enzyme.Transferase"
