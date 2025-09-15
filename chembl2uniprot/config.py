@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, cast
 import json
 import logging
 
@@ -163,12 +163,14 @@ def _build_config(data: Dict[str, Any]) -> Config:
 
 def _read_yaml(path: Path) -> Dict[str, Any]:
     with path.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh) or {}
+        data = yaml.safe_load(fh) or {}
+    return cast(Dict[str, Any], data)
 
 
 def _read_json(path: Path) -> Dict[str, Any]:
     with path.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
+        data = json.load(fh)
+    return cast(Dict[str, Any], data)
 
 
 def load_and_validate_config(

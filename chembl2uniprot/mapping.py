@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence
+from typing import Any, Dict, Iterable, List, Sequence, cast
 import hashlib
 import json
 import logging
@@ -93,7 +93,7 @@ def _request_with_retry(
     rate_limiter: RateLimiter,
     max_attempts: int,
     backoff: float,
-    **kwargs,
+    **kwargs: Any,
 ) -> requests.Response:
     """Perform an HTTP request with retry and rate limiting."""
 
@@ -142,7 +142,7 @@ def _start_job(
         data=payload,
     )
     try:
-        return resp.json()
+        return cast(Dict[str, Any], resp.json())
     except json.JSONDecodeError:
         LOGGER.debug("Unparseable response from %s: %s", url, resp.text)
         raise
