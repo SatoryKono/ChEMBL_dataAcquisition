@@ -30,6 +30,7 @@ dev = [
     "types-PyYAML",
     "types-jsonschema",
     "types-requests",
+    "hypothesis",
 ]
 
 [tool.setuptools.packages.find]
