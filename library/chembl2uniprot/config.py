@@ -142,6 +142,43 @@ def _normalise_column_aliases(
     return columns
 
 
+
+def _build_config(data: Dict[str, Any]) -> Config:
+    """Construct a :class:`Config` object from ``data``.
+
+    Parameters
+    ----------
+    data:
+        Raw dictionary read from the YAML configuration file.  Assumes the
+        structure matches the JSON schema.
+    """
+    # Accept legacy configuration where ``target_chembl_id`` was used instead
+    # of ``chembl_id`` and standardise on the modern key.
+    columns_cfg = _normalise_column_aliases(dict(data["columns"]), drop_legacy=True)
+
+    io_cfg = IOConfig(
+        input=EncodingConfig(**data["io"]["input"]),
+        output=EncodingConfig(**data["io"]["output"]),
+        csv=CSVConfig(**data["io"]["csv"]),
+    )
+    uniprot_cfg = UniprotConfig(
+        base_url=data["uniprot"]["base_url"],
+        id_mapping=IdMappingConfig(**data["uniprot"]["id_mapping"]),
+        polling=PollingConfig(**data["uniprot"]["polling"]),
+        rate_limit=RateLimitConfig(**data["uniprot"]["rate_limit"]),
+        retry=RetryConfig(**data["uniprot"]["retry"]),
+    )
+    return Config(
+        io=io_cfg,
+        columns=ColumnsConfig(**columns_cfg),
+        uniprot=uniprot_cfg,
+        network=NetworkConfig(**data["network"]),
+        batch=BatchConfig(**data["batch"]),
+        logging=LoggingConfig(**data["logging"]),
+    )
+
+
+
 def _read_yaml(path: Path) -> Dict[str, Any]:
     with path.open("r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}

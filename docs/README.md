@@ -42,12 +42,13 @@ library/
     chembl2uniprot/      # Configuration and mapping utilities
         __init__.py
         config.py
-        mapping.py
+    mapping.py
 schemas/
     default_config.yaml  # Built-in configuration
     config.schema.json   # JSON schema for configuration validation
 scripts/
-    chembl2uniprot_main.py  # CLI entry point
+    chembl2uniprot_main.py  # ChEMBL to UniProt mapper
+    get_target_data_main.py # ChEMBL target downloader
 tests/
     data/            # Sample config and CSV files used in tests
     test_mapping.py  # Unit tests
@@ -93,6 +94,41 @@ map_chembl_to_uniprot(
     encoding="utf-8",
 )
 ```
+
+
+## UniProt dump
+
+The ``get_uniprot_target_data.py`` script retrieves detailed information about
+UniProt targets.  Provide a CSV file with a column containing UniProt accession
+IDs and obtain a normalised dump with deterministic column ordering.
+
+```bash
+python scripts/get_uniprot_target_data.py \
+    --input ids.csv \
+    --output targets.csv \
+    --column uniprot_id \
+    --include-sequence
+```
+
+The behaviour is configured via ``config.yaml``.  Lists are serialised either as
+JSON (default) or as ``|``-delimited strings depending on the configuration.
+
+### Downloading target metadata
+
+Fetch basic information for targets listed in ``targets.csv`` and write the
+result to ``targets_dump.csv``:
+
+```bash
+python scripts/get_target_data_main.py \
+    --input targets.csv \
+    --output targets_dump.csv \
+    --column target_chembl_id \
+    --log-level INFO
+```
+
+Nested fields in the output are encoded as JSON strings to ensure
+deterministic, machine-readable results.
+
 
 ## Testing and quality checks
 
