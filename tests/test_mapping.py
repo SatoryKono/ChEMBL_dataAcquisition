@@ -14,7 +14,7 @@ from chembl2uniprot.config import (
     RetryConfig,
     UniprotConfig,
 )
-from chembl2uniprot.mapping import RateLimiter, _poll_job
+from chembl2uniprot.mapping import RateLimiter, _poll_job, _request_with_retry
 
 DATA_DIR = Path(__file__).parent / "data"
 CONFIG_DIR = DATA_DIR / "config"
@@ -174,6 +174,22 @@ def test_poll_job_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
 
+def test_request_with_retry_raises_for_client_error(requests_mock) -> None:
+    """Client errors should raise ``HTTPError`` without retrying."""
+
+    url = "https://rest.uniprot.org/idmapping/run"
+    requests_mock.post(url, status_code=404)
+    with pytest.raises(requests.HTTPError):
+        _request_with_retry(
+            "post",
+            url,
+            timeout=1,
+            rate_limiter=RateLimiter(0),
+            max_attempts=1,
+            backoff=0,
+        )
+
+
 def test_deterministic_csv(requests_mock, tmp_path: Path, config_path: Path) -> None:
     run_url = "https://rest.uniprot.org/idmapping/run"
     status_url = "https://rest.uniprot.org/idmapping/status/1"
@@ -195,3 +211,44 @@ def test_deterministic_csv(requests_mock, tmp_path: Path, config_path: Path) -> 
     map_chembl_to_uniprot(INPUT_SINGLE, out2, config_path)
 
     assert out1.read_bytes() == out2.read_bytes()
+
+
+class CountingLimiter(RateLimiter):
+    """Rate limiter that counts how often ``wait`` is invoked."""
+
+    def __init__(self) -> None:
+        super().__init__(rps=0)
+        self.calls = 0
+
+    def wait(self) -> None:  # pragma: no cover - simple counter
+        self.calls += 1
+
+
+def test_rate_limiter_called_on_retries(requests_mock) -> None:
+    url = "https://example.org"
+    limiter = CountingLimiter()
+    requests_mock.get(url, [{"status_code": 500}, {"status_code": 200}])
+    _request_with_retry(
+        "get",
+        url,
+        timeout=1,
+        rate_limiter=limiter,
+        max_attempts=2,
+        backoff=0,
+    )
+    assert limiter.calls == 2
+
+
+def test_rate_limiter_single_request(requests_mock) -> None:
+    url = "https://example.org"
+    limiter = CountingLimiter()
+    requests_mock.get(url, status_code=200)
+    _request_with_retry(
+        "get",
+        url,
+        timeout=1,
+        rate_limiter=limiter,
+        max_attempts=2,
+        backoff=0,
+    )
+    assert limiter.calls == 1
