@@ -1,9 +1,9 @@
 """CLI for enriching UniProt annotations in-place."""
 
 import argparse
-import logging
 
 from library.uniprot_enrich import enrich_uniprot
+from library.chembl2uniprot.logging_utils import configure_logging
 
 
 def main() -> None:
@@ -13,8 +13,14 @@ def main() -> None:
     parser.add_argument(
         "--log-level", default="INFO", help="Logging level (e.g. INFO, DEBUG)"
     )
+    parser.add_argument(
+        "--log-format",
+        default="human",
+        choices=["human", "json"],
+        help="Logging output format",
+    )
     args = parser.parse_args()
-    logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
+    configure_logging(args.log_level, json_logs=args.log_format == "json")
     enrich_uniprot(args.input, list_sep=args.sep)
 
 

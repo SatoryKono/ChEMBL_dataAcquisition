@@ -15,6 +15,7 @@ dependencies = [
     "jsonschema",
     "tqdm",
     "tenacity",
+    "pydantic>=2.0",
 ]
 
 [project.optional-dependencies]
