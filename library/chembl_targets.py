@@ -265,7 +265,9 @@ def _extract_protein_classifications(payload: Dict[str, Any]) -> List[str]:
 # Public API
 
 
-def fetch_targets(ids: Sequence[str], cfg: TargetConfig) -> pd.DataFrame:
+def fetch_targets(
+    ids: Sequence[str], cfg: TargetConfig, *, batch_size: int = 20
+) -> pd.DataFrame:
     """Fetch ChEMBL targets and return a normalised :class:`~pandas.DataFrame`.
 
     Parameters
@@ -275,6 +277,8 @@ def fetch_targets(ids: Sequence[str], cfg: TargetConfig) -> pd.DataFrame:
     cfg:
         Configuration governing network behaviour, serialisation options and
         the set of columns returned in the output.
+    batch_size:
+        Maximum number of identifiers queried per HTTP request.
     """
 
     norm_ids = normalise_ids(ids)
@@ -282,54 +286,69 @@ def fetch_targets(ids: Sequence[str], cfg: TargetConfig) -> pd.DataFrame:
         timeout=cfg.timeout_sec, max_retries=cfg.max_retries, rps=cfg.rps
     )
     records: List[Dict[str, Any]] = []
-    for chembl_id in norm_ids:
-        url = f"{cfg.base_url.rstrip('/')}/target/{chembl_id}?format=json"
+    base = cfg.base_url.rstrip("/")
+    for i in range(0, len(norm_ids), batch_size):
+        chunk = norm_ids[i : i + batch_size]
+        params = {
+            "target_chembl_id__in": ",".join(chunk),
+            "format": "json",
+            "limit": str(len(chunk)),
+        }
+        url = f"{base}/target"
         try:
-            resp = client.request("get", url)
+            resp = client.request("get", url, params=params)
             if resp.status_code == 200:
-                payload = resp.json()
+                data = resp.json()
+                payload_map = {
+                    t.get("target_chembl_id"): t for t in data.get("targets", []) or []
+                }
             else:
                 LOGGER.warning(
-                    "Non-200 response for %s: %s", chembl_id, resp.status_code
+                    "Non-200 response for %s: %s", ",".join(chunk), resp.status_code
                 )
-                payload = {}
+                payload_map = {}
         except Exception as exc:  # noqa: BLE001 - we log and continue
-            LOGGER.warning("Failed to fetch %s: %s", chembl_id, exc)
-            payload = {}
-        genes = _extract_gene_symbols(payload)
-        prot_names = _extract_protein_synonyms(payload)
-        ec_numbers = _extract_ec_numbers(payload)
-        alt_names = _extract_alt_names(payload)
-        uniprot_ids = _extract_uniprot_ids(payload)
-        hgnc_name, hgnc_id = _extract_hgnc(payload)
-        record = {
-            "target_chembl_id": chembl_id,
-            "pref_name": payload.get("pref_name"),
-            "protein_name_canonical": payload.get("pref_name"),
-            "target_type": payload.get("target_type"),
-            "organism": payload.get("organism"),
-            "tax_id": payload.get("tax_id"),
-            "species_group_flag": payload.get("species_group_flag"),
-            "target_components": _serialize(
-                _extract_components(payload), list_format=cfg.list_format
-            ),
-            "protein_classifications": _serialize(
-                _extract_protein_classifications(payload), list_format=cfg.list_format
-            ),
-            "cross_references": _serialize(
-                _extract_cross_refs(payload), list_format=cfg.list_format
-            ),
-            "gene_symbol_list": _serialize(genes, list_format=cfg.list_format),
-            "protein_synonym_list": _serialize(prot_names, list_format=cfg.list_format),
-            "ec_number_list": _serialize(ec_numbers, list_format=cfg.list_format),
-            "chembl_alternative_name_list": _serialize(
-                alt_names, list_format=cfg.list_format
-            ),
-            "uniprot_id_list": _serialize(uniprot_ids, list_format=cfg.list_format),
-            "hgnc_name": hgnc_name,
-            "hgnc_id": hgnc_id,
-        }
-        records.append(record)
+            LOGGER.warning("Failed to fetch %s: %s", ",".join(chunk), exc)
+            payload_map = {}
+        for chembl_id in chunk:
+            payload = payload_map.get(chembl_id, {})
+            genes = _extract_gene_symbols(payload)
+            prot_names = _extract_protein_synonyms(payload)
+            ec_numbers = _extract_ec_numbers(payload)
+            alt_names = _extract_alt_names(payload)
+            uniprot_ids = _extract_uniprot_ids(payload)
+            hgnc_name, hgnc_id = _extract_hgnc(payload)
+            record = {
+                "target_chembl_id": chembl_id,
+                "pref_name": payload.get("pref_name"),
+                "protein_name_canonical": payload.get("pref_name"),
+                "target_type": payload.get("target_type"),
+                "organism": payload.get("organism"),
+                "tax_id": payload.get("tax_id"),
+                "species_group_flag": payload.get("species_group_flag"),
+                "target_components": _serialize(
+                    _extract_components(payload), list_format=cfg.list_format
+                ),
+                "protein_classifications": _serialize(
+                    _extract_protein_classifications(payload),
+                    list_format=cfg.list_format,
+                ),
+                "cross_references": _serialize(
+                    _extract_cross_refs(payload), list_format=cfg.list_format
+                ),
+                "gene_symbol_list": _serialize(genes, list_format=cfg.list_format),
+                "protein_synonym_list": _serialize(
+                    prot_names, list_format=cfg.list_format
+                ),
+                "ec_number_list": _serialize(ec_numbers, list_format=cfg.list_format),
+                "chembl_alternative_name_list": _serialize(
+                    alt_names, list_format=cfg.list_format
+                ),
+                "uniprot_id_list": _serialize(uniprot_ids, list_format=cfg.list_format),
+                "hgnc_name": hgnc_name,
+                "hgnc_id": hgnc_id,
+            }
+            records.append(record)
     df = pd.DataFrame(records, columns=cfg.columns)
     return df
 

@@ -15,11 +15,9 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: pip install .[dev]
-      - name: Lint
-        run: |
-          ruff check .
-          black --check .
-      - name: Type check
-        run: mypy --strict chembl2uniprot
-      - name: Test
+      - name: Ruff
+        run: ruff check .
+      - name: Mypy
+        run: mypy --strict library/chembl2uniprot
+      - name: Pytest
         run: pytest

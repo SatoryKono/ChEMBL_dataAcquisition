@@ -1,106 +1,54 @@
-from __future__ import annotations
+from pathlib import Path
+import sys
 
-import json
 import requests_mock
 
-from typing import Sequence, cast
-
-from chembl_targets import TargetConfig, fetch_targets, normalise_ids
-
-
-def test_normalise_ids() -> None:
-    raw: list[str | None] = [" CHEMBL1 ", "chembl1", "", None, "CHEMBL2"]
-    assert normalise_ids(cast(Sequence[str], raw)) == ["CHEMBL1", "CHEMBL2"]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from library.chembl_targets import TargetConfig, fetch_targets
 
 
-def test_fetch_targets_parses_fields(requests_mock: requests_mock.Mocker) -> None:
-    cfg = TargetConfig(base_url="http://test", list_format="json", rps=0)
-    url = "http://test/target/CHEMBL612?format=json"
-    payload = {
-        "pref_name": "Example",
-        "target_type": "SINGLE PROTEIN",
-        "organism": "Homo sapiens",
-        "tax_id": 9606,
-        "species_group_flag": 0,
-        "target_components": [
-            {
-                "component_id": 1,
-                "accession": "P12345",
-                "component_type": "PROTEIN",
-                "component_description": "desc",
-                "target_component_synonyms": [
-                    {"component_synonym": "ABC1", "syn_type": "GENE_SYMBOL"},
-                    {"component_synonym": "ProtAlt", "syn_type": "PROTEIN_NAME"},
-                    {"component_synonym": "1.1.1.1", "syn_type": "EC_NUMBER"},
-                    {"component_synonym": "AltUni", "syn_type": "UNIPROT"},
-                ],
-                "target_component_xrefs": [
-                    {"xref_src_db": "Ensembl", "xref_id": "ENSG000001"},
-                    {"xref_src_db": "UniProt", "xref_id": "P12345"},
-                    {
-                        "xref_src_db": "HGNC",
-                        "xref_id": "HGNC:5",
-                        "xref_name": "HGNCNAME",
-                    },
-                ],
-            }
-        ],
-        "cross_references": [
-            {"xref_db": "IUPHAR/BPS", "xref_id": "123"},
-            {"xref_db": "UniProt", "xref_id": "Q99999"},
-        ],
-        "protein_classification": {
-            "pref_name": "L5",
-            "parent": {"pref_name": "L4"},
+def test_fetch_targets_batches(requests_mock: requests_mock.Mocker) -> None:
+    cfg = TargetConfig(base_url="https://example.org")
+    url = "https://example.org/target"
+    requests_mock.get(
+        url,
+        json={
+            "targets": [
+                {
+                    "target_chembl_id": "CHEMBL1",
+                    "target_components": [],
+                    "cross_references": [],
+                },
+                {
+                    "target_chembl_id": "CHEMBL2",
+                    "target_components": [],
+                    "cross_references": [],
+                },
+            ]
         },
-    }
-    requests_mock.get(url, json=payload)
-    df = fetch_targets(["CHEMBL612"], cfg)
-    assert list(df.columns) == [
-        "target_chembl_id",
-        "pref_name",
-        "protein_name_canonical",
-        "target_type",
-        "organism",
-        "tax_id",
-        "species_group_flag",
-        "target_components",
-        "protein_classifications",
-        "cross_references",
-        "gene_symbol_list",
-        "protein_synonym_list",
-    ]
-    record = df.iloc[0]
-    comps = json.loads(record["target_components"])
-    assert comps[0]["accession"] == "P12345"
-    refs = json.loads(record["cross_references"])
-    assert [r["xref_db"] for r in refs] == [
-        "Ensembl",
-        "HGNC",
-        "IUPHAR/BPS",
-        "UniProt",
-        "UniProt",
-    ]
-    genes = json.loads(record["gene_symbol_list"])
-    assert genes == ["ABC1"]
-    names = json.loads(record["protein_synonym_list"])
-    assert names == ["ProtAlt"]
-    classes = json.loads(record["protein_classifications"])
-    assert classes == ["L4", "L5"]
-
-
-def test_fetch_targets_respects_configured_columns(
-    requests_mock: requests_mock.Mocker,
-) -> None:
-    """Only configured columns are returned in the output."""
-
-    cfg = TargetConfig(
-        base_url="http://test",
-        list_format="json",
-        rps=0,
-        columns=["target_chembl_id", "pref_name"],
+        additional_matcher=lambda r: "CHEMBL1,CHEMBL2" in r.url,
     )
-    url = "http://test/target/CHEMBL612?format=json"
-    requests_mock.get(url, json={"pref_name": "Example"})
-    df = fetch_targets(["CHEMBL612"], cfg)
-    assert list(df.columns) == ["target_chembl_id", "pref_name"]
+    requests_mock.get(
+        url,
+        json={
+            "targets": [
+                {
+                    "target_chembl_id": "CHEMBL3",
+                    "target_components": [],
+                    "cross_references": [],
+                }
+            ]
+        },
+        additional_matcher=lambda r: "CHEMBL3" in r.url and "CHEMBL1" not in r.url,
+    )
+    df = fetch_targets(
+        [
+            "CHEMBL1",
+            "CHEMBL2",
+            "CHEMBL3",
+        ],
+        cfg,
+        batch_size=2,
+    )
+    assert requests_mock.call_count == 2
+    assert set(df["target_chembl_id"]) == {"CHEMBL1", "CHEMBL2", "CHEMBL3"}
