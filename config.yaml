@@ -54,7 +54,7 @@ chembl:
     - protein_synonym_list
 
 output:
-  list_format: json
+  list_format: pipe
   encoding: "utf-8-sig"
 
 pipeline:
