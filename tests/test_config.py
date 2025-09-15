@@ -31,3 +31,10 @@ def test_invalid_value(tmp_path: Path) -> None:
     cfg = _write_config(tmp_path, cfg_text)
     with pytest.raises(ValueError):
         load_and_validate_config(cfg)
+
+
+def test_target_chembl_id_alias() -> None:
+    """Configuration accepts ``target_chembl_id`` as an alias."""
+    cfg = CONFIG_DIR / "alias.yaml"
+    loaded = load_and_validate_config(cfg)
+    assert loaded.columns.chembl_id == "chembl_id"

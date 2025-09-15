@@ -29,11 +29,16 @@
     },
     "columns": {
       "type": "object",
-      "required": ["chembl_id", "uniprot_out"],
       "properties": {
         "chembl_id": { "type": "string", "minLength": 1 },
+        "target_chembl_id": { "type": "string", "minLength": 1 },
         "uniprot_out": { "type": "string", "minLength": 1 }
-      }
+      },
+      "required": ["uniprot_out"],
+      "anyOf": [
+        {"required": ["chembl_id"]},
+        {"required": ["target_chembl_id"]}
+      ]
     },
     "uniprot": {
       "type": "object",

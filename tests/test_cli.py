@@ -36,7 +36,7 @@ def test_cli_uses_default_config(tmp_path: Path) -> None:
     )
     assert out.exists()
     # Output should contain CSV header only
-    assert out.read_text().strip() == "chembl_id,mapped_uniprot_id"
+    assert out.read_text().strip() == "target_chembl_id,mapped_uniprot_id"
     # CLI prints output path
     assert result.stdout.strip() == str(out)
 
@@ -60,7 +60,7 @@ def test_cli_runs(tmp_path: Path) -> None:
     )
     assert out.exists()
     # Output should contain CSV header only
-    assert out.read_text().strip() == "chembl_id,mapped_uniprot_id"
+    assert out.read_text().strip() == "target_chembl_id,mapped_uniprot_id"
     # CLI prints output path
     assert result.stdout.strip() == str(out)
 
