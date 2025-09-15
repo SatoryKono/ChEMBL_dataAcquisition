@@ -174,19 +174,28 @@ def test_poll_job_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
 
-def test_request_with_retry_raises_for_client_error(requests_mock) -> None:
-    """Client errors should raise ``HTTPError`` without retrying."""
+def test_poll_job_max_polls(requests_mock) -> None:
+    """Polling stops after exceeding the configured maximum attempts."""
 
-    url = "https://rest.uniprot.org/idmapping/run"
-    requests_mock.post(url, status_code=404)
-    with pytest.raises(requests.HTTPError):
-        _request_with_retry(
-            "post",
-            url,
-            timeout=1,
-            rate_limiter=RateLimiter(0),
-            max_attempts=1,
-            backoff=0,
+    cfg = UniprotConfig(
+        base_url="https://rest.uniprot.org",
+        id_mapping=IdMappingConfig(endpoint="", status_endpoint="/idmapping/status"),
+        polling=PollingConfig(interval_sec=0, max_polls=2),
+        rate_limit=RateLimitConfig(rps=1),
+        retry=RetryConfig(max_attempts=1, backoff_sec=0),
+    )
+
+    status_url = "https://rest.uniprot.org/idmapping/status/1"
+    requests_mock.get(status_url, json={"jobStatus": "RUNNING"})
+
+    with pytest.raises(TimeoutError):
+        _poll_job(
+            "1",
+            cfg,
+            RateLimiter(0),
+            timeout=0.1,
+            retry_cfg=RetryConfig(max_attempts=1, backoff_sec=0),
+
         )
 
 

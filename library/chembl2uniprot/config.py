@@ -65,9 +65,23 @@ class IdMappingConfig:
 
 @dataclass
 class PollingConfig:
-    """Polling behaviour for asynchronous jobs."""
+    """Polling behaviour for asynchronous jobs.
+
+    Parameters
+    ----------
+    interval_sec:
+        Delay between polling requests in seconds.
+    max_polls:
+        Maximum number of status requests before giving up. ``None`` disables the
+        limit.
+    total_timeout_sec:
+        Total allowed time spent polling before aborting. ``None`` disables the
+        limit.
+    """
 
     interval_sec: float
+    max_polls: int | None = None
+    total_timeout_sec: float | None = None
 
 
 @dataclass

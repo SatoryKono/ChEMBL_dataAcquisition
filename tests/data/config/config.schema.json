@@ -59,7 +59,11 @@
         "polling": {
           "type": "object",
           "required": ["interval_sec"],
-          "properties": { "interval_sec": { "type": "number", "minimum": 0 } }
+          "properties": {
+            "interval_sec": { "type": "number", "minimum": 0 },
+            "max_polls": { "type": "integer", "minimum": 1 },
+            "total_timeout_sec": { "type": "number", "minimum": 0 }
+          }
         },
         "rate_limit": {
           "type": "object",
@@ -99,3 +103,4 @@
   },
   "additionalProperties": false
 }
+
