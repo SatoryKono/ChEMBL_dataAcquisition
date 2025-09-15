@@ -4,7 +4,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Sequence
+from typing import Any, Callable, Dict, List, Sequence
 
 import pandas as pd
 
@@ -199,6 +199,7 @@ def run_pipeline(
     ensembl_client: EnsemblHomologyClient | None = None,
     oma_client: OmaClient | None = None,
     target_species: Sequence[str] | None = None,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> pd.DataFrame:
     """Orchestrate data acquisition for ``ids``.
 
@@ -225,6 +226,9 @@ def run_pipeline(
         Optional client for OMA ortholog lookups.
     target_species:
         List of species considered when retrieving orthologs.
+    progress_callback:
+        Optional callback receiving the incremental count of processed records.
+        Can be used to update external progress indicators.
     """
 
     chembl_cfg = chembl_config or TargetConfig(list_format=cfg.list_format)
@@ -508,6 +512,8 @@ def run_pipeline(
             "timestamp_utc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
         records.append(rec)
+        if progress_callback:
+            progress_callback(1)
 
     df = pd.DataFrame(records, columns=cfg.columns)
     return df

@@ -14,6 +14,7 @@ from typing import List
 
 import pandas as pd
 import yaml  # type: ignore[import]
+from tqdm.auto import tqdm
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -235,18 +236,22 @@ def main() -> None:
     ) -> pd.DataFrame:  # pragma: no cover - simple wrapper
         return chembl_df
 
-    out_df = run_pipeline(
-        ids,
-        pipeline_cfg,
-        chembl_fetcher=_cached_chembl_fetch,
-        chembl_config=chembl_cfg,
-        uniprot_client=uni_client,
-        hgnc_client=hgnc_client,
-        gtop_client=gtop_client,
-        ensembl_client=ens_client,
-        oma_client=oma_client,
-        target_species=target_species,
-    )
+    # Run the pipeline with a progress bar to provide user feedback on long
+    # operations. The progress bar advances once per processed target.
+    with tqdm(total=len(ids), desc="targets") as pbar:
+        out_df = run_pipeline(
+            ids,
+            pipeline_cfg,
+            chembl_fetcher=_cached_chembl_fetch,
+            chembl_config=chembl_cfg,
+            uniprot_client=uni_client,
+            hgnc_client=hgnc_client,
+            gtop_client=gtop_client,
+            ensembl_client=ens_client,
+            oma_client=oma_client,
+            target_species=target_species,
+            progress_callback=pbar.update,
+        )
     out_df = merge_chembl_fields(out_df, chembl_df)
     out_df.to_csv(args.output, index=False, sep=args.sep, encoding=args.encoding)
 
