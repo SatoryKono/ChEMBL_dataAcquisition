@@ -25,13 +25,13 @@ if str(LIB_DIR) not in sys.path:
 from io_utils import CsvConfig, read_ids, write_rows  # noqa: E402
 from uniprot_client import NetworkConfig, RateLimitConfig, UniProtClient  # noqa: E402
 from uniprot_normalize import (  # noqa: E402
-
     extract_ensembl_gene_ids,
     normalize_entry,
     output_columns,
 )
-from orthologs import EnsemblHomologyClient, OmaClient  # noqa: E402
-
+from orthologs import (
+    EnsemblHomologyClient, 
+    OmaClient,  # noqa: E402
     Isoform,
     extract_isoforms,
     normalize_entry,
@@ -182,13 +182,12 @@ def main(argv: List[str] | None = None) -> None:
         ]
 
     for acc in accessions:
-<
+
         data = client.fetch(acc)
         gene_ids: List[str] = []
         if data is None:
-
-        entry = client.fetch_entry_json(acc)
-        fasta_headers: List[str] = []
+            entry = client.fetch_entry_json(acc)
+            fasta_headers: List[str] = []
         if include_iso and entry is not None and use_fasta_stream:
             fasta_headers = client.fetch_isoforms_fasta(acc)
         if entry is None:
@@ -284,8 +283,8 @@ def main(argv: List[str] | None = None) -> None:
         write_rows(orthologs_path, orth_rows, orth_cols, csv_cfg)
         print(orthologs_path)
 
-            rows.append(row)
-            continue
+        rows.append(row)
+        continue
         isoforms: List[Isoform] = []
         if include_iso:
             isoforms = extract_isoforms(entry, fasta_headers)
