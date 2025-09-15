@@ -10,11 +10,18 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Sequence
 
 import pandas as pd
+
+# When executed as ``python scripts/pubmed_main.py`` the repository root is not
+# automatically on ``sys.path``.  Appending the parent directory ensures imports
+# such as ``library.http_client`` resolve correctly on Windows and Linux.
+if __package__ in {None, ""}:
+    sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from library.http_client import HttpClient
 from library.pubmed_client import classify_publication, fetch_pubmed_records
@@ -140,6 +147,8 @@ LOGGER = logging.getLogger("pubmed_main")
 
 
 def main() -> None:
+    """Console script entry point."""
+
     parser = _build_arg_parser()
     args = parser.parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level.upper()))
