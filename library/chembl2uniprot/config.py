@@ -110,7 +110,27 @@ class LoggingConfig(BaseModel):
 
 
 class Config(BaseModel):
-    """Validated application configuration."""
+    """Validated application configuration.
+
+    This class defines the overall configuration structure by composing
+    the other models. It represents the single source of truth for all
+    configurable parameters in the application.
+
+    Attributes
+    ----------
+    io:
+        I/O related configuration.
+    columns:
+        Names of relevant CSV columns.
+    uniprot:
+        Configuration related to UniProt service access.
+    network:
+        Network level configuration.
+    batch:
+        Batch processing settings.
+    logging:
+        Logging configuration.
+    """
 
     io: IOConfig
     columns: ColumnsConfig
@@ -179,19 +199,59 @@ def _build_config(data: Dict[str, Any]) -> Config:
 
 
 def _read_yaml(path: Path) -> Dict[str, Any]:
+    """Read a YAML file and return its content as a dictionary.
+
+    Parameters
+    ----------
+    path:
+        Path to the YAML file.
+
+    Returns
+    -------
+    Dict[str, Any]
+        The content of the YAML file.
+    """
     with path.open("r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
     return cast(Dict[str, Any], data)
 
 
 def _read_json(path: Path) -> Dict[str, Any]:
+    """Read a JSON file and return its content as a dictionary.
+
+    Parameters
+    ----------
+    path:
+        Path to the JSON file.
+
+    Returns
+    -------
+    Dict[str, Any]
+        The content of the JSON file.
+    """
     with path.open("r", encoding="utf-8") as fh:
         data = json.load(fh)
     return cast(Dict[str, Any], data)
 
 
 def _apply_env_overrides(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Update ``data`` with ``CHEMBL_`` environment variable overrides."""
+    """Update ``data`` with ``CHEMBL_`` environment variable overrides.
+
+    This function scans environment variables for names starting with "CHEMBL_".
+    The remainder of the variable name is treated as a path to a configuration
+    key, with "__" acting as a separator. For example, `CHEMBL_BATCH__SIZE=10`
+    will override the `size` key within the `batch` section of the config.
+
+    Parameters
+    ----------
+    data:
+        The configuration dictionary to update.
+
+    Returns
+    -------
+    Dict[str, Any]
+        The updated configuration dictionary.
+    """
 
     prefix = "CHEMBL_"
     for key, value in os.environ.items():

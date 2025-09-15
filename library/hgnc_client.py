@@ -146,7 +146,23 @@ class HGNCClient:
         self.rate_limiter = RateLimiter(cfg.rate_limit.rps)
 
     def _request(self, url: str) -> requests.Response:
-        """Perform ``GET`` request with retry and rate limiting."""
+        """Perform a GET request with retry and rate limiting.
+
+        Parameters
+        ----------
+        url:
+            The URL to request.
+
+        Returns
+        -------
+        requests.Response
+            The HTTP response object.
+
+        Raises
+        ------
+        requests.HTTPError
+            If the request fails after all retries.
+        """
 
         last_exc: Exception | None = None
         for attempt in range(self.cfg.network.max_retries):
@@ -171,7 +187,18 @@ class HGNCClient:
         raise last_exc
 
     def _fetch_protein_name(self, uniprot_id: str) -> str:
-        """Return recommended protein name from UniProt."""
+        """Fetch the recommended protein name from UniProt for a given ID.
+
+        Parameters
+        ----------
+        uniprot_id:
+            The UniProt accession number.
+
+        Returns
+        -------
+        str
+            The recommended protein name, or an empty string if not found.
+        """
 
         url = f"https://rest.uniprot.org/uniprotkb/{uniprot_id}.json"
         try:
@@ -198,7 +225,22 @@ class HGNCClient:
         return ""
 
     def fetch(self, uniprot_id: str) -> HGNCRecord:
-        """Lookup ``uniprot_id`` in HGNC and return mapping data."""
+        """Fetch HGNC mapping data for a single UniProt accession.
+
+        This method queries the HGNC API for the given UniProt ID and also
+        fetches the corresponding protein name from UniProt.
+
+        Parameters
+        ----------
+        uniprot_id:
+            The UniProt accession number to look up.
+
+        Returns
+        -------
+        HGNCRecord
+            A record containing the mapping information. If the lookup fails,
+            the record will have empty fields.
+        """
 
         url = f"{self.cfg.hgnc.base_url.rstrip('/')}/{uniprot_id}"
         resp = self._request(url)

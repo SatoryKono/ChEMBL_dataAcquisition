@@ -97,10 +97,12 @@ _GENE_PREFIX_SPECIES = {
 
 
 def _map_species(name: str) -> str:
+    """Map a species alias to its Ensembl name."""
     return _SPECIES_MAP.get(name, name)
 
 
 def _species_from_gene(ensembl_gene_id: str) -> Optional[str]:
+    """Infer the species from an Ensembl gene ID prefix."""
     for prefix, species in _GENE_PREFIX_SPECIES.items():
         if ensembl_gene_id.startswith(prefix):
             return species
@@ -125,6 +127,7 @@ class EnsemblHomologyClient:
     _uniprot_cache: Dict[str, str] = field(default_factory=dict)
 
     def _wait_rate_limit(self) -> None:
+        """Sleep if necessary to enforce the configured rate limit."""
         if self.rate_limit.rps <= 0:
             return
         import time
@@ -139,6 +142,22 @@ class EnsemblHomologyClient:
     def _request(
         self, url: str, params: Iterable[tuple[str, str]]
     ) -> Optional[requests.Response]:
+        """Perform a GET request to the Ensembl API.
+
+        This method handles rate limiting and basic error handling.
+
+        Parameters
+        ----------
+        url:
+            The URL to request.
+        params:
+            A list of (key, value) pairs for the query string.
+
+        Returns
+        -------
+        Optional[requests.Response]
+            The response object, or None if an error occurred.
+        """
         self._wait_rate_limit()
         try:
             resp = self.session.get(
@@ -160,6 +179,10 @@ class EnsemblHomologyClient:
     # Lookup helpers ---------------------------------------------------
 
     def _lookup_gene_symbol(self, gene_id: str) -> str:
+        """Look up the gene symbol for an Ensembl gene ID.
+
+        Results are cached to avoid repeated requests.
+        """
         if gene_id in self._symbol_cache:
             return self._symbol_cache[gene_id]
         url = f"{self.base_url}/lookup/id/{gene_id}"
@@ -174,6 +197,10 @@ class EnsemblHomologyClient:
         return symbol
 
     def _lookup_uniprot(self, gene_id: str) -> str:
+        """Look up the UniProt/Swiss-Prot accession for an Ensembl gene ID.
+
+        Results are cached to avoid repeated requests.
+        """
         if gene_id in self._uniprot_cache:
             return self._uniprot_cache[gene_id]
         url = f"{self.base_url}/xrefs/id/{gene_id}"

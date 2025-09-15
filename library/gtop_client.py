@@ -70,6 +70,24 @@ class GtoPClient:
     # Low level request helper
 
     def _get(self, path: str, params: Dict[str, Any] | None = None) -> Any:
+        """Perform a GET request to a GtoPdb API endpoint.
+
+        This is a low-level helper that handles common status codes and JSON
+        parsing.
+
+        Parameters
+        ----------
+        path:
+            The API path to request (e.g., "/targets").
+        params:
+            A dictionary of query parameters.
+
+        Returns
+        -------
+        Any
+            The parsed JSON response, or None if the response is empty or an
+            error occurred.
+        """
         url = f"{self.base_url}{path}"
         LOGGER.debug("GET %s params=%s", url, params)
         resp = self.http.request("get", url, params=params)
@@ -98,7 +116,26 @@ class GtoPClient:
         gene_symbol: str | None = None,
         name: str | None = None,
     ) -> List[Dict[str, Any]]:
-        """Search ``/targets`` using one of the supported parameters."""
+        """Search for targets using various criteria.
+
+        This method queries the `/targets` endpoint of the GtoPdb API.
+
+        Parameters
+        ----------
+        accession:
+            An accession number from a supported database.
+        database:
+            The database for the accession number (e.g., "UniProt", "HGNC").
+        gene_symbol:
+            A gene symbol.
+        name:
+            A target name.
+
+        Returns
+        -------
+        List[Dict[str, Any]]
+            A list of dictionaries, each representing a matching target.
+        """
 
         params: Dict[str, Any] = {}
         if accession:
@@ -115,7 +152,25 @@ class GtoPClient:
     def fetch_target_endpoint(
         self, target_id: int, endpoint: str, params: Dict[str, Any] | None = None
     ) -> List[Dict[str, Any]]:
-        """Fetch a child endpoint for a specific ``target_id``."""
+        """Fetch data from a specific endpoint related to a target.
+
+        For example, this can be used to get interactions or other detailed
+        information for a given target ID.
+
+        Parameters
+        ----------
+        target_id:
+            The GtoPdb ID of the target.
+        endpoint:
+            The name of the endpoint to fetch (e.g., "interactions").
+        params:
+            Optional query parameters.
+
+        Returns
+        -------
+        List[Dict[str, Any]]
+            A list of dictionaries from the endpoint's response.
+        """
         try:
             payload = self._get(f"/targets/{target_id}/{endpoint}", params=params) or []
         except requests.HTTPError as exc:  # pragma: no cover - network fallback
