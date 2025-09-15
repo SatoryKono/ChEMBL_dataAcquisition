@@ -5,11 +5,11 @@ Example
 Run the mapper on ``input.csv`` using the built-in default configuration and
 write the result to ``output.csv``::
 
-    python -m chembl2uniprot --input input.csv --output output.csv
+    python scripts/chembl2uniprot_main.py --input input.csv --output output.csv
 
 To use a custom configuration file ``config.yaml``::
 
-    python -m chembl2uniprot \
+    python scripts/chembl2uniprot_main.py \
         --input input.csv \
         --output output.csv \
         --config config.yaml \
@@ -21,10 +21,15 @@ To use a custom configuration file ``config.yaml``::
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
-from importlib import resources
 
-from .mapping import map_chembl_to_uniprot
+ROOT = Path(__file__).resolve().parents[1]
+LIB_DIR = ROOT / "library"
+if str(LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(LIB_DIR))
+
+from chembl2uniprot.mapping import map_chembl_to_uniprot  # noqa: E402
 
 
 DEFAULT_LOG_LEVEL = "INFO"
@@ -33,7 +38,6 @@ DEFAULT_ENCODING = "utf-8"
 
 
 def main(argv: list[str] | None = None) -> None:
-
     """Entry point for the command line interface.
 
     Parameters
@@ -42,7 +46,6 @@ def main(argv: list[str] | None = None) -> None:
         Optional list of command line arguments.  When ``None`` the arguments
         are taken from :data:`sys.argv`.
     """
-
 
     parser = argparse.ArgumentParser(description="Map ChEMBL IDs to UniProt IDs")
     parser.add_argument("--input", required=True, help="Path to input CSV file")
@@ -69,7 +72,6 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
 
-
     if args.config:
         config_path = Path(args.config)
         output = map_chembl_to_uniprot(
@@ -78,16 +80,13 @@ def main(argv: list[str] | None = None) -> None:
             config_path=config_path,
         )
     else:
-        # Fall back to the package's default configuration file.
-        with resources.as_file(
-            resources.files("chembl2uniprot") / "default_config.yaml"
-        ) as cfg_path:
-            output = map_chembl_to_uniprot(
-                input_csv_path=Path(args.input),
-                output_csv_path=Path(args.output) if args.output else None,
-                config_path=cfg_path,
-            )
-
+        # Fall back to the project's default configuration file.
+        cfg_path = ROOT / "schemas" / "default_config.yaml"
+        output = map_chembl_to_uniprot(
+            input_csv_path=Path(args.input),
+            output_csv_path=Path(args.output) if args.output else None,
+            config_path=cfg_path,
+        )
 
     print(output)
 

@@ -38,17 +38,22 @@ pip install -e .[dev]
 ## Project structure
 
 ```
-chembl2uniprot/      # Library with configuration and mapping utilities
-    __main__.py      # CLI entry point: ``python -m chembl2uniprot``
-    config.py        # YAML loading and validation
-    mapping.py       # Core mapping logic
+library/
+    chembl2uniprot/      # Configuration and mapping utilities
+        __init__.py
+        config.py
+        mapping.py
+schemas/
     default_config.yaml  # Built-in configuration
     config.schema.json   # JSON schema for configuration validation
+scripts/
+    chembl2uniprot_main.py  # CLI entry point
 tests/
     data/            # Sample config and CSV files used in tests
     test_mapping.py  # Unit tests
 pyproject.toml       # Build system and dependency declaration
-mypy.ini             # Type checker configuration
+requirements.txt     # Dependency pinning
+.gitignore
 ```
 
 ## Usage
@@ -58,7 +63,7 @@ mypy.ini             # Type checker configuration
 2. Run the mapper:
 
 ```bash
-python -m chembl2uniprot \
+python scripts/chembl2uniprot_main.py \
     --input input.csv \
     --output output.csv \
     --config config.yaml \
@@ -78,6 +83,7 @@ The mapping function can also be used programmatically:
 
 ```python
 from chembl2uniprot import map_chembl_to_uniprot
+
 map_chembl_to_uniprot(
     "input.csv",
     "output.csv",
@@ -93,7 +99,7 @@ map_chembl_to_uniprot(
 After making changes, run the following tools:
 
 ```bash
-ruff .
+ruff check .
 black --check .
 python -m mypy .
 pytest

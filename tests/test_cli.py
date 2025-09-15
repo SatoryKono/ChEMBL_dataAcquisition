@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts" / "chembl2uniprot_main.py"
 DATA_DIR = Path(__file__).parent / "data"
 CONFIG_DIR = DATA_DIR / "config"
 CSV_DIR = DATA_DIR / "csv"
@@ -22,8 +24,7 @@ def test_cli_uses_default_config(tmp_path: Path) -> None:
     result = subprocess.run(
         [
             sys.executable,
-            "-m",
-            "chembl2uniprot",
+            str(SCRIPT),
             "--input",
             str(EMPTY_CSV),
             "--output",
@@ -45,8 +46,7 @@ def test_cli_runs(tmp_path: Path) -> None:
     result = subprocess.run(
         [
             sys.executable,
-            "-m",
-            "chembl2uniprot",
+            str(SCRIPT),
             "--input",
             str(EMPTY_CSV),
             "--output",
@@ -71,8 +71,7 @@ def test_cli_invalid_config(tmp_path: Path) -> None:
         subprocess.run(
             [
                 sys.executable,
-                "-m",
-                "chembl2uniprot",
+                str(SCRIPT),
                 "--input",
                 str(EMPTY_CSV),
                 "--output",

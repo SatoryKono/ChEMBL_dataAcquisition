@@ -30,5 +30,8 @@ dev = [
     "types-requests",
 ]
 
-[tool.setuptools.package-data]
-"chembl2uniprot" = ["default_config.yaml", "config.schema.json"]
+[tool.setuptools.packages.find]
+where = ["library"]
+
+[tool.mypy]
+ignore_missing_imports = true

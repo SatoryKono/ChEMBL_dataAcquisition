@@ -1,0 +1,13 @@
+pandas>=1.5
+requests>=2.31
+PyYAML>=6.0
+jsonschema>=4.17
+tqdm>=4.66
+tenacity>=8.2
+
+# Development
+pytest>=7.4
+requests-mock>=1.11
+black>=23.0
+ruff>=0.1
+mypy>=1.4
