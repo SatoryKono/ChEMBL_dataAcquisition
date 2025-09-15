@@ -23,7 +23,7 @@ from tenacity import (
     wait_exponential,
 )
 
-from .config import load_and_validate_config
+from .config import Config, RetryConfig, UniprotConfig, load_and_validate_config
 
 LOGGER = logging.getLogger(__name__)
 
@@ -93,15 +93,15 @@ def _request_with_retry(
 
 def _start_job(
     ids: List[str],
-    cfg: Dict[str, Any],
+    cfg: UniprotConfig,
     rate_limiter: RateLimiter,
     timeout: float,
-    retry_cfg: Dict[str, Any],
+    retry_cfg: RetryConfig,
 ) -> Dict[str, Any]:
-    url = cfg["base_url"].rstrip("/") + cfg["id_mapping"]["endpoint"]
+    url = cfg.base_url.rstrip("/") + cfg.id_mapping.endpoint
     payload = {
-        "from": cfg["id_mapping"].get("from_db", "ChEMBL"),
-        "to": cfg["id_mapping"].get("to_db", "UniProtKB"),
+        "from": cfg.id_mapping.from_db or "ChEMBL",
+        "to": cfg.id_mapping.to_db or "UniProtKB",
         "ids": ",".join(ids),
     }
     resp = _request_with_retry(
@@ -109,8 +109,8 @@ def _start_job(
         url,
         timeout=timeout,
         rate_limiter=rate_limiter,
-        max_attempts=retry_cfg["max_attempts"],
-        backoff=retry_cfg["backoff_sec"],
+        max_attempts=retry_cfg.max_attempts,
+        backoff=retry_cfg.backoff_sec,
         data=payload,
     )
     try:
@@ -122,26 +122,23 @@ def _start_job(
 
 def _poll_job(
     job_id: str,
-    cfg: Dict[str, Any],
+    cfg: UniprotConfig,
     rate_limiter: RateLimiter,
     timeout: float,
-    retry_cfg: Dict[str, Any],
+    retry_cfg: RetryConfig,
 ) -> None:
     status_url = (
-        cfg["base_url"].rstrip("/")
-        + cfg["id_mapping"].get("status_endpoint", "")
-        + "/"
-        + job_id
+        cfg.base_url.rstrip("/") + (cfg.id_mapping.status_endpoint or "") + "/" + job_id
     )
-    interval = cfg["polling"]["interval_sec"]
+    interval = cfg.polling.interval_sec
     while True:
         resp = _request_with_retry(
             "get",
             status_url,
             timeout=timeout,
             rate_limiter=rate_limiter,
-            max_attempts=retry_cfg["max_attempts"],
-            backoff=retry_cfg["backoff_sec"],
+            max_attempts=retry_cfg.max_attempts,
+            backoff=retry_cfg.backoff_sec,
         )
         try:
             payload = resp.json()
@@ -157,14 +154,14 @@ def _poll_job(
 
 def _fetch_results(
     job_id: str,
-    cfg: Dict[str, Any],
+    cfg: UniprotConfig,
     rate_limiter: RateLimiter,
     timeout: float,
-    retry_cfg: Dict[str, Any],
+    retry_cfg: RetryConfig,
 ) -> Dict[str, List[str]]:
     results_url = (
-        cfg["base_url"].rstrip("/")
-        + cfg["id_mapping"].get("results_endpoint", "")
+        cfg.base_url.rstrip("/")
+        + (cfg.id_mapping.results_endpoint or "")
         + "/"
         + job_id
     )
@@ -173,8 +170,8 @@ def _fetch_results(
         results_url,
         timeout=timeout,
         rate_limiter=rate_limiter,
-        max_attempts=retry_cfg["max_attempts"],
-        backoff=retry_cfg["backoff_sec"],
+        max_attempts=retry_cfg.max_attempts,
+        backoff=retry_cfg.backoff_sec,
     )
     try:
         payload = resp.json()
@@ -193,10 +190,10 @@ def _fetch_results(
 
 def _map_batch(
     ids: List[str],
-    cfg: Dict[str, Any],
+    cfg: UniprotConfig,
     rate_limiter: RateLimiter,
     timeout: float,
-    retry_cfg: Dict[str, Any],
+    retry_cfg: RetryConfig,
 ) -> Dict[str, List[str]]:
     try:
         job_payload = _start_job(ids, cfg, rate_limiter, timeout, retry_cfg)
@@ -252,9 +249,9 @@ def map_chembl_to_uniprot(
         UniProt identifiers.
     """
 
-    cfg = load_and_validate_config(config_path).raw
+    cfg: Config = load_and_validate_config(config_path)
 
-    logging.basicConfig(level=getattr(logging, cfg["logging"]["level"].upper()))
+    logging.basicConfig(level=getattr(logging, cfg.logging.level.upper()))
 
     input_csv_path = Path(input_csv_path)
     if output_csv_path is None:
@@ -263,12 +260,12 @@ def map_chembl_to_uniprot(
         )
     output_csv_path = Path(output_csv_path)
 
-    sep = cfg["io"]["csv"]["separator"]
-    encoding_in = cfg["io"]["input"]["encoding"]
-    encoding_out = cfg["io"]["output"]["encoding"]
-    chembl_col = cfg["columns"]["chembl_id"]
-    out_col = cfg["columns"]["uniprot_out"]
-    delimiter = cfg["io"]["csv"]["multivalue_delimiter"]
+    sep = cfg.io.csv.separator
+    encoding_in = cfg.io.input.encoding
+    encoding_out = cfg.io.output.encoding
+    chembl_col = cfg.columns.chembl_id
+    out_col = cfg.columns.uniprot_out
+    delimiter = cfg.io.csv.multivalue_delimiter
 
     # Compute SHA256 of input file for logging purposes
     with input_csv_path.open("rb") as fh:
@@ -286,16 +283,14 @@ def map_chembl_to_uniprot(
 
     LOGGER.info("Processing %d unique ChEMBL IDs", len(unique_ids))
 
-    batch_size = cfg["batch"]["size"]
-    timeout = cfg["network"]["timeout_sec"]
-    retry_cfg = cfg["uniprot"]["retry"]
-    rate_limiter = RateLimiter(cfg["uniprot"]["rate_limit"]["rps"])
+    batch_size = cfg.batch.size
+    timeout = cfg.network.timeout_sec
+    retry_cfg = cfg.uniprot.retry
+    rate_limiter = RateLimiter(cfg.uniprot.rate_limit.rps)
 
     mapping: Dict[str, List[str]] = {}
     for batch in _chunked(unique_ids, batch_size):
-        batch_mapping = _map_batch(
-            batch, cfg["uniprot"], rate_limiter, timeout, retry_cfg
-        )
+        batch_mapping = _map_batch(batch, cfg.uniprot, rate_limiter, timeout, retry_cfg)
         mapping.update(batch_mapping)
 
     mapped = sum(1 for v in mapping.values() if v)
