@@ -1,42 +1,41 @@
-"""Configuration loading and validation utilities.
+"""Configuration loading and validation utilities using Pydantic.
 
-The :func:`load_and_validate_config` function reads a YAML configuration file
-and validates it against a JSON schema located next to the config file.  A
-``ValueError`` with a meaningful message is raised when the configuration does
-not conform to the schema.
+The :func:`load_and_validate_config` function reads a YAML configuration file,
+validates it against a JSON schema located next to the config file and builds a
+:class:`Config` object with strong type checks.  Environment variables prefixed
+with ``CHEMBL_`` override values from the YAML file (e.g.
+``CHEMBL_BATCH__SIZE=5``).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, cast
 import json
 import logging
+from pathlib import Path
+from typing import Any, Dict, Literal, cast
 
 import yaml
 from jsonschema import Draft202012Validator
+from pydantic import BaseModel, Field, ValidationError
+import os
 
 LOGGER = logging.getLogger(__name__)
 
 
-@dataclass
-class EncodingConfig:
+class EncodingConfig(BaseModel):
     """Encoding information for CSV input/output."""
 
     encoding: str
 
 
-@dataclass
-class CSVConfig:
+class CSVConfig(BaseModel):
     """CSV formatting details."""
 
     separator: str
     multivalue_delimiter: str
 
 
-@dataclass
-class IOConfig:
+class IOConfig(BaseModel):
     """I/O related configuration."""
 
     input: EncodingConfig
@@ -44,16 +43,14 @@ class IOConfig:
     csv: CSVConfig
 
 
-@dataclass
-class ColumnsConfig:
+class ColumnsConfig(BaseModel):
     """Names of relevant CSV columns."""
 
     chembl_id: str
     uniprot_out: str
 
 
-@dataclass
-class IdMappingConfig:
+class IdMappingConfig(BaseModel):
     """Endpoints and database names for UniProt ID mapping."""
 
     endpoint: str
@@ -63,30 +60,26 @@ class IdMappingConfig:
     to_db: str | None = None
 
 
-@dataclass
-class PollingConfig:
+class PollingConfig(BaseModel):
     """Polling behaviour for asynchronous jobs."""
 
-    interval_sec: float
+    interval_sec: float = Field(ge=0)
 
 
-@dataclass
-class RateLimitConfig:
+class RateLimitConfig(BaseModel):
     """Rate limiting settings."""
 
-    rps: float
+    rps: float = Field(gt=0)
 
 
-@dataclass
-class RetryConfig:
+class RetryConfig(BaseModel):
     """Retry configuration for HTTP requests."""
 
-    max_attempts: int
-    backoff_sec: float
+    max_attempts: int = Field(gt=0)
+    backoff_sec: float = Field(ge=0)
 
 
-@dataclass
-class UniprotConfig:
+class UniprotConfig(BaseModel):
     """Configuration related to UniProt service access."""
 
     base_url: str
@@ -96,29 +89,26 @@ class UniprotConfig:
     retry: RetryConfig
 
 
-@dataclass
-class NetworkConfig:
+class NetworkConfig(BaseModel):
     """Network level configuration."""
 
-    timeout_sec: float
+    timeout_sec: float = Field(gt=0)
 
 
-@dataclass
-class BatchConfig:
+class BatchConfig(BaseModel):
     """Batch processing settings."""
 
-    size: int
+    size: int = Field(gt=0)
 
 
-@dataclass
-class LoggingConfig:
-    """Logging level configuration."""
+class LoggingConfig(BaseModel):
+    """Logging configuration."""
 
     level: str
+    format: Literal["human", "json"] = "human"
 
 
-@dataclass
-class Config:
+class Config(BaseModel):
     """Validated application configuration."""
 
     io: IOConfig
@@ -150,6 +140,7 @@ def _normalise_column_aliases(
     if drop_legacy:
         columns.pop("target_chembl_id", None)
     return columns
+
 
 
 def _build_config(data: Dict[str, Any]) -> Config:
@@ -187,6 +178,7 @@ def _build_config(data: Dict[str, Any]) -> Config:
     )
 
 
+
 def _read_yaml(path: Path) -> Dict[str, Any]:
     with path.open("r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
@@ -197,6 +189,21 @@ def _read_json(path: Path) -> Dict[str, Any]:
     with path.open("r", encoding="utf-8") as fh:
         data = json.load(fh)
     return cast(Dict[str, Any], data)
+
+
+def _apply_env_overrides(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Update ``data`` with ``CHEMBL_`` environment variable overrides."""
+
+    prefix = "CHEMBL_"
+    for key, value in os.environ.items():
+        if not key.startswith(prefix):
+            continue
+        path = key[len(prefix) :].lower().split("__")
+        ref = data
+        for part in path[:-1]:
+            ref = ref.setdefault(part, {})
+        ref[path[-1]] = value
+    return data
 
 
 def load_and_validate_config(
@@ -216,12 +223,12 @@ def load_and_validate_config(
     Returns
     -------
     Config
-        Dataclass encapsulating the validated configuration dictionary.
+        Parsed and validated configuration object.
 
     Raises
     ------
     ValueError
-        If the configuration does not match the schema.
+        If the configuration does not match the schema or fails type checks.
     FileNotFoundError
         If either the configuration file or the schema file cannot be found.
     """
@@ -236,16 +243,18 @@ def load_and_validate_config(
     config_dict["columns"] = columns_dict
 
     schema_dict = _read_json(schema_path)
-
     validator = Draft202012Validator(schema_dict)
     errors = sorted(validator.iter_errors(config_dict), key=lambda e: e.path)
     if errors:
         messages = []
         for err in errors:
-            # Build a dotted path to the offending element for clarity.
             path = ".".join(str(p) for p in err.absolute_path)
             messages.append(f"{path or '<root>'}: {err.message}")
         raise ValueError("Configuration validation error(s): " + "; ".join(messages))
 
+    _apply_env_overrides(config_dict)
     LOGGER.debug("Loaded configuration from %s", config_path)
-    return _build_config(config_dict)
+    try:
+        return Config(**config_dict)
+    except ValidationError as exc:  # pragma: no cover - exercised in tests
+        raise ValueError(str(exc)) from exc

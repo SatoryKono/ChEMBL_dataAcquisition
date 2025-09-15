@@ -24,7 +24,10 @@ separator::
 from __future__ import annotations
 
 import argparse
-import logging
+
+
+from library.uniprot_enrich import enrich_uniprot
+from library.chembl2uniprot.logging_utils import configure_logging
 
 import shutil
 import sys
@@ -40,6 +43,7 @@ if str(LIB_DIR) not in sys.path:
 from uniprot_enrich import (  # noqa: E402
     enrich_uniprot,
 )  # type: ignore[reportMissingImports]
+
 
 
 DEFAULT_LOG_LEVEL = "INFO"
@@ -73,21 +77,16 @@ def main(argv: list[str] | None = None) -> None:
         default=DEFAULT_ENCODING,
         help="File encoding for CSV input and output",
     )
-    args = parser.parse_args(argv)
+    parser.add_argument(
+        "--log-format",
+        default="human",
+        choices=["human", "json"],
+        help="Logging output format",
+    )
+    args = parser.parse_args()
+    configure_logging(args.log_level, json_logs=args.log_format == "json")
+    enrich_uniprot(args.input, list_sep=args.sep)
 
-    logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
-
-    input_path = Path(args.input)
-    if args.output:
-        output_path = Path(args.output)
-        # ``enrich_uniprot`` modifies files in-place; copy the input if the user
-        # requested a separate output file.
-        shutil.copy(input_path, output_path)
-        enrich_uniprot(str(output_path), list_sep=args.sep)
-        print(output_path)
-    else:
-        enrich_uniprot(str(input_path), list_sep=args.sep)
-        print(input_path)
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point
