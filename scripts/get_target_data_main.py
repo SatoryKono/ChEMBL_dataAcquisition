@@ -22,6 +22,14 @@ DEFAULT_ENCODING = "utf-8-sig"
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    """Parse command-line arguments and run the target data download.
+
+    Parameters
+    ----------
+    argv:
+        Optional list of command line arguments. If not provided, `sys.argv`
+        will be used.
+    """
     parser = argparse.ArgumentParser(description="Download ChEMBL target data")
     parser.add_argument("--input", required=True, help="Input CSV file")
     parser.add_argument("--output", required=True, help="Output CSV file")

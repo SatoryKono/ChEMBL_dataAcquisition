@@ -32,11 +32,13 @@ LOGGER = logging.getLogger("dump_gtop_target")
 
 
 def _load_config(path: Path) -> dict:
+    """Load a YAML configuration file."""
     with path.open("r", encoding="utf-8") as fh:
         return yaml.safe_load(fh)
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, help="Path to input CSV file")
     parser.add_argument(
@@ -74,6 +76,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def read_ids(path: Path, column: str) -> List[str]:
+    """Read and normalize a list of identifiers from a CSV file."""
     df = pd.read_csv(path)
     if column not in df.columns:
         raise ValueError(f"Column {column} not found in input")
@@ -89,6 +92,7 @@ def read_ids(path: Path, column: str) -> List[str]:
 
 
 def main() -> None:
+    """Main entry point for the script."""
     args = parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level.upper()))
     cfg_dict = _load_config(Path(args.config))

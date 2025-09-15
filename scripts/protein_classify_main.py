@@ -30,6 +30,7 @@ DEFAULT_COLUMN = "uniprot_json"
 
 
 def _default_output(path: str) -> str:
+    """Generate a default output file path based on the input path."""
     stem = Path(path).stem
     date = datetime.utcnow().strftime("%Y%m%d")
     return f"output_{stem}_{date}.csv"

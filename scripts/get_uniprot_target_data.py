@@ -46,7 +46,11 @@ DEFAULT_ENCODING = "utf-8"
 
 
 def _default_output(input_path: Path) -> Path:
-    """Return the default output file path based on ``input_path``."""
+    """Generate a default output file path based on the input path.
+
+    The default path includes the current date to avoid overwriting previous
+    runs.
+    """
 
     date = datetime.now().strftime("%Y%m%d")
     return input_path.with_name(DEFAULT_OUTPUT.format(date=date))

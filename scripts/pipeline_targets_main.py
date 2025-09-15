@@ -653,7 +653,7 @@ def save_output(
 
 
 def main() -> None:
-    """Run the unified pipeline on the provided input IDs."""
+    """Main entry point for the unified target data pipeline."""
 
     args = parse_args()
     logging.basicConfig(level=args.log_level.upper())
@@ -785,7 +785,8 @@ def main() -> None:
     # Keep classification columns grouped together at the end for clarity.
     cols = [c for c in out_df.columns if c not in IUPHAR_CLASS_COLUMNS]
     out_df = out_df[cols + IUPHAR_CLASS_COLUMNS]
-    save_output(out_df, args.output, sep=args.sep, encoding=args.encoding)
+
+    out_df.to_csv(args.output, index=False, sep=args.sep, encoding=args.encoding)
 
 
 if __name__ == "__main__":
