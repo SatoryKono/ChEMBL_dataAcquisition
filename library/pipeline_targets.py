@@ -187,11 +187,9 @@ def run_pipeline(
                     target.get("targetId"), "naturalLigands"
                 )
                 gtop_nat = len(nat or [])
-                params: Dict[str, Any] = {
-                    "affinity": cfg.iuphar.affinity_parameter,
-                }
-                if cfg.iuphar.approved_only is not None:
-                    params["approved"] = str(cfg.iuphar.approved_only).lower()
+                params: Dict[str, Any] = {}
+                if cfg.iuphar.approved_only:
+                    params["approved"] = "true"
                 if cfg.iuphar.primary_target_only:
                     params["primaryTarget"] = "true"
                 inter = gtop_client.fetch_target_endpoint(
