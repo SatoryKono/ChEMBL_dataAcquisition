@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 import sys
 from pathlib import Path
 
@@ -11,6 +12,7 @@ if str(ROOT) not in sys.path:
 
 from library.gtop_client import GtoPClient, GtoPConfig, resolve_target  # noqa: E402
 from library.gtop_normalize import normalise_interactions, normalise_synonyms  # noqa: E402
+
 
 
 def _client() -> GtoPClient:

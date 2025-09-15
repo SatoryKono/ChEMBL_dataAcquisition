@@ -5,12 +5,16 @@ from __future__ import annotations
 import argparse
 import csv
 import logging
+
 import sys
+
+
 from pathlib import Path
 from typing import List, cast
 
 import pandas as pd
 import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -18,6 +22,7 @@ if str(ROOT) not in sys.path:
 
 from library.gtop_client import GtoPClient, GtoPConfig, resolve_target  # noqa: E402
 from library.gtop_normalize import (  # noqa: E402
+
     normalise_interactions,
     normalise_synonyms,
     normalise_targets,

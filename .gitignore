@@ -18,3 +18,4 @@ dist/
 # VS Code etc
 .vscode/
 schemas/.Rhistory
+scripts/.Rhistory

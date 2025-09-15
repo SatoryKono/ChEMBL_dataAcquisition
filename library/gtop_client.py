@@ -20,7 +20,9 @@ from dataclasses import dataclass
 import logging
 from typing import Any, Dict, List, Optional
 
+
 from .http_client import HttpClient
+
 
 LOGGER = logging.getLogger(__name__)
 
