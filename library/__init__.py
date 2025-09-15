@@ -5,4 +5,4 @@ This package exposes helper modules such as ``gtop_client`` and
 web services and data normalisation utilities.
 """
 
-__all__ = ["gtop_client", "gtop_normalize"]
+__all__ = ["gtop_client", "gtop_normalize", "protein_classifier"]
