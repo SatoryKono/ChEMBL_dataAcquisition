@@ -15,6 +15,7 @@ interface.
 - jsonschema >= 4.17
 - tqdm >= 4.66
 - tenacity >= 8.2
+- pydantic >= 2.0
 
 Development and testing additionally require:
 
