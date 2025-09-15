@@ -36,6 +36,36 @@ from orthologs import EnsemblHomologyClient, OmaClient
 from pipeline_targets import PipelineConfig, load_pipeline_config, run_pipeline
 
 
+def merge_chembl_fields(
+    pipeline_df: pd.DataFrame, chembl_df: pd.DataFrame
+) -> pd.DataFrame:
+    """Merge ChEMBL-specific columns into the pipeline output.
+
+    Parameters
+    ----------
+    pipeline_df:
+        Data frame produced by :func:`run_pipeline`.
+    chembl_df:
+        Data frame containing raw ChEMBL target information.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Combined data frame with additional ChEMBL columns appended. Existing
+        columns in ``pipeline_df`` are preserved; overlapping columns from
+        ``chembl_df`` are ignored to avoid duplication.
+    """
+
+    extra_cols = [c for c in chembl_df.columns if c not in pipeline_df.columns]
+    if extra_cols:
+        pipeline_df = pipeline_df.merge(
+            chembl_df[["target_chembl_id", *extra_cols]],
+            on="target_chembl_id",
+            how="left",
+        )
+    return pipeline_df
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the pipeline."""
 
@@ -143,13 +173,33 @@ def main() -> None:
     pipeline_cfg.iuphar.primary_target_only = args.primary_target_only.lower() == "true"
     pipeline_cfg.include_isoforms = args.with_isoforms
 
-    # Load optional ChEMBL column configuration
+    # Load optional ChEMBL column configuration and ensure required fields
     with open(args.config, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
-    chembl_cols = data.get("chembl", {}).get("columns")
-    chembl_cfg: TargetConfig = TargetConfig(list_format=pipeline_cfg.list_format)
-    if chembl_cols:
-        chembl_cfg.columns = list(chembl_cols)
+    chembl_cols = list(data.get("chembl", {}).get("columns", []))
+    required_cols = [
+        "target_chembl_id",
+        "pref_name",
+        "protein_name_canonical",
+        "target_type",
+        "organism",
+        "tax_id",
+        "species_group_flag",
+        "target_components",
+        "protein_classifications",
+        "cross_references",
+        "gene_symbol_list",
+        "protein_synonym_list",
+        "hgnc_name",
+        "hgnc_id",
+    ]
+    columns = chembl_cols or []
+    for col in required_cols:
+        if col not in columns:
+            columns.append(col)
+    chembl_cfg: TargetConfig = TargetConfig(
+        list_format=pipeline_cfg.list_format, columns=columns
+    )
 
     (
         uni_client,
@@ -167,10 +217,18 @@ def main() -> None:
     ids_series = ids_series[ids_series != ""]
     ids: List[str] = list(dict.fromkeys(ids_series))
 
+    # Fetch comprehensive ChEMBL data once and reuse it in the pipeline
+    chembl_df = fetch_targets(ids, chembl_cfg)
+
+    def _cached_chembl_fetch(
+        _: List[str], __: TargetConfig
+    ) -> pd.DataFrame:  # pragma: no cover - simple wrapper
+        return chembl_df
+
     out_df = run_pipeline(
         ids,
         pipeline_cfg,
-        chembl_fetcher=fetch_targets,
+        chembl_fetcher=_cached_chembl_fetch,
         chembl_config=chembl_cfg,
         uniprot_client=uni_client,
         hgnc_client=hgnc_client,
@@ -179,6 +237,7 @@ def main() -> None:
         oma_client=oma_client,
         target_species=target_species,
     )
+    out_df = merge_chembl_fields(out_df, chembl_df)
     out_df.to_csv(args.output, index=False, sep=args.sep, encoding=args.encoding)
 
 
