@@ -18,23 +18,26 @@ from tqdm.auto import tqdm
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LIB_DIR = ROOT / "library"
-if str(LIB_DIR) not in sys.path:
-    sys.path.insert(0, str(LIB_DIR))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
-from chembl_targets import TargetConfig, fetch_targets
-from gtop_client import GtoPClient, GtoPConfig
-from hgnc_client import HGNCClient, load_config as load_hgnc_config
-from uniprot_client import (
+from library.chembl_targets import TargetConfig, fetch_targets
+from library.gtop_client import GtoPClient, GtoPConfig
+from library.hgnc_client import HGNCClient, load_config as load_hgnc_config
+from library.uniprot_client import (
     NetworkConfig as UniNetworkConfig,
     RateLimitConfig as UniRateConfig,
     UniProtClient,
 )
-from orthologs import EnsemblHomologyClient, OmaClient
+from library.orthologs import EnsemblHomologyClient, OmaClient
 
 
-from pipeline_targets import PipelineConfig, load_pipeline_config, run_pipeline
+from library.pipeline_targets import (
+    PipelineConfig,
+    load_pipeline_config,
+    run_pipeline,
+)
 
 
 def merge_chembl_fields(

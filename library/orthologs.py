@@ -23,8 +23,15 @@ import logging
 from typing import Any, Dict, Iterable, List, Optional
 
 import requests  # type: ignore[import-untyped]
+from typing import TYPE_CHECKING
 
-from uniprot_client import NetworkConfig, RateLimitConfig
+if TYPE_CHECKING:  # pragma: no cover - for static type checking only
+    from .uniprot_client import NetworkConfig, RateLimitConfig
+else:  # pragma: no cover - allow package or top-level imports
+    try:
+        from .uniprot_client import NetworkConfig, RateLimitConfig
+    except ImportError:  # pragma: no cover
+        from uniprot_client import NetworkConfig, RateLimitConfig
 
 LOGGER = logging.getLogger(__name__)
 
