@@ -266,12 +266,13 @@ def run_pipeline(
 
         hgnc_id = ""
         gene_symbol = primary.get("gene_primary", "") if primary else ""
+        hgnc_rec: HGNCRecord | None = None
         if (
             primary
             and hgnc_client
             and primary.get("organism_name") in cfg.species_priority
         ):
-            hgnc_rec: HGNCRecord = hgnc_client.fetch(primary_id)
+            hgnc_rec = hgnc_client.fetch(primary_id)
             if hgnc_rec:
                 hgnc_id = hgnc_rec.hgnc_id
                 if hgnc_rec.gene_symbol:
