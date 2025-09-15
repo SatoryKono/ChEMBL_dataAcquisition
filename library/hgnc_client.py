@@ -68,11 +68,24 @@ class Config:
     output: OutputConfig
 
 
-def load_config(path: str | Path) -> Config:
-    """Load configuration from ``path``."""
+def load_config(path: str | Path, *, section: str | None = None) -> Config:
+    """Load configuration from ``path``.
+
+    Parameters
+    ----------
+    path:
+        Location of the YAML configuration file.
+    section:
+        Optional top-level key selecting a subsection of the configuration.
+    """
 
     with Path(path).open("r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
+    if section:
+        try:
+            data = data[section]
+        except KeyError as exc:  # pragma: no cover - defensive
+            raise KeyError(f"Section '{section}' not found in {path}") from exc
     return Config(
         hgnc=HGNCServiceConfig(**data["hgnc"]),
         network=NetworkConfig(**data["network"]),
@@ -215,6 +228,7 @@ def map_uniprot_to_hgnc(
     output_csv_path: Path | None,
     config_path: Path,
     *,
+    config_section: str | None = None,
     column: str = "uniprot_id",
     sep: str | None = None,
     encoding: str | None = None,
@@ -231,6 +245,9 @@ def map_uniprot_to_hgnc(
         input name is used.
     config_path:
         Path to the YAML configuration file.
+    config_section:
+        Optional top-level key selecting the configuration block within
+        ``config_path``.
     column:
         Name of the column in ``input_csv_path`` holding UniProt accessions.
     sep, encoding:
@@ -245,7 +262,7 @@ def map_uniprot_to_hgnc(
         Path to the written CSV file.
     """
 
-    cfg = load_config(config_path)
+    cfg = load_config(config_path, section=config_section)
     logging.basicConfig(level=getattr(logging, log_level.upper(), logging.INFO))
     sep = sep or cfg.output.sep
     encoding = encoding or cfg.output.encoding

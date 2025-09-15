@@ -2,17 +2,17 @@
 
 Example
 -------
-Run the mapper on ``input.csv`` using the built-in default configuration and
+Run the mapper on ``input.csv`` using the project's bundled configuration and
 write the result to ``output.csv``::
 
     python scripts/chembl2uniprot_main.py --input input.csv --output output.csv
 
-To use a custom configuration file ``config.yaml``::
+To use a standalone configuration file ``my_config.yaml``::
 
     python scripts/chembl2uniprot_main.py \
         --input input.csv \
         --output output.csv \
-        --config config.yaml \
+        --config my_config.yaml \
         --log-level INFO \
         --sep , \
         --encoding utf-8
@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--config",
         required=False,
-        help="Path to YAML configuration file; defaults to a built-in config",
+        help="Path to YAML configuration file; defaults to the project config",
     )
     parser.add_argument(
         "--log-level",
@@ -72,20 +72,24 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
 
+    schema = ROOT / "schemas" / "config.schema.json"
     if args.config:
         config_path = Path(args.config)
+        schema_path = config_path.with_name("config.schema.json")
         output = map_chembl_to_uniprot(
             input_csv_path=Path(args.input),
             output_csv_path=Path(args.output) if args.output else None,
             config_path=config_path,
+            schema_path=schema_path,
         )
     else:
-        # Fall back to the project's default configuration file.
-        cfg_path = ROOT / "schemas" / "default_config.yaml"
+        cfg_path = ROOT / "config.yaml"
         output = map_chembl_to_uniprot(
             input_csv_path=Path(args.input),
             output_csv_path=Path(args.output) if args.output else None,
             config_path=cfg_path,
+            schema_path=schema,
+            config_section="chembl2uniprot",
         )
 
     print(output)

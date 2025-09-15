@@ -3,9 +3,18 @@ from __future__ import annotations
 import requests_mock
 
 
-from library.gtop_client import GtoPClient, GtoPConfig, resolve_target
-from library.gtop_normalize import normalise_interactions, normalise_synonyms
+import sys
+from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from library.gtop_client import GtoPClient, GtoPConfig, resolve_target  # noqa: E402
+from library.gtop_normalize import (  # noqa: E402
+    normalise_interactions,
+    normalise_synonyms,
+)
 
 
 def _client() -> GtoPClient:
@@ -55,6 +64,7 @@ def test_interactions_filter_params(requests_mock: requests_mock.Mocker) -> None
     )
     df = normalise_interactions(1, data)
     assert list(df["ligandId"]) == [10]
+    assert requests_mock.last_request is not None
     assert requests_mock.last_request.qs == {
         "affinitytype": ["pki"],
         "affinity": ["7"],
