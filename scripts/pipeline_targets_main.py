@@ -10,7 +10,7 @@ import logging
 import sys
 from pathlib import Path
 
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, Iterable, List
 
 import pandas as pd
 import yaml  # type: ignore[import]
@@ -31,10 +31,12 @@ from library.uniprot_client import (
     UniProtClient,
 )
 from library.orthologs import EnsemblHomologyClient, OmaClient
+from library.uniprot_enrich.enrich import (
+    UniProtClient as UniProtEnrichClient,
+)
 
 
 from library.protein_classifier import classify_protein
-
 
 
 from library.pipeline_targets import (
@@ -228,6 +230,74 @@ def add_protein_classification(
     return pd.concat([pipeline_df, class_df], axis=1)
 
 
+def add_uniprot_fields(
+    pipeline_df: pd.DataFrame,
+    fetch_all: Callable[[Iterable[str]], Dict[str, Dict[str, str]]],
+) -> pd.DataFrame:
+    """Append supplementary UniProt annotations to ``pipeline_df``.
+
+    Parameters
+    ----------
+    pipeline_df:
+        Data frame produced by :func:`run_pipeline` and containing a
+        ``uniprot_id_primary`` column.
+    fetch_all:
+        Callable returning a mapping from UniProt accession to a dictionary of
+        annotation fields. Typically this is
+        :meth:`library.uniprot_enrich.enrich.UniProtClient.fetch_all`.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``pipeline_df`` with additional UniProt fields appended. Existing
+        columns are left untouched.
+    """
+
+    # Mapping of output column names to keys in the annotation dictionary.
+    col_map = {
+        "uniProtkbId": "uniprotkb_Id",
+        "secondaryAccessions": "secondary_uniprot_id",
+        "recommendedName": "recommended_name",
+        "geneName": "gene_name",
+        "secondaryAccessionNames": "secondary_accession_names",
+        "molecular_function": "molecular_function",
+        "cellular_component": "cellular_component",
+        "subcellular_location": "subcellular_location",
+        "topology": "topology",
+        "transmembrane": "transmembrane",
+        "intramembrane": "intramembrane",
+        "glycosylation": "glycosylation",
+        "lipidation": "lipidation",
+        "disulfide_bond": "disulfide_bond",
+        "modified_residue": "modified_residue",
+        "phosphorylation": "phosphorylation",
+        "acetylation": "acetylation",
+        "ubiquitination": "ubiquitination",
+        "signal_peptide": "signal_peptide",
+        "propeptide": "propeptide",
+        "reactions": "reactions",
+        "reaction_ec_numbers": "reaction_ec_numbers",
+        "GuidetoPHARMACOLOGY": "GuidetoPHARMACOLOGY",
+        "family": "family",
+        "SUPFAM": "SUPFAM",
+        "PROSITE": "PROSITE",
+        "InterPro": "InterPro",
+        "Pfam": "Pfam",
+        "PRINTS": "PRINTS",
+        "TCDB": "TCDB",
+    }
+
+    ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str)).astype(str)
+    mapping = fetch_all([i for i in ids if i])
+
+    for out_col, src_col in col_map.items():
+        if out_col in pipeline_df.columns:
+            # Respect existing columns to avoid overwriting prior values.
+            continue
+        pipeline_df[out_col] = [mapping.get(i, {}).get(src_col, "") for i in ids]
+    return pipeline_df
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the pipeline."""
 
@@ -415,6 +485,8 @@ def main() -> None:
             target_species=target_species,
             progress_callback=pbar.update,
         )
+    enrich_client = UniProtEnrichClient()
+    out_df = add_uniprot_fields(out_df, enrich_client.fetch_all)
     out_df = merge_chembl_fields(out_df, chembl_df)
 
     # Append optional IUPHAR classification data when both CSV files are provided.
@@ -434,7 +506,7 @@ def main() -> None:
             encoding=args.encoding,
         )
     out_df = add_protein_classification(out_df, uni_client.fetch_entry_json)
-        # Keep classification columns grouped together at the end for clarity.
+    # Keep classification columns grouped together at the end for clarity.
     cols = [c for c in out_df.columns if c not in IUPHAR_CLASS_COLUMNS]
     out_df = out_df[cols + IUPHAR_CLASS_COLUMNS]
 

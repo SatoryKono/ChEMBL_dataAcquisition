@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Dict, Iterable
 
 import json
 import sys
@@ -9,6 +10,7 @@ sys.path.insert(0, str(Path("scripts")))
 from pipeline_targets_main import (
     add_iuphar_classification,
     add_protein_classification,
+    add_uniprot_fields,
     merge_chembl_fields,
 )
 
@@ -67,3 +69,28 @@ def test_add_protein_classification():
     row = out.iloc[0]
     assert row["protein_class_pred_L1"] == "Receptor: GPCR"
     assert row["protein_class_pred_confidence"] == "high"
+
+
+def test_add_uniprot_fields() -> None:
+    df = pd.DataFrame({"uniprot_id_primary": ["P12345"]})
+
+    def fetch_all(_: Iterable[str]) -> Dict[str, Dict[str, str]]:
+        return {
+            "P12345": {
+                "uniprotkb_Id": "P12345",
+                "secondary_uniprot_id": "Q00001",
+                "recommended_name": "Protein X",
+                "gene_name": "GENE1",
+                "secondary_accession_names": "Name1|Name2",
+                "molecular_function": "binding",
+            }
+        }
+
+    out = add_uniprot_fields(df, fetch_all)
+    row = out.iloc[0]
+    assert row["uniProtkbId"] == "P12345"
+    assert row["secondaryAccessions"] == "Q00001"
+    assert row["recommendedName"] == "Protein X"
+    assert row["geneName"] == "GENE1"
+    assert row["secondaryAccessionNames"] == "Name1|Name2"
+    assert row["molecular_function"] == "binding"
