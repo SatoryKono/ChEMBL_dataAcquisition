@@ -1,0 +1,10 @@
+hgnc:
+  base_url: "https://rest.genenames.org/fetch/uniprot_ids"
+network:
+  timeout_sec: 30
+  max_retries: 3
+rate_limit:
+  rps: 3
+output:
+  sep: ","
+  encoding: "utf-8"
