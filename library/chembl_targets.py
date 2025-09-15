@@ -5,6 +5,13 @@ information for a list of ChEMBL identifiers and returns a :class:`pandas.DataFr
 ready for serialisation.  The implementation favours determinism: list-like
 fields are sorted and serialised either as JSON arrays or pipe-delimited strings
 depending on the configuration.
+
+Algorithm Notes
+---------------
+1. Clean and deduplicate the provided identifiers.
+2. Retrieve each target record via HTTP with retry and rate limiting.
+3. Extract relevant attributes and serialise list-like fields according to
+   the configuration.
 """
 
 from __future__ import annotations
@@ -180,6 +187,63 @@ def _extract_protein_synonyms(payload: Dict[str, Any]) -> List[str]:
     return sorted(n for n in names if n)
 
 
+def _extract_ec_numbers(payload: Dict[str, Any]) -> List[str]:
+    """Collect EC numbers from component synonyms."""
+
+    codes: set[str] = set()
+    for comp in payload.get("target_components", []) or []:
+        for syn in comp.get("target_component_synonyms", []) or []:
+            if (syn.get("syn_type") or "").upper() == "EC_NUMBER":
+                codes.add(syn.get("component_synonym", ""))
+    return sorted(c for c in codes if c)
+
+
+def _extract_alt_names(payload: Dict[str, Any]) -> List[str]:
+    """Collect UniProt alternative names from component synonyms."""
+
+    names: set[str] = set()
+    for comp in payload.get("target_components", []) or []:
+        for syn in comp.get("target_component_synonyms", []) or []:
+            if (syn.get("syn_type") or "").upper() == "UNIPROT":
+                names.add(syn.get("component_synonym", ""))
+    return sorted(n for n in names if n)
+
+
+def _extract_uniprot_ids(payload: Dict[str, Any]) -> List[str]:
+    """Extract UniProt identifiers from cross references."""
+
+    ids: set[str] = set()
+    for ref in payload.get("cross_references", []) or []:
+        db = (ref.get("xref_db") or "").upper()
+        if "UNIPROT" in db:
+            ids.add(ref.get("xref_id", ""))
+    for comp in payload.get("target_components", []) or []:
+        for ref in comp.get("target_component_xrefs", []) or []:
+            db = (ref.get("xref_src_db") or "").upper()
+            if "UNIPROT" in db:
+                ids.add(ref.get("xref_id", ""))
+    return sorted(i for i in ids if i)
+
+
+def _extract_hgnc(payload: Dict[str, Any]) -> tuple[str, str]:
+    """Return HGNC name and identifier from cross references."""
+
+    for ref in payload.get("cross_references", []) or []:
+        if (ref.get("xref_db") or "").upper() == "HGNC":
+            name = ref.get("xref_name") or ""
+            ident = ref.get("xref_id") or ""
+            hgnc_id = ident.split(":")[-1] if ident else ""
+            return name, hgnc_id
+    for comp in payload.get("target_components", []) or []:
+        for ref in comp.get("target_component_xrefs", []) or []:
+            if (ref.get("xref_src_db") or "").upper() == "HGNC":
+                name = ref.get("xref_name") or ""
+                ident = ref.get("xref_id") or ""
+                hgnc_id = ident.split(":")[-1] if ident else ""
+                return name, hgnc_id
+    return "", ""
+
+
 def _extract_protein_classifications(payload: Dict[str, Any]) -> List[str]:
     classifications: List[str] = []
     pc = payload.get("protein_classification")
@@ -226,6 +290,12 @@ def fetch_targets(ids: Sequence[str], cfg: TargetConfig) -> pd.DataFrame:
         except Exception as exc:  # noqa: BLE001 - we log and continue
             LOGGER.warning("Failed to fetch %s: %s", chembl_id, exc)
             payload = {}
+        genes = _extract_gene_symbols(payload)
+        prot_names = _extract_protein_synonyms(payload)
+        ec_numbers = _extract_ec_numbers(payload)
+        alt_names = _extract_alt_names(payload)
+        uniprot_ids = _extract_uniprot_ids(payload)
+        hgnc_name, hgnc_id = _extract_hgnc(payload)
         record = {
             "target_chembl_id": chembl_id,
             "pref_name": payload.get("pref_name"),
@@ -243,12 +313,15 @@ def fetch_targets(ids: Sequence[str], cfg: TargetConfig) -> pd.DataFrame:
             "cross_references": _serialize(
                 _extract_cross_refs(payload), list_format=cfg.list_format
             ),
-            "gene_symbol_list": _serialize(
-                _extract_gene_symbols(payload), list_format=cfg.list_format
+            "gene_symbol_list": _serialize(genes, list_format=cfg.list_format),
+            "protein_synonym_list": _serialize(prot_names, list_format=cfg.list_format),
+            "ec_number_list": _serialize(ec_numbers, list_format=cfg.list_format),
+            "chembl_alternative_name_list": _serialize(
+                alt_names, list_format=cfg.list_format
             ),
-            "protein_synonym_list": _serialize(
-                _extract_protein_synonyms(payload), list_format=cfg.list_format
-            ),
+            "uniprot_id_list": _serialize(uniprot_ids, list_format=cfg.list_format),
+            "hgnc_name": hgnc_name,
+            "hgnc_id": hgnc_id,
         }
         records.append(record)
     df = pd.DataFrame(records, columns=cfg.columns)
