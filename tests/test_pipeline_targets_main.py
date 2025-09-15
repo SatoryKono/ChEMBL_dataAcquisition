@@ -11,11 +11,12 @@ sys.path.insert(0, str(Path("scripts")))
 from pipeline_targets_main import (
     add_iuphar_classification,
     add_protein_classification,
+    add_activity_fields,
     add_isoform_fields,
     add_uniprot_fields,
+    extract_activity,
     extract_isoform,
     merge_chembl_fields,
-    save_output,
 )
 
 
@@ -98,6 +99,52 @@ def test_add_uniprot_fields() -> None:
     assert row["geneName"] == "GENE1"
     assert row["secondaryAccessionNames"] == "Name1|Name2"
     assert row["molecular_function"] == "binding"
+
+
+def test_extract_activity() -> None:
+    entry = {
+        "comments": [
+            {
+                "commentType": "CATALYTIC ACTIVITY",
+                "reaction": {
+                    "name": {"value": "A + B = C"},
+                    "ecNumber": [{"value": "1.1.1.1"}],
+                },
+            },
+            {
+                "commentType": "CATALYTIC ACTIVITY",
+                "reaction": {
+                    "name": {"value": "D = E"},
+                    "ecNumbers": [{"value": "2.2.2.2"}, {"value": "3.3.3.3"}],
+                },
+            },
+        ]
+    }
+    result = extract_activity(entry)
+    assert result["reactions"] == "A + B = C|D = E"
+    assert result["reaction_ec_numbers"] == "1.1.1.1|2.2.2.2|3.3.3.3"
+
+
+def test_add_activity_fields() -> None:
+    df = pd.DataFrame({"uniprot_id_primary": ["P00001"]})
+
+    def fetch_entry(_: str) -> dict:
+        return {
+            "comments": [
+                {
+                    "commentType": "CATALYTIC ACTIVITY",
+                    "reaction": {
+                        "name": {"value": "X = Y"},
+                        "ecNumber": [{"value": "4.4.4.4"}],
+                    },
+                }
+            ]
+        }
+
+    out = add_activity_fields(df, fetch_entry)
+    row = out.iloc[0]
+    assert row["reactions"] == "X = Y"
+    assert row["reaction_ec_numbers"] == "4.4.4.4"
 
 
 def test_extract_isoform() -> None:

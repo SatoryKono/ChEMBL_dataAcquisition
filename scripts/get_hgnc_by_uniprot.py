@@ -20,7 +20,14 @@ DEFAULT_COLUMN = "uniprot_id"
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Entry point for the HGNC mapping CLI."""
+    """Parse command-line arguments and run the HGNC mapping process.
+
+    Parameters
+    ----------
+    argv:
+        Optional list of command line arguments. If not provided, `sys.argv`
+        will be used.
+    """
 
     parser = argparse.ArgumentParser(description="Map UniProt accessions to HGNC IDs")
     parser.add_argument("--input", default="input.csv", help="Path to input CSV file")

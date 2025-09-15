@@ -14,6 +14,7 @@ from typing import Any, List, cast
 
 import pandas as pd
 import yaml
+from library.data_profiling import analyze_table_quality
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +37,7 @@ def _load_config(path: Path) -> dict[str, Any]:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, help="Path to input CSV file")
     parser.add_argument(
@@ -73,6 +75,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def read_ids(path: Path, column: str) -> List[str]:
+    """Read and normalize a list of identifiers from a CSV file."""
     df = pd.read_csv(path)
     if column not in df.columns:
         raise ValueError(f"Column {column} not found in input")
@@ -88,6 +91,7 @@ def read_ids(path: Path, column: str) -> List[str]:
 
 
 def main() -> None:
+    """Main entry point for the script."""
     args = parse_args()
     logging.basicConfig(level=getattr(logging, args.log_level.upper()))
     cfg_dict = _load_config(Path(args.config))
@@ -137,6 +141,9 @@ def main() -> None:
         sep=cfg_dict.get("output", {}).get("sep", ","),
         quoting=csv.QUOTE_MINIMAL,
     )
+    analyze_table_quality(
+        targets_df, table_name=str((out_dir / "targets").with_suffix(""))
+    )
     syn_df = (
         pd.concat(syn_rows, ignore_index=True)
         if syn_rows
@@ -148,6 +155,9 @@ def main() -> None:
         encoding=cfg_dict.get("output", {}).get("encoding", "utf-8-sig"),
         sep=cfg_dict.get("output", {}).get("sep", ","),
         quoting=csv.QUOTE_MINIMAL,
+    )
+    analyze_table_quality(
+        syn_df, table_name=str((out_dir / "targets_synonyms").with_suffix(""))
     )
     int_df = (
         pd.concat(int_rows, ignore_index=True)
@@ -173,6 +183,9 @@ def main() -> None:
         encoding=cfg_dict.get("output", {}).get("encoding", "utf-8-sig"),
         sep=cfg_dict.get("output", {}).get("sep", ","),
         quoting=csv.QUOTE_MINIMAL,
+    )
+    analyze_table_quality(
+        int_df, table_name=str((out_dir / "targets_interactions").with_suffix(""))
     )
 
 

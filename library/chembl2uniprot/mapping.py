@@ -37,6 +37,11 @@ from tenacity import (
 from .config import Config, RetryConfig, UniprotConfig, load_and_validate_config
 from .logging_utils import configure_logging
 
+try:
+    from data_profiling import analyze_table_quality
+except ModuleNotFoundError:  # pragma: no cover
+    from ..data_profiling import analyze_table_quality
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -45,7 +50,21 @@ LOGGER = logging.getLogger(__name__)
 
 
 def _chunked(seq: Sequence[str], size: int) -> Iterable[List[str]]:
-    """Yield ``seq`` in chunks of ``size``."""
+    """Yield ``seq`` in chunks of ``size``.
+
+    Parameters
+    ----------
+    seq:
+        The sequence to chunk.
+    size:
+        The size of each chunk.
+
+    Returns
+    -------
+    Iterable[List[str]]
+        An iterable of lists, where each list is a chunk of the original
+        sequence.
+    """
 
     for i in range(0, len(seq), size):
         yield list(seq[i : i + size])
@@ -96,7 +115,34 @@ def _request_with_retry(
     backoff: float,
     **kwargs: Any,
 ) -> requests.Response:
-    """Perform an HTTP request with retry and rate limiting."""
+    """Perform an HTTP request with retry and rate limiting.
+
+    This function wraps `requests.request` with `tenacity` for automatic
+    retries on failures and a custom `RateLimiter` to avoid overwhelming
+    the server.
+
+    Parameters
+    ----------
+    method:
+        The HTTP method to use (e.g., "GET", "POST").
+    url:
+        The URL to request.
+    timeout:
+        The request timeout in seconds.
+    rate_limiter:
+        An instance of `RateLimiter` to control the request rate.
+    max_attempts:
+        The maximum number of retry attempts.
+    backoff:
+        The backoff factor for exponential backoff between retries.
+    **kwargs:
+        Additional keyword arguments to pass to `requests.request`.
+
+    Returns
+    -------
+    requests.Response
+        The HTTP response object.
+    """
 
     @retry(
         reraise=True,
@@ -129,6 +175,26 @@ def _start_job(
     timeout: float,
     retry_cfg: RetryConfig,
 ) -> Dict[str, Any]:
+    """Start a new UniProt ID mapping job.
+
+    Parameters
+    ----------
+    ids:
+        A list of ChEMBL IDs to map.
+    cfg:
+        The UniProt configuration.
+    rate_limiter:
+        A `RateLimiter` instance.
+    timeout:
+        The request timeout in seconds.
+    retry_cfg:
+        The retry configuration.
+
+    Returns
+    -------
+    Dict[str, Any]
+        The JSON response from the UniProt API, which contains the job ID.
+    """
     url = cfg.base_url.rstrip("/") + cfg.id_mapping.endpoint
     payload = {
         "from": cfg.id_mapping.from_db or "ChEMBL",
@@ -158,6 +224,21 @@ def _poll_job(
     timeout: float,
     retry_cfg: RetryConfig,
 ) -> None:
+    """Poll the status of a UniProt ID mapping job until it completes.
+
+    Parameters
+    ----------
+    job_id:
+        The ID of the job to poll.
+    cfg:
+        The UniProt configuration.
+    rate_limiter:
+        A `RateLimiter` instance.
+    timeout:
+        The request timeout in seconds.
+    retry_cfg:
+        The retry configuration.
+    """
     status_url = (
         cfg.base_url.rstrip("/") + (cfg.id_mapping.status_endpoint or "") + "/" + job_id
     )
@@ -194,6 +275,26 @@ def _fetch_results(
     timeout: float,
     retry_cfg: RetryConfig,
 ) -> Dict[str, List[str]]:
+    """Fetch the results of a completed UniProt ID mapping job.
+
+    Parameters
+    ----------
+    job_id:
+        The ID of the completed job.
+    cfg:
+        The UniProt configuration.
+    rate_limiter:
+        A `RateLimiter` instance.
+    timeout:
+        The request timeout in seconds.
+    retry_cfg:
+        The retry configuration.
+
+    Returns
+    -------
+    Dict[str, List[str]]
+        A dictionary mapping the original ChEMBL IDs to lists of UniProt IDs.
+    """
     results_url = (
         cfg.base_url.rstrip("/")
         + (cfg.id_mapping.results_endpoint or "")
@@ -230,6 +331,29 @@ def _map_batch(
     timeout: float,
     retry_cfg: RetryConfig,
 ) -> Dict[str, List[str]]:
+    """Map a batch of ChEMBL IDs to UniProt IDs.
+
+    This function handles both synchronous and asynchronous UniProt API
+    responses.
+
+    Parameters
+    ----------
+    ids:
+        A list of ChEMBL IDs to map.
+    cfg:
+        The UniProt configuration.
+    rate_limiter:
+        A `RateLimiter` instance.
+    timeout:
+        The request timeout in seconds.
+    retry_cfg:
+        The retry configuration.
+
+    Returns
+    -------
+    Dict[str, List[str]]
+        A dictionary mapping ChEMBL IDs to lists of UniProt IDs for the batch.
+    """
     try:
         job_payload = _start_job(ids, cfg, rate_limiter, timeout, retry_cfg)
     except Exception as exc:
@@ -376,6 +500,20 @@ def map_chembl_to_uniprot(
     )
 
     def _join_ids(x: str | float | None) -> str | None:
+        """Join a list of UniProt IDs into a single delimited string.
+
+        This function is designed to be used with `pandas.Series.map`.
+
+        Parameters
+        ----------
+        x:
+            The ChEMBL ID to look up in the mapping.
+
+        Returns
+        -------
+        str | None
+            A delimited string of UniProt IDs, or None if no mapping exists.
+        """
         if x is None or x != x:  # NaN check
             return None
         ids = mapping.get(str(x).strip())
@@ -386,4 +524,5 @@ def map_chembl_to_uniprot(
     df[out_col] = df[chembl_col].map(_join_ids)
 
     df.to_csv(output_csv_path, sep=sep, encoding=encoding_out, index=False)
+    analyze_table_quality(df, table_name=str(Path(output_csv_path).with_suffix("")))
     return output_csv_path

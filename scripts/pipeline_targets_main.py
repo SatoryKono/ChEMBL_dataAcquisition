@@ -33,10 +33,12 @@ from library.uniprot_client import (
 from library.orthologs import EnsemblHomologyClient, OmaClient
 from library.uniprot_enrich.enrich import (
     UniProtClient as UniProtEnrichClient,
+    _collect_ec_numbers,
 )
 
 
 from library.protein_classifier import classify_protein
+from library.data_profiling import analyze_table_quality
 
 
 from library.pipeline_targets import (
@@ -277,8 +279,6 @@ def add_uniprot_fields(
         "ubiquitination": "ubiquitination",
         "signal_peptide": "signal_peptide",
         "propeptide": "propeptide",
-        "reactions": "reactions",
-        "reaction_ec_numbers": "reaction_ec_numbers",
         "GuidetoPHARMACOLOGY": "GuidetoPHARMACOLOGY",
         "family": "family",
         "SUPFAM": "SUPFAM",
@@ -297,6 +297,99 @@ def add_uniprot_fields(
             # Respect existing columns to avoid overwriting prior values.
             continue
         pipeline_df[out_col] = [mapping.get(i, {}).get(src_col, "") for i in ids]
+    return pipeline_df
+
+
+def extract_activity(data: Any) -> dict[str, str]:
+    """Return catalytic reaction names and EC numbers found in ``data``.
+
+    The UniProt record may list one or more "CATALYTIC ACTIVITY" comments,
+    each describing a reaction and an associated EC number. This helper
+    aggregates those reactions and numbers as pipe-separated strings.
+
+    Parameters
+    ----------
+    data:
+        A UniProt JSON structure, list of entries, or search results
+        containing UniProt entries.
+
+    Returns
+    -------
+    dict[str, str]
+        A dictionary with keys ``reactions`` and ``reaction_ec_numbers``.
+        Missing information yields empty strings.
+    """
+
+    reactions: list[str] = []
+    numbers: list[str] = []
+    if isinstance(data, dict) and "results" in data:
+        entries = data["results"]
+    elif isinstance(data, list):
+        entries = data
+    else:
+        entries = [data]
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        comments = entry.get("comments", [])
+        if not isinstance(comments, list):
+            continue
+        for comment in comments:
+            if not isinstance(comment, dict):
+                continue
+            if comment.get("commentType") != "CATALYTIC ACTIVITY":
+                continue
+            reaction = comment.get("reaction")
+            if not isinstance(reaction, dict):
+                continue
+            name = reaction.get("name")
+            if isinstance(name, dict):
+                name = name.get("value")
+            if isinstance(name, str):
+                reactions.append(name)
+            numbers.extend(list(_collect_ec_numbers(reaction)))
+    return {
+        "reactions": "|".join(reactions),
+        "reaction_ec_numbers": "|".join(numbers),
+    }
+
+
+def add_activity_fields(
+    pipeline_df: pd.DataFrame, fetch_entry: Callable[[str], Any]
+) -> pd.DataFrame:
+    """Append catalytic activity and EC numbers parsed from UniProt entries.
+
+    Parameters
+    ----------
+    pipeline_df:
+        Data frame produced by :func:`run_pipeline` containing a
+        ``uniprot_id_primary`` column.
+    fetch_entry:
+        Callable returning a UniProt JSON entry for a given accession.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``pipeline_df`` with ``reactions`` and ``reaction_ec_numbers``
+        columns populated. Existing columns are preserved.
+    """
+
+    ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str)).astype(str)
+    cache: Dict[str, dict[str, str]] = {}
+    for acc in ids:
+        if not acc or acc in cache:
+            continue
+        entry = fetch_entry(acc)
+        cache[acc] = (
+            extract_activity(entry)
+            if entry
+            else {"reactions": "", "reaction_ec_numbers": ""}
+        )
+    pipeline_df = pipeline_df.copy()
+    pipeline_df["reactions"] = [cache.get(i, {}).get("reactions", "") for i in ids]
+    pipeline_df["reaction_ec_numbers"] = [
+        cache.get(i, {}).get("reaction_ec_numbers", "") for i in ids
+    ]
     return pipeline_df
 
 
@@ -555,11 +648,12 @@ def save_output(
     out_path = Path(output).expanduser().resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_path, index=False, sep=sep, encoding=encoding)
+    analyze_table_quality(df, table_name=str(out_path.with_suffix("")))
     return out_path
 
 
 def main() -> None:
-    """Run the unified pipeline on the provided input IDs."""
+    """Main entry point for the unified target data pipeline."""
 
     args = parse_args()
     logging.basicConfig(level=args.log_level.upper())
@@ -657,8 +751,16 @@ def main() -> None:
     enrich_client = UniProtEnrichClient()
     out_df = add_uniprot_fields(out_df, enrich_client.fetch_all)
     out_df = merge_chembl_fields(out_df, chembl_df)
+    entry_cache: Dict[str, Any] = {}
+
+    def cached_fetch(acc: str) -> Any:
+        if acc not in entry_cache:
+            entry_cache[acc] = uni_client.fetch_entry_json(acc)
+        return entry_cache[acc]
+
+    out_df = add_activity_fields(out_df, cached_fetch)
     if use_isoforms:
-        out_df = add_isoform_fields(out_df, uni_client.fetch_entry_json)
+        out_df = add_isoform_fields(out_df, cached_fetch)
 
     # Append optional IUPHAR classification data when both CSV files are provided.
     if args.iuphar_target and args.iuphar_family:
@@ -683,7 +785,8 @@ def main() -> None:
     # Keep classification columns grouped together at the end for clarity.
     cols = [c for c in out_df.columns if c not in IUPHAR_CLASS_COLUMNS]
     out_df = out_df[cols + IUPHAR_CLASS_COLUMNS]
-    save_output(out_df, args.output, sep=args.sep, encoding=args.encoding)
+
+    out_df.to_csv(args.output, index=False, sep=args.sep, encoding=args.encoding)
 
 
 if __name__ == "__main__":

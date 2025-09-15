@@ -10,4 +10,5 @@ __all__ = [
     "gtop_normalize",
     "protein_classifier",
     "iuphar",
+    "data_profiling",
 ]

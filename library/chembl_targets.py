@@ -121,7 +121,23 @@ def normalise_ids(ids: Sequence[str]) -> List[str]:
 
 
 def _serialize(obj: Any, *, list_format: str) -> str:
-    """Serialise ``obj`` deterministically according to ``list_format``."""
+    """Serialise an object deterministically.
+
+    If the object is a list and `list_format` is "pipe", it is joined into a
+    pipe-separated string. Otherwise, it is serialized as a JSON string.
+
+    Parameters
+    ----------
+    obj:
+        The object to serialize.
+    list_format:
+        The format to use for lists ("pipe" or "json").
+
+    Returns
+    -------
+    str
+        The serialized string.
+    """
 
     if isinstance(obj, list) and list_format == "pipe":
         return "|".join(json.dumps(x, ensure_ascii=False, sort_keys=True) for x in obj)
@@ -129,6 +145,18 @@ def _serialize(obj: Any, *, list_format: str) -> str:
 
 
 def _extract_components(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Extract and normalize target components from the ChEMBL API payload.
+
+    Parameters
+    ----------
+    payload:
+        The JSON dictionary returned by the ChEMBL API for a single target.
+
+    Returns
+    -------
+    List[Dict[str, Any]]
+        A sorted list of dictionaries, each representing a target component.
+    """
     comps = []
     for comp in payload.get("target_components", []) or []:
         comps.append(
@@ -144,6 +172,21 @@ def _extract_components(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _extract_cross_refs(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Extract and normalize cross-references from the ChEMBL API payload.
+
+    This function collects cross-references from both the top-level
+    `cross_references` field and from within each `target_component`.
+
+    Parameters
+    ----------
+    payload:
+        The JSON dictionary returned by the ChEMBL API for a single target.
+
+    Returns
+    -------
+    List[Dict[str, Any]]
+        A sorted list of dictionaries, each representing a cross-reference.
+    """
     refs: List[Dict[str, Any]] = []
     for ref in payload.get("cross_references", []) or []:
         refs.append({"xref_db": ref.get("xref_db"), "xref_id": ref.get("xref_id")})
@@ -157,6 +200,21 @@ def _extract_cross_refs(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _extract_gene_symbols(payload: Dict[str, Any]) -> List[str]:
+    """Extract gene symbols from the ChEMBL API payload.
+
+    Gene symbols are extracted from the `target_component_synonyms` where the
+    synonym type is "GENE_SYMBOL".
+
+    Parameters
+    ----------
+    payload:
+        The JSON dictionary returned by the ChEMBL API for a single target.
+
+    Returns
+    -------
+    List[str]
+        A sorted list of unique gene symbols.
+    """
     genes: set[str] = set()
     for comp in payload.get("target_components", []) or []:
         for syn in comp.get("target_component_synonyms", []) or []:
@@ -251,6 +309,22 @@ def _extract_hgnc(payload: Dict[str, Any]) -> tuple[str, str]:
 
 
 def _extract_protein_classifications(payload: Dict[str, Any]) -> List[str]:
+    """Extract the protein classification hierarchy from the ChEMBL API payload.
+
+    This function traverses the nested `protein_classification` structure to
+    build a list representing the classification hierarchy.
+
+    Parameters
+    ----------
+    payload:
+        The JSON dictionary returned by the ChEMBL API for a single target.
+
+    Returns
+    -------
+    List[str]
+        A list of protein classification names, from the most specific to the
+        most general.
+    """
     classifications: List[str] = []
     pc = payload.get("protein_classification")
     while pc:

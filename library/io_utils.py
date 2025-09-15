@@ -25,7 +25,7 @@ def read_ids(path: Path, column: str, cfg: CsvConfig) -> List[str]:
     if column not in df.columns:
         msg = f"Missing required column '{column}'"
         raise KeyError(msg)
-    ids = [str(v).strip().upper() for v in df[column].fillna("")]
+    ids = [str(v).strip().upper() for v in df[column].fillna("")]  # type: ignore[arg-type]
     seen = set()
     unique: List[str] = []
     for v in ids:
@@ -39,7 +39,24 @@ def _escape_pipe(value: str) -> str:
     return value.replace("\\", "\\\\").replace("|", "\\|")
 
 
+
 def _serialise_list(values: Iterable[Any], list_format: str) -> str:
+    """Serialize an iterable of values into a string.
+
+    The serialization format is determined by `list_format`.
+
+    Parameters
+    ----------
+    values:
+        An iterable of values to serialize.
+    list_format:
+        The format to use for serialization ("pipe" or "json").
+
+    Returns
+    -------
+    str
+        The serialized string.
+    """
     def _normalise(v: Any) -> Any:
         if isinstance(v, tuple):
             # Represent domain tuples as id|name or JSON object
@@ -57,6 +74,23 @@ def _serialise_list(values: Iterable[Any], list_format: str) -> str:
 
 
 def _serialise_value(value: Any, list_format: str) -> str:
+    """Serialize a single value to a string.
+
+    If the value is a list, it is serialized using `_serialise_list`.
+    Otherwise, it is converted to a string.
+
+    Parameters
+    ----------
+    value:
+        The value to serialize.
+    list_format:
+        The format to use for lists ("pipe" or "json").
+
+    Returns
+    -------
+    str
+        The serialized string.
+    """
     if isinstance(value, list):
         return _serialise_list(value, list_format)
     return str(value)

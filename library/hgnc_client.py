@@ -21,6 +21,11 @@ import pandas as pd
 import requests
 import yaml
 
+try:
+    from data_profiling import analyze_table_quality
+except ModuleNotFoundError:  # pragma: no cover
+    from .data_profiling import analyze_table_quality
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -141,7 +146,23 @@ class HGNCClient:
         self.rate_limiter = RateLimiter(cfg.rate_limit.rps)
 
     def _request(self, url: str) -> requests.Response:
-        """Perform ``GET`` request with retry and rate limiting."""
+        """Perform a GET request with retry and rate limiting.
+
+        Parameters
+        ----------
+        url:
+            The URL to request.
+
+        Returns
+        -------
+        requests.Response
+            The HTTP response object.
+
+        Raises
+        ------
+        requests.HTTPError
+            If the request fails after all retries.
+        """
 
         last_exc: Exception | None = None
         for attempt in range(self.cfg.network.max_retries):
@@ -166,7 +187,18 @@ class HGNCClient:
         raise last_exc
 
     def _fetch_protein_name(self, uniprot_id: str) -> str:
-        """Return recommended protein name from UniProt."""
+        """Fetch the recommended protein name from UniProt for a given ID.
+
+        Parameters
+        ----------
+        uniprot_id:
+            The UniProt accession number.
+
+        Returns
+        -------
+        str
+            The recommended protein name, or an empty string if not found.
+        """
 
         url = f"https://rest.uniprot.org/uniprotkb/{uniprot_id}.json"
         resp = self._request(url)
@@ -176,21 +208,30 @@ class HGNCClient:
             data = resp.json()
         except ValueError:
             return ""
-        if not isinstance(data, dict):
-            return ""
-        protein = data.get("proteinDescription", {})
-        if isinstance(protein, dict):
-            rec = protein.get("recommendedName", {})
-            if isinstance(rec, dict):
-                full = rec.get("fullName", {})
-                if isinstance(full, dict):
-                    value = full.get("value")
-                    if isinstance(value, str):
-                        return value
-        return ""
+        return (
+            data.get("proteinDescription", {})
+            .get("recommendedName", {})
+            .get("fullName", {})
+            .get("value", "")
+        )
 
     def fetch(self, uniprot_id: str) -> HGNCRecord:
-        """Lookup ``uniprot_id`` in HGNC and return mapping data."""
+        """Fetch HGNC mapping data for a single UniProt accession.
+
+        This method queries the HGNC API for the given UniProt ID and also
+        fetches the corresponding protein name from UniProt.
+
+        Parameters
+        ----------
+        uniprot_id:
+            The UniProt accession number to look up.
+
+        Returns
+        -------
+        HGNCRecord
+            A record containing the mapping information. If the lookup fails,
+            the record will have empty fields.
+        """
 
         url = f"{self.cfg.hgnc.base_url.rstrip('/')}/{uniprot_id}"
         resp = self._request(url)
@@ -289,4 +330,5 @@ def map_uniprot_to_hgnc(
     if output_csv_path is None:
         output_csv_path = input_csv_path.with_name(f"hgnc_{input_csv_path.stem}.csv")
     out_df.to_csv(output_csv_path, sep=sep, encoding=encoding, index=False)
+    analyze_table_quality(out_df, table_name=str(Path(output_csv_path).with_suffix("")))
     return output_csv_path

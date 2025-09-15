@@ -21,6 +21,7 @@ if str(ROOT) not in sys.path:
 
 from library.protein_classifier import classify_protein
 from library.chembl2uniprot.logging_utils import configure_logging
+from library.data_profiling import analyze_table_quality
 
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_SEP = ";"
@@ -29,6 +30,7 @@ DEFAULT_COLUMN = "uniprot_json"
 
 
 def _default_output(path: str) -> str:
+    """Generate a default output file path based on the input path."""
     stem = Path(path).stem
     date = datetime.utcnow().strftime("%Y%m%d")
     return f"output_{stem}_{date}.csv"
@@ -73,6 +75,7 @@ def main(argv: list[str] | None = None) -> None:
     df["evidence"] = results.apply(lambda r: ";".join(r.get("evidence", [])))
 
     df.to_csv(output_path, index=False, encoding=args.encoding, lineterminator="\n")
+    analyze_table_quality(df, table_name=str(output_path.with_suffix("")))
     print(output_path)
 
 

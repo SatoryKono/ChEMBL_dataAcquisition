@@ -15,6 +15,11 @@ import pandas as pd
 import requests
 from requests import Session
 
+try:
+    from data_profiling import analyze_table_quality
+except ModuleNotFoundError:  # pragma: no cover
+    from .data_profiling import analyze_table_quality
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -59,6 +64,7 @@ class RateLimiter:
         self.last_call = 0.0
 
     def acquire(self) -> None:
+        """Sleep if necessary to enforce the configured rate limit."""
         if self.rps <= 0:
             return
         interval = 1.0 / self.rps
@@ -119,7 +125,7 @@ EXPECTED_FAMILY_COLUMNS: tuple[str, ...] = (
 
 
 def _validate_columns(df: pd.DataFrame, expected: Iterable[str]) -> None:
-    """Validate that *df* contains the *expected* columns.
+    """Validate that a DataFrame contains the expected columns.
 
     Parameters
     ----------
@@ -545,6 +551,7 @@ class IUPHARData:
         df["full_name_path"] = df["target_id"].apply(self.all_name)
 
         df.to_csv(output_path, index=False, encoding=encoding, sep=sep)
+        analyze_table_quality(df, table_name=str(Path(output_path).with_suffix("")))
         LOGGER.info("file_written", extra={"rows": len(df), "path": str(output_path)})
         return df
 
@@ -806,10 +813,20 @@ class IUPHARClassifier:
 
     @staticmethod
     def _is_valid_parameter(parameter: str | None) -> bool:
+        """Check if a parameter is valid for classification.
+
+        A parameter is considered valid if it is not None, not an empty string,
+        and not a default/placeholder value like "N/A" or "Other Protein Target".
+        """
         return bool(parameter) and parameter not in {"N/A", "Other Protein Target"}
 
     @staticmethod
     def _is_valid_list(values: Iterable[str]) -> bool:
+        """Check if a list of values is valid for classification.
+
+        A list is considered valid if it contains at least one valid parameter
+        and does not represent a default/placeholder value.
+        """
         lst = [v for v in values if v and v != "N/A"]
         if not lst:
             return False
@@ -822,16 +839,19 @@ class IUPHARClassifier:
     # ------------------------------------------------------------------
 
     def _family_to_type(self, family_id: str) -> str:
+        """Get the type of a family by its ID."""
         if self._is_valid_parameter(family_id):
             return self.data.from_family_type(family_id) or "N/A"
         return "N/A"
 
     def _family_to_chain(self, family_id: str) -> list[str]:
+        """Get the family hierarchy chain for a family ID."""
         if self._is_valid_parameter(family_id):
             return self.data.family_chain(family_id)
         return []
 
     def _target_record(self, target_id: str) -> pd.Series | None:
+        """Get the full record for a target by its ID."""
         if self._is_valid_parameter(target_id):
             return self.data.from_target_record(target_id)
         return None
@@ -841,6 +861,11 @@ class IUPHARClassifier:
     # ------------------------------------------------------------------
 
     def _target_to_type(self, target_id: str) -> str:
+        """Determine the IUPHAR type for a given target ID.
+
+        The type is constructed from the target's own type and its family's
+        type.
+        """
         record = self._target_record(target_id)
         if record is None:
             return "Other Protein Target.Other Protein Target"
@@ -1154,7 +1179,29 @@ class IUPHARClassifier:
         iuphar_ec_number: str,
         iuphar_name: str,
     ) -> ClassificationRecord:
-        """Resolve the best classification given multiple identifiers."""
+        """Resolve the best classification given multiple identifiers.
+
+        This method attempts to classify a target using a hierarchy of
+        identifiers, from the most specific (target ID) to the most general
+        (name).
+
+        Parameters
+        ----------
+        iuphar_target_id:
+            The IUPHAR target ID.
+        iuphar_family_id:
+            The IUPHAR family ID.
+        iuphar_ec_number:
+            A pipe-delimited string of EC numbers.
+        iuphar_name:
+            The name of the target.
+
+        Returns
+        -------
+        ClassificationRecord
+            The best possible classification record based on the provided
+            identifiers.
+        """
         target_rec = (
             self.by_target_id(iuphar_target_id, iuphar_name)
             if self._is_valid_parameter(iuphar_target_id)

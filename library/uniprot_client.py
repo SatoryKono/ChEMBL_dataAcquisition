@@ -74,6 +74,7 @@ class UniProtClient:
 
     # ------------------------------------------------------------------
     def _wait_rate_limit(self) -> None:
+        """Sleep if necessary to enforce the configured rate limit."""
         if self.rate_limit.rps <= 0:
             return
         interval = 1.0 / self.rate_limit.rps
@@ -84,6 +85,20 @@ class UniProtClient:
         self._last_call = time.monotonic()
 
     def _request(self, url: str, params: Dict[str, str]) -> Optional[requests.Response]:
+        """Perform a GET request to the UniProt API with retry and rate limiting.
+
+        Parameters
+        ----------
+        url:
+            The URL to request.
+        params:
+            A dictionary of query parameters.
+
+        Returns
+        -------
+        Optional[requests.Response]
+            The response object, or None if an error occurred.
+        """
         @retry(
             reraise=True,
             retry=retry_if_exception_type(requests.RequestException),
@@ -141,13 +156,10 @@ class UniProtClient:
         except json.JSONDecodeError:  # pragma: no cover - API guarantees JSON
             LOGGER.warning("Invalid JSON for %s", accession)
             return None
-        results = data.get("results")
-        if not isinstance(results, list) or not results:
+        results = data.get("results", [])
+        if not results:
             return None
-        first = results[0]
-        if not isinstance(first, dict):
-            return None
-        return first
+        return results[0]
 
     # ------------------------------------------------------------------
     def fetch_entry_json(self, accession: str) -> Optional[Dict[str, Any]]:
@@ -169,11 +181,10 @@ class UniProtClient:
         if not resp:
             return None
         try:
-            data = resp.json()
+            return resp.json()
         except json.JSONDecodeError:  # pragma: no cover - API guarantees JSON
             LOGGER.warning("Invalid JSON for %s", accession)
             return None
-        return data if isinstance(data, dict) else None
 
     def fetch_entries_json(
         self, accessions: Iterable[str], *, batch_size: int = 100

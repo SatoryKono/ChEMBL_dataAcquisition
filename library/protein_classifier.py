@@ -100,10 +100,12 @@ CLASS_SHORT = {
 
 
 def _go_to_rule(go_id: str) -> str:
+    """Convert a GO ID to a rule identifier component."""
     return "GO" + go_id.split(":", 1)[1].lstrip("0")
 
 
 def _has_hint(patterns: Iterable[str], texts: Iterable[str]) -> bool:
+    """Check if any of the patterns appear in any of the texts."""
     for text in texts:
         for pat in patterns:
             if pat in text:
@@ -112,6 +114,7 @@ def _has_hint(patterns: Iterable[str], texts: Iterable[str]) -> bool:
 
 
 def _first_hint(patterns: Iterable[str], texts: Iterable[str]) -> Optional[str]:
+    """Return the first pattern found in any of the texts."""
     for text in texts:
         for pat in patterns:
             if pat in text:
