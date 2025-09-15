@@ -510,7 +510,6 @@ def main() -> None:
     cols = [c for c in out_df.columns if c not in IUPHAR_CLASS_COLUMNS]
     out_df = out_df[cols + IUPHAR_CLASS_COLUMNS]
 
-
     out_df.to_csv(args.output, index=False, sep=args.sep, encoding=args.encoding)
 
 
