@@ -11,8 +11,10 @@ from typing import List, cast
 import pandas as pd
 import yaml
 
+
 from library.gtop_client import GtoPClient, GtoPConfig, resolve_target
 from library.gtop_normalize import (
+
     normalise_interactions,
     normalise_synonyms,
     normalise_targets,
