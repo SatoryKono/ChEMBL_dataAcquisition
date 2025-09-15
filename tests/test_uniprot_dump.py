@@ -38,6 +38,14 @@ def test_normalize_entry_sorts_lists() -> None:
     assert data["ptm_modified_residue"] == ["150:Phosphoserine"]
 
 
+def test_extract_isoforms_parses_synonyms() -> None:
+    entry = _load_sample()
+    headers = [">sp|P12345-1|", ">sp|P12345-2|"]
+    isoforms = extract_isoforms(entry, headers)
+    assert isoforms[0]["isoform_synonyms"] == ["Alpha", "Zeta"]
+    assert isoforms[1]["isoform_synonyms"] == ["Beta", "Gamma"]
+
+
 def test_output_columns_include_sequence() -> None:
     cols = output_columns(True)
     assert "sequence" in cols

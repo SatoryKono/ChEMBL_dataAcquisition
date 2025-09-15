@@ -70,8 +70,24 @@
     {
       "commentType": "ALTERNATIVE_PRODUCTS",
       "isoforms": [
-        {"name": {"value": "Isoform 2"}, "id": "P12345-2"},
-        {"name": {"value": "Isoform 1"}, "id": "P12345-1"}
+        {
+          "name": {"value": "Isoform 2"},
+          "id": "P12345-2",
+          "synonyms": [
+            {"value": " Beta"},
+            {"value": "Gamma"},
+            {"value": "Beta"}
+          ]
+        },
+        {
+          "name": {"value": "Isoform 1"},
+          "id": "P12345-1",
+          "synonyms": [
+            {"value": " Alpha"},
+            {"value": "Alpha"},
+            {"value": "Zeta"}
+          ]
+        }
       ]
     }
   ],

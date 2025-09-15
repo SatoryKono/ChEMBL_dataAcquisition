@@ -6,7 +6,7 @@ import hashlib
 import json
 import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple, TypedDict
+from typing import Any, Dict, List, Optional, Set, Tuple, TypedDict
 
 ORDERED_COLUMNS_BASE = [
     "uniprot_id",
@@ -149,17 +149,26 @@ def extract_isoforms(
     json_map: Dict[Optional[int], Dict[str, Any]] = {}
     for comment in _collect_comment(entry_json, "ALTERNATIVE_PRODUCTS"):
         for iso in comment.get("isoforms", []):
-            name = _get(iso, "name", "value") or ""
-            synonyms = [
-                s.get("value") for s in iso.get("synonyms", []) if s.get("value")
-            ]
+            # ``name`` and ``synonyms`` values may contain leading/trailing
+            # whitespace and duplicates.  Normalise these here so that
+            # downstream consumers receive clean data.
+            name = (_get(iso, "name", "value") or "").strip()
+
+            syn_seen: Set[str] = set()
+            synonyms: List[str] = []
+            for s in iso.get("synonyms", []):
+                v = (s.get("value") or "").strip()
+                if v and v not in syn_seen:
+                    syn_seen.add(v)
+                    synonyms.append(v)
+
             is_disp = bool(iso.get("isSequenceDisplayed") or iso.get("isDisplayed"))
             num = _suffix_from_id(iso.get("id", ""))
             if num is None:
                 num = _suffix_from_name(name)
             json_map[num] = {
                 "name": name,
-                "synonyms": sorted(set(synonyms)),
+                "synonyms": synonyms,
                 "is_canonical": is_disp,
             }
 
