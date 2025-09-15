@@ -31,7 +31,7 @@ from tenacity import (
     retry,
     retry_if_exception_type,
     stop_after_attempt,
-    wait_exponential,
+    wait_random_exponential,
 )
 
 from .config import Config, RetryConfig, UniprotConfig, load_and_validate_config
@@ -95,7 +95,11 @@ def _request_with_retry(
     backoff: float,
     **kwargs: Any,
 ) -> requests.Response:
-    """Perform an HTTP request with retry and rate limiting."""
+    """Perform an HTTP request with retry and rate limiting.
+
+    The request is subject to jittered exponential backoff and will retry on
+    network failures, HTTP 5xx and 429 responses.
+    """
 
     rate_limiter.wait()
 
@@ -103,12 +107,12 @@ def _request_with_retry(
         reraise=True,
         retry=retry_if_exception_type(requests.RequestException),
         stop=stop_after_attempt(max_attempts),
-        wait=wait_exponential(multiplier=backoff),
+        wait=wait_random_exponential(multiplier=backoff),
     )
     def _do_request() -> requests.Response:
         resp = requests.request(method, url, timeout=timeout, **kwargs)
-        if resp.status_code >= 500:
-            # Trigger retry by raising for 5xx responses
+        if resp.status_code >= 500 or resp.status_code == 429:
+            # Trigger retry by raising for retryable responses
             resp.raise_for_status()
         return resp
 
@@ -155,11 +159,20 @@ def _poll_job(
     timeout: float,
     retry_cfg: RetryConfig,
 ) -> None:
+    """Poll job ``job_id`` until completion or until ``timeout`` seconds pass.
+
+    Raises
+    ------
+    TimeoutError
+        If the job does not reach a terminal state within ``timeout`` seconds.
+    """
+
     status_url = (
         cfg.base_url.rstrip("/") + (cfg.id_mapping.status_endpoint or "") + "/" + job_id
     )
     interval = cfg.polling.interval_sec
-    while True:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         resp = _request_with_retry(
             "get",
             status_url,
@@ -178,6 +191,7 @@ def _poll_job(
         if payload.get("jobStatus") in {"ERROR", "failed"}:
             raise RuntimeError(f"UniProt job {job_id} failed: {payload}")
         time.sleep(interval)
+    raise TimeoutError(f"Polling for job {job_id} exceeded {timeout} seconds")
 
 
 def _fetch_results(
@@ -225,7 +239,7 @@ def _map_batch(
 ) -> Dict[str, List[str]]:
     try:
         job_payload = _start_job(ids, cfg, rate_limiter, timeout, retry_cfg)
-    except Exception as exc:
+    except (requests.RequestException, json.JSONDecodeError) as exc:
         LOGGER.warning("Failed to start mapping job for batch %s: %s", ids, exc)
         return {}
 
@@ -234,7 +248,12 @@ def _map_batch(
         try:
             _poll_job(job_id, cfg, rate_limiter, timeout, retry_cfg)
             return _fetch_results(job_id, cfg, rate_limiter, timeout, retry_cfg)
-        except Exception as exc:  # broad but logged
+        except (
+            requests.RequestException,
+            json.JSONDecodeError,
+            RuntimeError,
+            TimeoutError,
+        ) as exc:
             LOGGER.warning("Job %s failed: %s", job_id, exc)
             return {}
 
@@ -302,7 +321,8 @@ def map_chembl_to_uniprot(
     encoding_in = encoding or cfg.io.input.encoding
     encoding_out = encoding or cfg.io.output.encoding
 
-    logging.basicConfig(level=getattr(logging, log_level.upper()))
+    # Configure only the library logger, leaving global logging to the caller.
+    LOGGER.setLevel(getattr(logging, log_level.upper()))
 
     input_csv_path = Path(input_csv_path)
     if output_csv_path is None:
