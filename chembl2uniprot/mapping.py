@@ -31,7 +31,7 @@ from tenacity import (
     retry,
     retry_if_exception_type,
     stop_after_attempt,
-    wait_exponential,
+    wait_exponential_jitter,
 )
 
 from .config import Config, RetryConfig, UniprotConfig, load_and_validate_config
@@ -103,10 +103,19 @@ def _request_with_retry(
         reraise=True,
         retry=retry_if_exception_type(requests.RequestException),
         stop=stop_after_attempt(max_attempts),
-        wait=wait_exponential(multiplier=backoff),
+        wait=wait_exponential_jitter(initial=backoff, jitter=backoff),
     )
     def _do_request() -> requests.Response:
         resp = requests.request(method, url, timeout=timeout, **kwargs)
+        if resp.status_code == 429:
+            retry_after = resp.headers.get("Retry-After")
+            if retry_after:
+                try:
+                    time.sleep(float(retry_after))
+                except ValueError:
+                    LOGGER.debug("Invalid Retry-After header: %s", retry_after)
+            # Trigger retry for rate limiting
+            resp.raise_for_status()
         if resp.status_code >= 500:
             # Trigger retry by raising for 5xx responses
             resp.raise_for_status()
