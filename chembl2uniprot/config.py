@@ -21,15 +21,144 @@ LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
-class Config:
-    """Dataclass wrapper around the configuration dictionary.
+class EncodingConfig:
+    """Encoding information for CSV input/output."""
 
-    The structure of the dataclass mirrors the validated JSON configuration.  It
-    is provided mostly for type checking convenience.  Consumers typically use
-    the :attr:`raw` attribute to access values.
+    encoding: str
+
+
+@dataclass
+class CSVConfig:
+    """CSV formatting details."""
+
+    separator: str
+    multivalue_delimiter: str
+
+
+@dataclass
+class IOConfig:
+    """I/O related configuration."""
+
+    input: EncodingConfig
+    output: EncodingConfig
+    csv: CSVConfig
+
+
+@dataclass
+class ColumnsConfig:
+    """Names of relevant CSV columns."""
+
+    chembl_id: str
+    uniprot_out: str
+
+
+@dataclass
+class IdMappingConfig:
+    """Endpoints and database names for UniProt ID mapping."""
+
+    endpoint: str
+    status_endpoint: str | None = None
+    results_endpoint: str | None = None
+    from_db: str | None = None
+    to_db: str | None = None
+
+
+@dataclass
+class PollingConfig:
+    """Polling behaviour for asynchronous jobs."""
+
+    interval_sec: float
+
+
+@dataclass
+class RateLimitConfig:
+    """Rate limiting settings."""
+
+    rps: float
+
+
+@dataclass
+class RetryConfig:
+    """Retry configuration for HTTP requests."""
+
+    max_attempts: int
+    backoff_sec: float
+
+
+@dataclass
+class UniprotConfig:
+    """Configuration related to UniProt service access."""
+
+    base_url: str
+    id_mapping: IdMappingConfig
+    polling: PollingConfig
+    rate_limit: RateLimitConfig
+    retry: RetryConfig
+
+
+@dataclass
+class NetworkConfig:
+    """Network level configuration."""
+
+    timeout_sec: float
+
+
+@dataclass
+class BatchConfig:
+    """Batch processing settings."""
+
+    size: int
+
+
+@dataclass
+class LoggingConfig:
+    """Logging level configuration."""
+
+    level: str
+
+
+@dataclass
+class Config:
+    """Validated application configuration."""
+
+    io: IOConfig
+    columns: ColumnsConfig
+    uniprot: UniprotConfig
+    network: NetworkConfig
+    batch: BatchConfig
+    logging: LoggingConfig
+
+
+def _build_config(data: Dict[str, Any]) -> Config:
+    """Construct a :class:`Config` object from ``data``.
+
+    Parameters
+    ----------
+    data:
+        Raw dictionary read from the YAML configuration file.  Assumes the
+        structure matches the JSON schema.
     """
 
-    raw: Dict[str, Any]
+    io_cfg = IOConfig(
+        input=EncodingConfig(**data["io"]["input"]),
+        output=EncodingConfig(**data["io"]["output"]),
+        csv=CSVConfig(**data["io"]["csv"]),
+    )
+    uniprot_cfg = UniprotConfig(
+        base_url=data["uniprot"]["base_url"],
+        id_mapping=IdMappingConfig(**data["uniprot"]["id_mapping"]),
+        polling=PollingConfig(**data["uniprot"]["polling"]),
+        rate_limit=RateLimitConfig(**data["uniprot"]["rate_limit"]),
+        retry=RetryConfig(**data["uniprot"]["retry"]),
+    )
+    return Config(
+        io=io_cfg,
+        columns=ColumnsConfig(**data["columns"]),
+        uniprot=uniprot_cfg,
+        network=NetworkConfig(**data["network"]),
+        batch=BatchConfig(**data["batch"]),
+        logging=LoggingConfig(**data["logging"]),
+    )
 
 
 def _read_yaml(path: Path) -> Dict[str, Any]:
@@ -88,4 +217,4 @@ def load_and_validate_config(
         raise ValueError("Configuration validation error(s): " + "; ".join(messages))
 
     LOGGER.debug("Loaded configuration from %s", config_path)
-    return Config(raw=config_dict)
+    return _build_config(config_dict)
