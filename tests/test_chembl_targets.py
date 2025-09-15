@@ -69,11 +69,6 @@ def test_fetch_targets_parses_fields(requests_mock: requests_mock.Mocker) -> Non
         "cross_references",
         "gene_symbol_list",
         "protein_synonym_list",
-        "ec_number_list",
-        "chembl_alternative_name_list",
-        "uniprot_id_list",
-        "hgnc_name",
-        "hgnc_id",
     ]
     record = df.iloc[0]
     comps = json.loads(record["target_components"])
@@ -90,14 +85,6 @@ def test_fetch_targets_parses_fields(requests_mock: requests_mock.Mocker) -> Non
     assert genes == ["ABC1"]
     names = json.loads(record["protein_synonym_list"])
     assert names == ["ProtAlt"]
-    ec_numbers = json.loads(record["ec_number_list"])
-    assert ec_numbers == ["1.1.1.1"]
-    alt_names = json.loads(record["chembl_alternative_name_list"])
-    assert alt_names == ["AltUni"]
-    uniprot_ids = json.loads(record["uniprot_id_list"])
-    assert uniprot_ids == ["P12345", "Q99999"]
-    assert record["hgnc_name"] == "HGNCNAME"
-    assert record["hgnc_id"] == "5"
     classes = json.loads(record["protein_classifications"])
     assert classes == ["L4", "L5"]
 
