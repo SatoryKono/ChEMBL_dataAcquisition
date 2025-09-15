@@ -42,7 +42,8 @@ chembl2uniprot/      # Library with configuration and mapping utilities
     __main__.py      # CLI entry point: ``python -m chembl2uniprot``
     config.py        # YAML loading and validation
     mapping.py       # Core mapping logic
-config.schema.json   # JSON schema for configuration validation
+    default_config.yaml  # Built-in configuration
+    config.schema.json   # JSON schema for configuration validation
 tests/
     data/            # Sample config and CSV files used in tests
     test_mapping.py  # Unit tests
@@ -52,12 +53,19 @@ mypy.ini             # Type checker configuration
 
 ## Usage
 
-1. Prepare a configuration file (see ``tests/data/config.yaml`` for an example).
-2. Run the mapper:
+1. The package ships with a default configuration so the mapper can be run out of
+   the box:
 
-```bash
-python -m chembl2uniprot --input input.csv --output output.csv --config config.yaml
-```
+   ```bash
+   python -m chembl2uniprot --input input.csv --output output.csv
+   ```
+
+   To use a custom configuration file (see ``tests/data/config/valid.yaml`` for an
+   example):
+
+   ```bash
+   python -m chembl2uniprot --input input.csv --output output.csv --config config.yaml
+   ```
 
 When ``--output`` is omitted the result is written next to ``input.csv`` with the
 suffix ``_with_uniprot.csv``.  The mapped UniProt identifiers are stored in a new
