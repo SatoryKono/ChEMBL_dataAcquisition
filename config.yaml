@@ -54,6 +54,7 @@ chembl:
     - protein_synonym_list
 
 output:
+  list_format: json
   encoding: "utf-8-sig"
 
 pipeline:
@@ -67,6 +68,9 @@ pipeline:
      - target_chembl_id
      - uniprot_id_primary
      - uniprot_ids_all
+     - isoform_ids
+     - isoform_names
+     - isoform_synonyms
      - hgnc_id
      - gene_symbol
      - protein_name_canonical
@@ -158,7 +162,7 @@ hgnc:
 output:
   sep: ","
   encoding: utf-8-sig
-  list_format: pipe
+  list_format: json
   include_sequence: false
 
 orthologs:
