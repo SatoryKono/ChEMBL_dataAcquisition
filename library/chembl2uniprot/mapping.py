@@ -167,7 +167,11 @@ def _poll_job(
             rate_limiter=rate_limiter,
             max_attempts=retry_cfg.max_attempts,
             backoff=retry_cfg.backoff_sec,
+            allow_redirects=False,
         )
+        if resp.status_code == 303:
+            # UniProt signals completion via HTTP 303 and a "Location" header
+            return
         try:
             payload = resp.json()
         except json.JSONDecodeError:
@@ -303,6 +307,7 @@ def map_chembl_to_uniprot(
     encoding_out = encoding or cfg.io.output.encoding
 
     logging.basicConfig(level=getattr(logging, log_level.upper()))
+    logging.getLogger("urllib3").setLevel(logging.INFO)  # Reduce HTTP verbosity
 
     input_csv_path = Path(input_csv_path)
     if output_csv_path is None:
