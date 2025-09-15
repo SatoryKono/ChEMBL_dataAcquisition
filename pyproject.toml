@@ -25,3 +25,6 @@ dev = [
     "ruff",
     "mypy",
 ]
+
+[tool.setuptools.package-data]
+"chembl2uniprot" = ["default_config.yaml", "config.schema.json"]

@@ -42,7 +42,8 @@ chembl2uniprot/      # Library with configuration and mapping utilities
     __main__.py      # CLI entry point: ``python -m chembl2uniprot``
     config.py        # YAML loading and validation
     mapping.py       # Core mapping logic
-config.schema.json   # JSON schema for configuration validation
+    default_config.yaml  # Built-in configuration
+    config.schema.json   # JSON schema for configuration validation
 tests/
     data/            # Sample config and CSV files used in tests
     test_mapping.py  # Unit tests
@@ -51,6 +52,7 @@ mypy.ini             # Type checker configuration
 ```
 
 ## Usage
+
 
 1. Prepare a configuration file (see ``tests/data/config/valid.yaml`` for an example).
 2. Run the mapper:
@@ -64,6 +66,7 @@ python -m chembl2uniprot \
     --sep , \
     --encoding utf-8
 ```
+
 
 Flags ``--log-level``, ``--sep`` and ``--encoding`` are optional and default to
 ``INFO``, ``,``, and ``utf-8`` respectively.  When ``--output`` is omitted the
