@@ -20,6 +20,8 @@ def test_fetch_targets_parses_fields(requests_mock: requests_mock.Mocker) -> Non
         "pref_name": "Example",
         "target_type": "SINGLE PROTEIN",
         "organism": "Homo sapiens",
+        "tax_id": 9606,
+        "species_group_flag": 0,
         "target_components": [
             {
                 "component_id": 1,
@@ -27,7 +29,8 @@ def test_fetch_targets_parses_fields(requests_mock: requests_mock.Mocker) -> Non
                 "component_type": "PROTEIN",
                 "component_description": "desc",
                 "target_component_synonyms": [
-                    {"component_synonym": "ABC1", "syn_type": "GENE_SYMBOL"}
+                    {"component_synonym": "ABC1", "syn_type": "GENE_SYMBOL"},
+                    {"component_synonym": "ProtAlt", "syn_type": "PROTEIN_NAME"},
                 ],
                 "target_component_xrefs": [
                     {"xref_src_db": "Ensembl", "xref_id": "ENSG000001"},
@@ -46,12 +49,16 @@ def test_fetch_targets_parses_fields(requests_mock: requests_mock.Mocker) -> Non
     assert list(df.columns) == [
         "target_chembl_id",
         "pref_name",
+        "protein_name_canonical",
         "target_type",
         "organism",
+        "tax_id",
+        "species_group_flag",
         "target_components",
         "protein_classifications",
         "cross_references",
         "gene_symbol_list",
+        "protein_synonym_list",
     ]
     record = df.iloc[0]
     comps = json.loads(record["target_components"])
@@ -60,5 +67,7 @@ def test_fetch_targets_parses_fields(requests_mock: requests_mock.Mocker) -> Non
     assert [r["xref_db"] for r in refs] == ["Ensembl", "IUPHAR/BPS", "UniProt"]
     genes = json.loads(record["gene_symbol_list"])
     assert genes == ["ABC1"]
+    names = json.loads(record["protein_synonym_list"])
+    assert names == ["ProtAlt"]
     classes = json.loads(record["protein_classifications"])
     assert classes == ["L4", "L5"]
