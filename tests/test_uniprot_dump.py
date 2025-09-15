@@ -28,6 +28,7 @@ def test_normalize_entry_sorts_lists() -> None:
     data = normalize_entry(entry, include_sequence=False, isoforms=isoforms)
     assert data["protein_alternative_names"] == ["Alt A", "Alt B"]
     assert data["isoform_ids"] == ["P12345-1", "P12345-2"]
+    assert data["isoform_names"] == ["Isoform 1", "Isoform 2"]
     assert data["isoform_ids_all"] == ["P12345-1", "P12345-2"]
     assert data["isoforms_count"] == 2
     iso_json = json.loads(data["isoforms_json"])
@@ -42,6 +43,7 @@ def test_extract_isoforms_parses_synonyms() -> None:
     entry = _load_sample()
     headers = [">sp|P12345-1|", ">sp|P12345-2|"]
     isoforms = extract_isoforms(entry, headers)
+    assert [iso["isoform_name"] for iso in isoforms] == ["Isoform 1", "Isoform 2"]
     assert isoforms[0]["isoform_synonyms"] == ["Alpha", "Zeta"]
     assert isoforms[1]["isoform_synonyms"] == ["Beta", "Gamma"]
 
