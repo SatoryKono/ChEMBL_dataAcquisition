@@ -1,4 +1,6 @@
 
+
+
 gtop:
   base_url: "https://www.guidetopharmacology.org/services"
 
@@ -52,6 +54,7 @@ network:
   max_retries: 3
 rate_limit:
 
+
   rps: 2
 
 output:
@@ -59,4 +62,3 @@ output:
   encoding: utf-8-sig
   list_format: json
   include_sequence: false
-
