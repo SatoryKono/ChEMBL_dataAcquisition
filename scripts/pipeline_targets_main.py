@@ -521,6 +521,43 @@ def build_clients(
     return uni, hgnc, gtop, ens_client, oma_client, target_species
 
 
+def save_output(
+    df: pd.DataFrame,
+    output: str | Path,
+    *,
+    sep: str = ",",
+    encoding: str = "utf-8",
+) -> Path:
+    """Persist ``df`` to ``output`` ensuring the path is valid.
+
+    The user-provided path may include a tilde (``~``) to reference the home
+    directory or point to a location in a non-existent folder.  This helper
+    expands user references and creates any missing parent directories before
+    writing the CSV file.
+
+    Parameters
+    ----------
+    df:
+        Data frame to serialise.
+    output:
+        Destination file path.  ``"~"`` and ``".."`` segments are resolved.
+    sep:
+        Column delimiter for ``pandas.DataFrame.to_csv``.
+    encoding:
+        Text encoding for the resulting file.
+
+    Returns
+    -------
+    pathlib.Path
+        Absolute path to the written file.
+    """
+
+    out_path = Path(output).expanduser().resolve()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out_path, index=False, sep=sep, encoding=encoding)
+    return out_path
+
+
 def main() -> None:
     """Run the unified pipeline on the provided input IDs."""
 
@@ -646,8 +683,7 @@ def main() -> None:
     # Keep classification columns grouped together at the end for clarity.
     cols = [c for c in out_df.columns if c not in IUPHAR_CLASS_COLUMNS]
     out_df = out_df[cols + IUPHAR_CLASS_COLUMNS]
-
-    out_df.to_csv(args.output, index=False, sep=args.sep, encoding=args.encoding)
+    save_output(out_df, args.output, sep=args.sep, encoding=args.encoding)
 
 
 if __name__ == "__main__":

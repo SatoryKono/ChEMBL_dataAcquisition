@@ -4,7 +4,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Sequence
+from typing import Any, Callable, Dict, List, Sequence, cast
 
 import pandas as pd
 from typing import TYPE_CHECKING
@@ -17,6 +17,7 @@ if TYPE_CHECKING:  # pragma: no cover - for static type checking only
     from .orthologs import EnsemblHomologyClient, OmaClient
     from .uniprot_client import UniProtClient
     from .uniprot_normalize import (
+        Isoform,
         extract_ensembl_gene_ids,
         extract_isoforms,
         normalize_entry,
@@ -30,6 +31,7 @@ else:  # pragma: no cover - support both package and direct imports
         from .orthologs import EnsemblHomologyClient, OmaClient
         from .uniprot_client import UniProtClient
         from .uniprot_normalize import (
+            Isoform,
             extract_ensembl_gene_ids,
             extract_isoforms,
             normalize_entry,
@@ -163,7 +165,7 @@ class PipelineConfig:
 def load_pipeline_config(path: str) -> PipelineConfig:
     """Load ``PipelineConfig`` from a YAML file."""
 
-    import yaml  # type: ignore[import]
+    import yaml
 
     with open(path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
@@ -252,7 +254,9 @@ def run_pipeline(
     ids: Sequence[str],
     cfg: PipelineConfig,
     *,
-    chembl_fetcher=fetch_targets,
+    chembl_fetcher: Callable[
+        [Sequence[str], TargetConfig], pd.DataFrame
+    ] = fetch_targets,
     chembl_config: TargetConfig | None = None,
     uniprot_client: UniProtClient,
     hgnc_client: HGNCClient | None = None,
@@ -291,14 +295,17 @@ def run_pipeline(
         Optional callback receiving the incremental count of processed records.
         Can be used to update external progress indicators.
     """
-
     chembl_cfg = chembl_config or TargetConfig(list_format=cfg.list_format)
     chembl_df = chembl_fetcher(ids, chembl_cfg)
     records: List[Dict[str, Any]] = []
     for row in chembl_df.to_dict(orient="records"):
-        chembl_id = row.get("target_chembl_id", "")
-        comps = json.loads(row.get("target_components") or "[]")
-        accessions = [c.get("accession") for c in comps if c.get("accession")]
+        chembl_id = str(row.get("target_chembl_id", ""))
+        comps = json.loads(str(row.get("target_components") or "[]"))
+        accessions = [
+            str(c["accession"])
+            for c in comps
+            if isinstance(c, dict) and isinstance(c.get("accession"), str)
+        ]
         uniprot_entries: List[Dict[str, Any]] = []
         raw_entries: Dict[str, Dict[str, Any]] = {}
         for acc in sorted(dict.fromkeys(accessions)):
@@ -307,7 +314,7 @@ def run_pipeline(
                 if raw:
                     raw_entries[acc] = raw
                     fasta_headers: List[str] = []
-                    isoforms: List[Dict[str, Any]] = []
+                    isoforms: List[Isoform] = []
                     if cfg.include_isoforms:
                         fasta_headers = uniprot_client.fetch_isoforms_fasta(acc)
                         isoforms = extract_isoforms(raw, fasta_headers)
@@ -326,8 +333,8 @@ def run_pipeline(
                         normalize_entry(raw, include_sequence=cfg.include_sequence)
                     )
         primary = _select_primary(uniprot_entries, cfg.species_priority)
-        primary_id = primary.get("uniprot_id") if primary else ""
-        all_ids = [e.get("uniprot_id") for e in uniprot_entries]
+        primary_id = cast(str, primary.get("uniprot_id", "")) if primary else ""
+        all_ids = [str(e.get("uniprot_id", "")) for e in uniprot_entries]
 
         hgnc_id = ""
         gene_symbol = primary.get("gene_primary", "") if primary else ""
@@ -350,7 +357,7 @@ def run_pipeline(
         gtop_func = ""
         gtop_name = ""
         if gtop_client:
-            target = None
+            target: Dict[str, Any] | None = None
             for id_col, value in [
                 ("uniprot_id", primary_id),
                 ("hgnc_id", hgnc_id),
@@ -362,18 +369,15 @@ def run_pipeline(
                     if target:
                         break
             if target:
-                gtop_id = str(target.get("targetId", ""))
-                gtop_name = target.get("name", "") or ""
+                target_id = int(target.get("targetId", 0))
+                gtop_id = str(target_id)
+                gtop_name = str(target.get("name", ""))
                 syn_df = normalise_synonyms(
-                    int(target.get("targetId", 0)),
-                    gtop_client.fetch_target_endpoint(
-                        target.get("targetId"), "synonyms"
-                    ),
+                    target_id,
+                    gtop_client.fetch_target_endpoint(target_id, "synonyms"),
                 )
                 gtop_synonyms = syn_df["synonym"].tolist() if not syn_df.empty else []
-                nat = gtop_client.fetch_target_endpoint(
-                    target.get("targetId"), "naturalLigands"
-                )
+                nat = gtop_client.fetch_target_endpoint(target_id, "naturalLigands")
                 gtop_nat = len(nat or [])
                 params: Dict[str, Any] = {}
                 if cfg.iuphar.approved_only:
@@ -381,16 +385,14 @@ def run_pipeline(
                 if cfg.iuphar.primary_target_only:
                     params["primaryTarget"] = "true"
                 inter = gtop_client.fetch_target_endpoint(
-                    target.get("targetId"), "interactions", params
+                    target_id, "interactions", params
                 )
-                inter_df = normalise_interactions(int(target.get("targetId", 0)), inter)
+                inter_df = normalise_interactions(target_id, inter)
                 gtop_int = len(inter_df)
-                func = gtop_client.fetch_target_endpoint(
-                    target.get("targetId"), "function"
-                )
+                func = gtop_client.fetch_target_endpoint(target_id, "function")
                 if func:
                     first = func[0]
-                    gtop_func = (first.get("functionText") or "")[:200]
+                    gtop_func = str(first.get("functionText", ""))[:200]
 
         isoform_ids = primary.get("isoform_ids_all", []) if primary else []
         isoform_names = primary.get("isoform_names", []) if primary else []
