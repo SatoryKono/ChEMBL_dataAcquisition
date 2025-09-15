@@ -1,0 +1,2 @@
+﻿targetId,ligandId,type,action,affinity,affinityParameter,species,ligandType,approved,primaryTarget
+1960,8114,Inhibitor,Inhibition,9.3,pKi,,,,True
