@@ -165,7 +165,6 @@ def _build_config(data: Dict[str, Any]) -> Config:
     # of ``chembl_id`` and standardise on the modern key.
     columns_cfg = _normalise_column_aliases(dict(data["columns"]), drop_legacy=True)
 
-
     io_cfg = IOConfig(
         input=EncodingConfig(**data["io"]["input"]),
         output=EncodingConfig(**data["io"]["output"]),

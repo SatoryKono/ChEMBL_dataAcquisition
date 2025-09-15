@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 """Command line interface for :mod:`uniprot_enrich`.
 
 This script enriches a CSV file containing UniProt accessions with additional
@@ -35,7 +36,9 @@ LIB_DIR = ROOT / "library"
 if str(LIB_DIR) not in sys.path:
     sys.path.insert(0, str(LIB_DIR))
 
-from uniprot_enrich import enrich_uniprot  # noqa: E402  # type: ignore[reportMissingImports]
+from uniprot_enrich import (
+    enrich_uniprot,
+)  # noqa: E402  # type: ignore[reportMissingImports]
 
 
 DEFAULT_LOG_LEVEL = "INFO"
