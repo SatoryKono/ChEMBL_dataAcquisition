@@ -10,4 +10,8 @@ __all__ = [
     "gtop_normalize",
     "protein_classifier",
     "iuphar",
+    "pubmed_client",
+    "semantic_scholar_client",
+    "openalex_client",
+    "crossref_client",
 ]
