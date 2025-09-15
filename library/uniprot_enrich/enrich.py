@@ -353,6 +353,7 @@ def _parse_entry(entry: dict, sep: str) -> Dict[str, str]:
     data["TCDB"] = _serialize_list(tcdb_ids, sep)
     # Comments
     sublocs: List[str] = []
+    topologies: List[str] = []
     isoform_names: List[str] = []
     isoform_ids: List[str] = []
     isoform_synonyms: List[str] = []
@@ -362,9 +363,18 @@ def _parse_entry(entry: dict, sep: str) -> Dict[str, str]:
         ctype = comment.get("commentType")
         if ctype == "SUBCELLULAR_LOCATION":
             for loc in comment.get("subcellularLocations", []):
-                val = loc.get("location", {}).get("value")
-                if val:
-                    sublocs.append(val)
+                if not isinstance(loc, dict):
+                    continue
+                sub = loc.get("location")
+                if isinstance(sub, dict):
+                    value = sub.get("value")
+                    if isinstance(value, str):
+                        sublocs.append(value)
+                topo = loc.get("topology")
+                if isinstance(topo, dict):
+                    value = topo.get("value")
+                    if isinstance(value, str):
+                        topologies.append(value)
         elif ctype == "ALTERNATIVE_PRODUCTS":
             for iso in comment.get("isoforms", []):
                 name = iso.get("name", {}).get("value")
@@ -392,56 +402,67 @@ def _parse_entry(entry: dict, sep: str) -> Dict[str, str]:
     data["isoform_synonyms"] = _serialize_list(isoform_synonyms, sep)
     data["reactions"] = _serialize_list(reactions, sep)
     data["reaction_ec_numbers"] = _serialize_list(reaction_ecs, sep)
-    # Features
-    feature_map = {
-        "Topological domain": "topology",
-        "Transmembrane region": "transmembrane",
-        "Intramembrane region": "intramembrane",
-        "Glycosylation": "glycosylation",
-        "Lipidation": "lipidation",
-        "Disulfide bond": "disulfide_bond",
-        "Modified residue": "modified_residue",
-        "Signal peptide": "signal_peptide",
-        "Propeptide": "propeptide",
-    }
-    feats: Dict[str, List[str]] = {
-        col: []
-        for col in [
-            "topology",
-            "transmembrane",
-            "intramembrane",
-            "glycosylation",
-            "lipidation",
-            "disulfide_bond",
-            "modified_residue",
-            "phosphorylation",
-            "acetylation",
-            "ubiquitination",
-            "signal_peptide",
-            "propeptide",
-        ]
-    }
-    for feat in entry.get("features", []):
-        ftype = feat.get("type")
-        desc = feat.get("description", "").lower()
-        out = feature_map.get(ftype)
-        if ftype == "Modified residue":
-            if "phospho" in desc:
-                feats["phosphorylation"].append(_feature_to_string(feat))
+
+    # Features --------------------------------------------------------
+    topo_feats: List[str] = []
+    trans_feats: List[str] = []
+    intra_feats: List[str] = []
+    glyco_feats: List[str] = []
+    lipid_feats: List[str] = []
+    disulfide_feats: List[str] = []
+    modres_feats: List[str] = []
+    phospho_feats: List[str] = []
+    acetyl_feats: List[str] = []
+    ubiquit_feats: List[str] = []
+    signal_feats: List[str] = []
+    propep_feats: List[str] = []
+
+    features = entry.get("features", [])
+    if isinstance(features, list):
+        for feat in features:
+            if not isinstance(feat, dict):
                 continue
-            if "acetyl" in desc:
-                feats["acetylation"].append(_feature_to_string(feat))
-                continue
-            if "ubiquitin" in desc:
-                feats["ubiquitination"].append(_feature_to_string(feat))
-                continue
-        if out:
-            feats[out].append(_feature_to_string(feat))
-        else:
-            if ftype == "Modified residue":
-                feats["modified_residue"].append(_feature_to_string(feat))
-    for col, values in feats.items():
-        data[col] = _serialize_list(values, sep)
+            ftype = feat.get("type")
+            desc = feat.get("description", "").lower()
+            value = _feature_to_string(feat)
+            if ftype in {"Topological domain"}:
+                topo_feats.append(value)
+            elif ftype in {"Transmembrane region", "TRANSMEMBRANE"}:
+                trans_feats.append(value)
+            elif ftype in {"Intramembrane region", "INTRAMEMBRANE"}:
+                intra_feats.append(value)
+            elif ftype == "Glycosylation":
+                glyco_feats.append(value)
+            elif ftype == "Lipidation":
+                lipid_feats.append(value)
+            elif ftype == "Disulfide bond":
+                disulfide_feats.append(value)
+            elif ftype == "Signal peptide":
+                signal_feats.append(value)
+            elif ftype == "Propeptide":
+                propep_feats.append(value)
+            elif ftype == "Modified residue":
+                if "phospho" in desc:
+                    phospho_feats.append(value)
+                elif "acetyl" in desc:
+                    acetyl_feats.append(value)
+                elif "ubiquitin" in desc:
+                    ubiquit_feats.append(value)
+                else:
+                    modres_feats.append(value)
+
+    data["topology"] = _serialize_list(topologies + topo_feats, sep)
+    data["transmembrane"] = "1" if trans_feats else ""
+    data["intramembrane"] = "1" if intra_feats else ""
+    data["glycosylation"] = _serialize_list(glyco_feats, sep)
+    data["lipidation"] = _serialize_list(lipid_feats, sep)
+    data["disulfide_bond"] = _serialize_list(disulfide_feats, sep)
+    data["modified_residue"] = _serialize_list(modres_feats, sep)
+    data["phosphorylation"] = _serialize_list(phospho_feats, sep)
+    data["acetylation"] = _serialize_list(acetyl_feats, sep)
+    data["ubiquitination"] = _serialize_list(ubiquit_feats, sep)
+    data["signal_peptide"] = _serialize_list(signal_feats, sep)
+    data["propeptide"] = _serialize_list(propep_feats, sep)
     return data
 
 

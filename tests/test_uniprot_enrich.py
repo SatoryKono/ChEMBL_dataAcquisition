@@ -30,7 +30,12 @@ MOCK_ENTRY = {
     "comments": [
         {
             "commentType": "SUBCELLULAR_LOCATION",
-            "subcellularLocations": [{"location": {"value": "Cytoplasm"}}],
+            "subcellularLocations": [
+                {
+                    "location": {"value": "Cytoplasm"},
+                    "topology": {"value": "Peripheral membrane protein"},
+                }
+            ],
         },
         {
             "commentType": "ALTERNATIVE_PRODUCTS",
@@ -57,6 +62,14 @@ MOCK_ENTRY = {
             "type": "Topological domain",
             "description": "Extracellular",
             "location": {"start": {"value": 1}, "end": {"value": 3}},
+        },
+        {
+            "type": "Transmembrane region",
+            "location": {"start": {"value": 10}, "end": {"value": 30}},
+        },
+        {
+            "type": "Intramembrane region",
+            "location": {"start": {"value": 40}, "end": {"value": 50}},
         },
         {
             "type": "Modified residue",
@@ -126,6 +139,10 @@ def test_enrich_uniprot(data_file: Path) -> None:
     assert df.loc[0, "secondary_accession_names"] == "Secondary protein"
     assert df.loc[0, "PROSITE"] == "PS12345"
     assert df.loc[0, "reaction_ec_numbers"] == "1.2.3.4"
+    assert df.loc[0, "subcellular_location"] == "Cytoplasm"
+    assert "Peripheral membrane protein" in df.loc[0, "topology"]
+    assert df.loc[0, "transmembrane"] == "1"
+    assert df.loc[0, "intramembrane"] == "1"
     # column order
     expected_cols = ["uniprot_id", "other"] + list(
         enrich_uniprot.__globals__["OUTPUT_COLUMNS"]
