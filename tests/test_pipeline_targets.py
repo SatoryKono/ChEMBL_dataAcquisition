@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
-from typing import Dict, List
+from typing import Any, Dict, List
+from pathlib import Path
 
 import pandas as pd
+import pytest
 
+from chembl_targets import TargetConfig
 from hgnc_client import HGNCRecord
 from pipeline_targets import PipelineConfig, run_pipeline
 
@@ -16,7 +19,7 @@ def make_uniprot(
     lineage: List[str],
     *,
     hgnc: str | None = None,
-) -> Dict:
+) -> Dict[str, Any]:
     return {
         "primaryAccession": accession,
         "entryType": "reviewed",
@@ -45,10 +48,10 @@ def make_uniprot(
 
 
 class DummyUniProt:
-    def __init__(self, records: Dict[str, Dict]):
+    def __init__(self, records: Dict[str, Dict[str, Any]]):
         self.records = records
 
-    def fetch(self, acc: str) -> Dict | None:  # pragma: no cover - simple
+    def fetch(self, acc: str) -> Dict[str, Any] | None:  # pragma: no cover - simple
         return self.records.get(acc)
 
 
@@ -61,16 +64,21 @@ class DummyHGNC:
 
 
 class DummyGtoP:
-    def __init__(self, endpoints: Dict[tuple[int, str], List[Dict]]):
+    def __init__(self, endpoints: Dict[tuple[int, str], List[Any]]):
         self.endpoints = endpoints
 
     def fetch_target_endpoint(
-        self, target_id: int, endpoint: str, params=None
-    ):  # pragma: no cover - simple
+        self,
+        target_id: int,
+        endpoint: str,
+        params: Dict[str, Any] | None = None,
+    ) -> List[Any]:  # pragma: no cover - simple
         return self.endpoints.get((target_id, endpoint), [])
 
 
-def fake_resolve(client: DummyGtoP, identifier: str, id_column: str):
+def fake_resolve(
+    client: DummyGtoP, identifier: str, id_column: str
+) -> Dict[str, Any]:
     return {"targetId": 111, "name": "T", "species": "Human"}
 
 
@@ -99,8 +107,10 @@ def make_chembl_df(accessions: List[str]) -> pd.DataFrame:
     )
 
 
-def test_pipeline_single_target(monkeypatch):
-    def chembl_fetch(ids, cfg=None):
+def test_pipeline_single_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    def chembl_fetch(
+        ids: List[str], cfg: TargetConfig | None = None
+    ) -> pd.DataFrame:
         return make_chembl_df(["P12345"])
 
     uni = DummyUniProt(
@@ -145,8 +155,10 @@ def test_pipeline_single_target(monkeypatch):
     assert "Syn1" in syns_all
 
 
-def test_pipeline_selects_human_uniprot(monkeypatch):
-    def chembl_fetch(ids, cfg=None):
+def test_pipeline_selects_human_uniprot(monkeypatch: pytest.MonkeyPatch) -> None:
+    def chembl_fetch(
+        ids: List[str], cfg: TargetConfig | None = None
+    ) -> pd.DataFrame:
         return make_chembl_df(["Q11111", "Q22222"])
 
     uni = DummyUniProt(
@@ -177,8 +189,10 @@ def test_pipeline_selects_human_uniprot(monkeypatch):
     assert ids == ["Q11111", "Q22222"]
 
 
-def test_pipeline_missing_hgnc(monkeypatch):
-    def chembl_fetch(ids, cfg=None):
+def test_pipeline_missing_hgnc(monkeypatch: pytest.MonkeyPatch) -> None:
+    def chembl_fetch(
+        ids: List[str], cfg: TargetConfig | None = None
+    ) -> pd.DataFrame:
         return make_chembl_df(["P12345"])
 
     uni = DummyUniProt(
@@ -205,8 +219,12 @@ def test_pipeline_missing_hgnc(monkeypatch):
     assert row["gene_symbol"].startswith("GENE")
 
 
-def test_pipeline_reproducible(tmp_path, monkeypatch):
-    def chembl_fetch(ids, cfg=None):
+def test_pipeline_reproducible(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def chembl_fetch(
+        ids: List[str], cfg: TargetConfig | None = None
+    ) -> pd.DataFrame:
         return make_chembl_df(["P12345"])
 
     uni = DummyUniProt(
@@ -243,10 +261,12 @@ def test_pipeline_reproducible(tmp_path, monkeypatch):
     assert p1.read_bytes() == p2.read_bytes()
 
 
-def test_pipeline_respects_config_columns(monkeypatch):
+def test_pipeline_respects_config_columns(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pipeline uses column order defined in configuration."""
 
-    def chembl_fetch(ids, cfg=None):
+    def chembl_fetch(
+        ids: List[str], cfg: TargetConfig | None = None
+    ) -> pd.DataFrame:
         return make_chembl_df(["P12345"])
 
     uni = DummyUniProt(

@@ -56,8 +56,8 @@ pipe_strategy = st.lists(
 )
 
 
-@settings(max_examples=25)
-@given(pipe_strategy)
+@settings(max_examples=25)  # type: ignore[misc]
+@given(pipe_strategy)  # type: ignore[misc]
 def test_serialise_list_pipe_roundtrip(values: list[Any]) -> None:
     """Serialisation to ``pipe`` is stable under a parse/serialise round-trip."""
 
@@ -66,8 +66,8 @@ def test_serialise_list_pipe_roundtrip(values: list[Any]) -> None:
     assert _serialise_list(parsed, "pipe") == serialised
 
 
-@settings(max_examples=25)
-@given(pipe_strategy)
+@settings(max_examples=25)  # type: ignore[misc]
+@given(pipe_strategy)  # type: ignore[misc]
 def test_serialise_list_json_roundtrip(values: list[Any]) -> None:
     """Serialisation to ``json`` round-trips via ``json.loads``."""
 

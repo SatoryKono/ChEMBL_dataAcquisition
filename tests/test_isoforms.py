@@ -1,6 +1,7 @@
 import json
 import logging
 from pathlib import Path
+from typing import Any, cast
 import pytest
 
 from uniprot_normalize import extract_isoforms
@@ -8,8 +9,11 @@ from uniprot_normalize import extract_isoforms
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _load_sample() -> dict:
-    return json.loads((ROOT / "tests/data/uniprot_entry.json").read_text())
+def _load_sample() -> dict[str, Any]:
+    return cast(
+        dict[str, Any],
+        json.loads((ROOT / "tests/data/uniprot_entry.json").read_text()),
+    )
 
 
 def test_extract_isoforms_no_isoforms() -> None:

@@ -10,10 +10,10 @@ import logging
 import sys
 from pathlib import Path
 
-from typing import Any, Callable, Dict, Iterable, List
+from typing import Any, Callable, Dict, Iterable, List, Sequence
 
 import pandas as pd
-import yaml  # type: ignore[import]
+import yaml
 from tqdm.auto import tqdm
 
 
@@ -634,7 +634,7 @@ def main() -> None:
     chembl_df = fetch_targets(ids, chembl_cfg, batch_size=args.batch_size)
 
     def _cached_chembl_fetch(
-        _: List[str], __: TargetConfig
+        _: Sequence[str], __: TargetConfig
     ) -> pd.DataFrame:  # pragma: no cover - simple wrapper
         return chembl_df
 

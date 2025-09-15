@@ -1,8 +1,9 @@
 from pathlib import Path
-from typing import Dict, Iterable
+from typing import Any, Dict, Iterable
 
 import json
 import sys
+import pytest
 
 import pandas as pd
 
@@ -18,7 +19,7 @@ from pipeline_targets_main import (
 )
 
 
-def test_merge_chembl_fields_adds_columns():
+def test_merge_chembl_fields_adds_columns() -> None:
     pipeline_df = pd.DataFrame(
         {
             "target_chembl_id": ["CHEMBL1"],
@@ -39,7 +40,7 @@ def test_merge_chembl_fields_adds_columns():
     assert merged.loc[0, "hgnc_id"] == "HGNC:1"
 
 
-def test_add_iuphar_classification():
+def test_add_iuphar_classification() -> None:
     df = pd.DataFrame(
         {
             "uniprot_id_primary": ["P12345"],
@@ -61,10 +62,10 @@ def test_add_iuphar_classification():
     assert row["iuphar_type"] == "Enzyme.Transferase"
 
 
-def test_add_protein_classification():
+def test_add_protein_classification() -> None:
     samples = json.loads((Path("tests/data/protein_samples.json").read_text()))
 
-    def fetcher(_: Iterable[str]) -> Dict[str, dict]:
+    def fetcher(_: Iterable[str]) -> Dict[str, Dict[str, Any]]:
         return {"P00000": samples["gpcr"]}
 
     df = pd.DataFrame({"uniprot_id_primary": ["P00000"]})
@@ -128,7 +129,7 @@ def test_extract_isoform() -> None:
 def test_add_isoform_fields() -> None:
     df = pd.DataFrame({"uniprot_id_primary": ["P99999"]})
 
-    def fetch_entry(_: str) -> dict:
+    def fetch_entry(_: str) -> Dict[str, Any]:
         return {
             "comments": [
                 {
@@ -151,7 +152,9 @@ def test_add_isoform_fields() -> None:
     assert row["isoform_synonyms"] == "Alpha"
 
 
-def test_save_output_creates_path_and_expands_user(tmp_path, monkeypatch) -> None:
+def test_save_output_creates_path_and_expands_user(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     df = pd.DataFrame({"a": [1]})
     monkeypatch.setenv("HOME", str(tmp_path))
     path = Path("~") / "nested" / "file.csv"

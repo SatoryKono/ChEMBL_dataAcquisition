@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 import requests
+import requests_mock
 
 from chembl2uniprot import map_chembl_to_uniprot
 from chembl2uniprot.config import (
@@ -44,7 +45,7 @@ def read_output(path: Path) -> list[str | None]:
 
 
 def test_success_mapping_single_batch(
-    requests_mock, tmp_path: Path, config_path: Path
+    requests_mock: requests_mock.Mocker, tmp_path: Path, config_path: Path
 ) -> None:
     run_url = "https://rest.uniprot.org/idmapping/run"
     status_url = "https://rest.uniprot.org/idmapping/status/123"
@@ -67,7 +68,7 @@ def test_success_mapping_single_batch(
 
 
 def test_success_mapping_redirect(
-    requests_mock, tmp_path: Path, config_path: Path
+    requests_mock: requests_mock.Mocker, tmp_path: Path, config_path: Path
 ) -> None:
     run_url = "https://rest.uniprot.org/idmapping/run"
     status_url = "https://rest.uniprot.org/idmapping/status/123"
@@ -93,7 +94,9 @@ def test_success_mapping_redirect(
     assert read_output(out) == ["P1", "P2"]
 
 
-def test_no_mapping(requests_mock, tmp_path: Path, config_path: Path) -> None:
+def test_no_mapping(
+    requests_mock: requests_mock.Mocker, tmp_path: Path, config_path: Path
+) -> None:
     run_url = "https://rest.uniprot.org/idmapping/run"
     status_url = "https://rest.uniprot.org/idmapping/status/1"
     results_url = "https://rest.uniprot.org/idmapping/results/1"
@@ -105,7 +108,9 @@ def test_no_mapping(requests_mock, tmp_path: Path, config_path: Path) -> None:
     assert read_output(out) == [None, None]
 
 
-def test_multiple_mappings(requests_mock, tmp_path: Path, config_path: Path) -> None:
+def test_multiple_mappings(
+    requests_mock: requests_mock.Mocker, tmp_path: Path, config_path: Path
+) -> None:
     run_url = "https://rest.uniprot.org/idmapping/run"
     status_url = "https://rest.uniprot.org/idmapping/status/1"
     results_url = "https://rest.uniprot.org/idmapping/results/1"
@@ -126,7 +131,7 @@ def test_multiple_mappings(requests_mock, tmp_path: Path, config_path: Path) -> 
 
 
 def test_retry_on_server_error(
-    requests_mock, tmp_path: Path, config_path: Path
+    requests_mock: requests_mock.Mocker, tmp_path: Path, config_path: Path
 ) -> None:
     run_url = "https://rest.uniprot.org/idmapping/run"
     status_url = "https://rest.uniprot.org/idmapping/status/1"
@@ -174,7 +179,9 @@ def test_poll_job_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
 
-def test_request_with_retry_raises_for_client_error(requests_mock) -> None:
+def test_request_with_retry_raises_for_client_error(
+    requests_mock: requests_mock.Mocker,
+) -> None:
     """Client errors should raise ``HTTPError`` without retrying."""
 
     url = "https://rest.uniprot.org/idmapping/run"
@@ -190,7 +197,9 @@ def test_request_with_retry_raises_for_client_error(requests_mock) -> None:
         )
 
 
-def test_deterministic_csv(requests_mock, tmp_path: Path, config_path: Path) -> None:
+def test_deterministic_csv(
+    requests_mock: requests_mock.Mocker, tmp_path: Path, config_path: Path
+) -> None:
     run_url = "https://rest.uniprot.org/idmapping/run"
     status_url = "https://rest.uniprot.org/idmapping/status/1"
     results_url = "https://rest.uniprot.org/idmapping/results/1"
@@ -213,8 +222,10 @@ def test_deterministic_csv(requests_mock, tmp_path: Path, config_path: Path) -> 
     assert out1.read_bytes() == out2.read_bytes()
 
 
-class CountingLimiter(RateLimiter):
+class CountingLimiter(RateLimiter):  # type: ignore[misc]
     """Rate limiter that counts how often ``wait`` is invoked."""
+
+    calls: int
 
     def __init__(self) -> None:
         super().__init__(rps=0)
@@ -224,7 +235,7 @@ class CountingLimiter(RateLimiter):
         self.calls += 1
 
 
-def test_rate_limiter_called_on_retries(requests_mock) -> None:
+def test_rate_limiter_called_on_retries(requests_mock: requests_mock.Mocker) -> None:
     url = "https://example.org"
     limiter = CountingLimiter()
     requests_mock.get(url, [{"status_code": 500}, {"status_code": 200}])
@@ -239,7 +250,7 @@ def test_rate_limiter_called_on_retries(requests_mock) -> None:
     assert limiter.calls == 2
 
 
-def test_rate_limiter_single_request(requests_mock) -> None:
+def test_rate_limiter_single_request(requests_mock: requests_mock.Mocker) -> None:
     url = "https://example.org"
     limiter = CountingLimiter()
     requests_mock.get(url, status_code=200)

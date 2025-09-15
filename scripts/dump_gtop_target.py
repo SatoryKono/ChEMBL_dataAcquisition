@@ -10,7 +10,7 @@ import sys
 
 
 from pathlib import Path
-from typing import List, cast
+from typing import Any, List, cast
 
 import pandas as pd
 import yaml
@@ -30,9 +30,9 @@ from library.gtop_normalize import (  # noqa: E402
 LOGGER = logging.getLogger("dump_gtop_target")
 
 
-def _load_config(path: Path) -> dict:
+def _load_config(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
+        return cast(dict[str, Any], yaml.safe_load(fh))
 
 
 def parse_args() -> argparse.Namespace:

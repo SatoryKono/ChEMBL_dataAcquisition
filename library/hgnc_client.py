@@ -169,10 +169,7 @@ class HGNCClient:
         """Return recommended protein name from UniProt."""
 
         url = f"https://rest.uniprot.org/uniprotkb/{uniprot_id}.json"
-        try:
-            resp = self._request(url)
-        except Exception:  # pragma: no cover - network errors handled silently
-            return ""
+        resp = self._request(url)
         if resp.status_code != 200:
             return ""
         try:

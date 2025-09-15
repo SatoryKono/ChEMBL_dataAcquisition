@@ -14,7 +14,7 @@ def test_load_functions() -> None:
     assert "family_id" in family_df.columns
 
 
-def test_map_uniprot_file(tmp_path) -> None:
+def test_map_uniprot_file(tmp_path: Path) -> None:
     data = IUPHARData.from_files(
         Path("tests/data/iuphar_target.csv"), Path("tests/data/iuphar_family.csv")
     )
