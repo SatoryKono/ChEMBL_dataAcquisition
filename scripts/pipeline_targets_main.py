@@ -298,6 +298,129 @@ def add_uniprot_fields(
     return pipeline_df
 
 
+def extract_isoform(data: Any) -> dict[str, str]:
+    """Return isoform information found in ``data``.
+
+    The function inspects ``ALTERNATIVE PRODUCTS`` comments and gathers the
+    names, IDs, and synonyms for each isoform. Multiple IDs or synonyms within
+    an isoform are joined by ``":"`` while separate isoforms are joined by
+    ``"|"``. When no isoform data is available, the strings ``"None"`` are
+    returned for all fields.
+
+    Parameters
+    ----------
+    data:
+        A UniProt JSON structure, list of entries, or search results containing
+        UniProt entries.
+
+    Returns
+    -------
+    dict[str, str]
+        Mapping with keys ``isoform_names``, ``isoform_ids`` and
+        ``isoform_synonyms`` containing pipe-separated strings.
+    """
+
+    names: list[str] = []
+    ids: list[str] = []
+    syns: list[str] = []
+    if isinstance(data, dict) and "results" in data:
+        entries = data["results"]
+    elif isinstance(data, list):
+        entries = data
+    else:
+        entries = [data]
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        comments = entry.get("comments", [])
+        if not isinstance(comments, list):
+            continue
+        for comment in comments:
+            if (
+                not isinstance(comment, dict)
+                or comment.get("commentType") != "ALTERNATIVE PRODUCTS"
+            ):
+                continue
+            isoforms = comment.get("isoforms", [])
+            if not isinstance(isoforms, list):
+                continue
+            for iso in isoforms:
+                if not isinstance(iso, dict):
+                    continue
+                name = None
+                name_obj = iso.get("name")
+                if isinstance(name_obj, dict):
+                    name = name_obj.get("value")
+                if isinstance(name, str):
+                    names.append(name)
+                iso_ids: list[str] = []
+                for iid in iso.get("isoformIds", []) or []:
+                    if isinstance(iid, str):
+                        iso_ids.append(iid)
+                ids.append(":".join(iso_ids) if iso_ids else "N/A")
+                syn_list: list[str] = []
+                for syn in iso.get("synonyms", []) or []:
+                    if isinstance(syn, dict):
+                        value = syn.get("value")
+                        if isinstance(value, str):
+                            syn_list.append(value)
+                syns.append(":".join(syn_list) if syn_list else "N/A")
+    result = {
+        "isoform_names": "|".join(names) if names else "None",
+        "isoform_ids": "|".join(ids) if names else "None",
+        "isoform_synonyms": "|".join(syns) if names else "None",
+    }
+    return result
+
+
+def add_isoform_fields(
+    pipeline_df: pd.DataFrame, fetch_entry: Callable[[str], Any]
+) -> pd.DataFrame:
+    """Append isoform data parsed from UniProt entries.
+
+    Parameters
+    ----------
+    pipeline_df:
+        Data frame produced by :func:`run_pipeline` containing a
+        ``uniprot_id_primary`` column.
+    fetch_entry:
+        Callable returning a UniProt JSON entry for a given accession.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``pipeline_df`` with ``isoform_names``, ``isoform_ids`` and
+        ``isoform_synonyms`` columns populated. Existing columns are preserved.
+    """
+
+    ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str)).astype(str)
+    cache: Dict[str, dict[str, str]] = {}
+    for acc in ids:
+        if not acc or acc in cache:
+            continue
+        entry = fetch_entry(acc)
+        cache[acc] = (
+            extract_isoform(entry)
+            if entry
+            else {
+                "isoform_names": "None",
+                "isoform_ids": "None",
+                "isoform_synonyms": "None",
+            }
+        )
+    pipeline_df = pipeline_df.copy()
+    pipeline_df["isoform_names"] = [
+        cache.get(i, {}).get("isoform_names", "None") for i in ids
+    ]
+    pipeline_df["isoform_ids"] = [
+        cache.get(i, {}).get("isoform_ids", "None") for i in ids
+    ]
+    pipeline_df["isoform_synonyms"] = [
+        cache.get(i, {}).get("isoform_synonyms", "None") for i in ids
+    ]
+    return pipeline_df
+
+
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the pipeline."""
 
@@ -405,7 +528,8 @@ def main() -> None:
         else args.approved_only.lower() == "true"
     )
     pipeline_cfg.iuphar.primary_target_only = args.primary_target_only.lower() == "true"
-    pipeline_cfg.include_isoforms = args.with_isoforms
+    use_isoforms = args.with_isoforms
+    pipeline_cfg.include_isoforms = False
 
     # Load optional ChEMBL column configuration and ensure required fields
     with open(args.config, "r", encoding="utf-8") as fh:
@@ -488,6 +612,8 @@ def main() -> None:
     enrich_client = UniProtEnrichClient()
     out_df = add_uniprot_fields(out_df, enrich_client.fetch_all)
     out_df = merge_chembl_fields(out_df, chembl_df)
+    if use_isoforms:
+        out_df = add_isoform_fields(out_df, uni_client.fetch_entry_json)
 
     # Append optional IUPHAR classification data when both CSV files are provided.
     if args.iuphar_target and args.iuphar_family:
@@ -509,7 +635,6 @@ def main() -> None:
     # Keep classification columns grouped together at the end for clarity.
     cols = [c for c in out_df.columns if c not in IUPHAR_CLASS_COLUMNS]
     out_df = out_df[cols + IUPHAR_CLASS_COLUMNS]
-
 
     out_df.to_csv(args.output, index=False, sep=args.sep, encoding=args.encoding)
 
