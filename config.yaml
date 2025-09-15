@@ -62,3 +62,22 @@ output:
   encoding: utf-8-sig
   list_format: json
   include_sequence: false
+
+orthologs:
+  enabled: true
+  primary_source: "ensembl"
+  target_species:
+    - human
+    - mouse
+    - rat
+    - zebrafish
+    - dog
+    - macaque
+  species_priority:
+    - "Homo sapiens"
+    - "Mus musculus"
+    - "Rattus norvegicus"
+  rate_limit_rps: 2
+  timeout_sec: 30
+  retries: 3
+  backoff_base_sec: 1.0

@@ -314,3 +314,22 @@ def normalize_entry(
     result["entry_version"] = audit.get("entryVersion", "")
 
     return result
+
+
+def extract_ensembl_gene_ids(entry: Dict[str, Any]) -> List[str]:
+    """Return Ensembl gene identifiers associated with a UniProt entry.
+
+    Parameters
+    ----------
+    entry:
+        Parsed UniProt JSON document.
+    """
+
+    ids: set[str] = set()
+    for xref in _collect_cross_refs(entry, "Ensembl"):
+        for prop in xref.get("properties", []):
+            if prop.get("key") == "GeneId":
+                val = prop.get("value")
+                if val:
+                    ids.add(str(val).split(".")[0])
+    return sorted(ids)

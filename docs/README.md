@@ -113,6 +113,32 @@ python scripts/get_uniprot_target_data.py \
 The behaviour is configured via ``config.yaml``.  Lists are serialised either as
 JSON (default) or as ``|``-delimited strings depending on the configuration.
 
+### Including orthologs
+
+Orthologous genes can be fetched via the Ensembl REST API and attached to the
+output.  Enable this behaviour with ``--with-orthologs`` and optionally specify
+an explicit path for the normalised ortholog table using ``--orthologs-output``.
+
+```bash
+python scripts/get_uniprot_target_data.py \
+    --input ids.csv \
+    --output targets.csv \
+    --with-orthologs \
+    --orthologs-output orthologs.csv
+```
+
+Two additional columns are written to the main CSV: ``orthologs_json`` contains
+an array of ortholog descriptors and ``orthologs_count`` records the number of
+matches.  The secondary CSV lists one row per source/target pair with the
+following columns:
+
+``source_uniprot_id, source_ensembl_gene_id, source_species, target_species,
+target_gene_symbol, target_ensembl_gene_id, target_uniprot_id, homology_type,
+perc_id, perc_pos, dn, ds, is_high_confidence, source_db``.
+
+Supported target species in the default configuration are ``human``, ``mouse``,
+``rat``, ``zebrafish``, ``dog`` and ``macaque``.
+
 ### Downloading target metadata
 
 Fetch basic information for targets listed in ``targets.csv`` and write the

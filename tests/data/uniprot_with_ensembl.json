@@ -1,0 +1,7 @@
+{
+  "primaryAccession": "P35498",
+  "uniProtKBCrossReferences": [
+    {"database": "Ensembl", "id": "ENST00000303395.9", "properties": [{"key": "GeneId", "value": "ENSG00000144285.24"}]},
+    {"database": "Ensembl", "id": "ENST00000375405.7", "properties": [{"key": "GeneId", "value": "ENSG00000144285.24"}]}
+  ]
+}
