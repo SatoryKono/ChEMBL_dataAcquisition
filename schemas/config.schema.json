@@ -10,12 +10,24 @@
         "input": {
           "type": "object",
           "required": ["encoding"],
-          "properties": { "encoding": { "type": "string" } }
+          "properties": {
+            "encoding": {
+              "type": "string",
+              "description": "File encoding for input CSV",
+              "examples": ["utf-8"]
+            }
+          }
         },
         "output": {
           "type": "object",
           "required": ["encoding"],
-          "properties": { "encoding": { "type": "string" } }
+          "properties": {
+            "encoding": {
+              "type": "string",
+              "description": "File encoding for output CSV",
+              "examples": ["utf-8"]
+            }
+          }
         },
         "csv": {
           "type": "object",
