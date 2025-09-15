@@ -206,18 +206,12 @@ class HGNCClient:
             data = resp.json()
         except ValueError:
             return ""
-        if not isinstance(data, dict):
-            return ""
-        protein = data.get("proteinDescription", {})
-        if isinstance(protein, dict):
-            rec = protein.get("recommendedName", {})
-            if isinstance(rec, dict):
-                full = rec.get("fullName", {})
-                if isinstance(full, dict):
-                    value = full.get("value")
-                    if isinstance(value, str):
-                        return value
-        return ""
+        return (
+            data.get("proteinDescription", {})
+            .get("recommendedName", {})
+            .get("fullName", {})
+            .get("value", "")
+        )
 
     def fetch(self, uniprot_id: str) -> HGNCRecord:
         """Fetch HGNC mapping data for a single UniProt accession.

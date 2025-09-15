@@ -52,6 +52,12 @@ chembl:
     - cross_references
     - gene_symbol_list
     - protein_synonym_list
+
+output:
+  list_format: json
+  encoding: "utf-8-sig"
+
+
 pipeline:
   rate_limit_rps: 2
   retries: 3
@@ -155,11 +161,15 @@ hgnc:
 
 
 output:
-  # Global settings applied to all generated CSV files
-  sep: ","            # Column separator, e.g. "," or "\t"
-  encoding: "utf-8-sig"  # File encoding for output files
-  list_format: pipe       # Serialisation format for list-like fields ("json" or "pipe")
-  include_sequence: false # Include protein sequence column by default
+  # Separator used for CSV output, e.g. "," or "\t"
+  sep: ","
+  # File encoding for generated CSV files
+  encoding: "utf-8-sig"
+  # Serialisation format for list-like fields: "json" or "pipe"
+  list_format: pipe
+  # Include protein sequence column by default
+
+  include_sequence: false
 
 orthologs:
   enabled: true

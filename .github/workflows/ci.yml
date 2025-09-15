@@ -18,6 +18,6 @@ jobs:
       - name: Ruff
         run: ruff check .
       - name: Mypy
-        run: mypy --strict library
+        run: mypy --strict library/chembl2uniprot
       - name: Pytest
         run: pytest

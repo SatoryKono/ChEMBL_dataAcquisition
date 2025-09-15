@@ -156,13 +156,10 @@ class UniProtClient:
         except json.JSONDecodeError:  # pragma: no cover - API guarantees JSON
             LOGGER.warning("Invalid JSON for %s", accession)
             return None
-        results = data.get("results")
-        if not isinstance(results, list) or not results:
+        results = data.get("results", [])
+        if not results:
             return None
-        first = results[0]
-        if not isinstance(first, dict):
-            return None
-        return first
+        return results[0]
 
     # ------------------------------------------------------------------
     def fetch_entry_json(self, accession: str) -> Optional[Dict[str, Any]]:
@@ -184,11 +181,10 @@ class UniProtClient:
         if not resp:
             return None
         try:
-            data = resp.json()
+            return resp.json()
         except json.JSONDecodeError:  # pragma: no cover - API guarantees JSON
             LOGGER.warning("Invalid JSON for %s", accession)
             return None
-        return data if isinstance(data, dict) else None
 
     def fetch_entries_json(
         self, accessions: Iterable[str], *, batch_size: int = 100
