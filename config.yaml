@@ -1,0 +1,10 @@
+gtop:
+  base_url: "https://www.guidetopharmacology.org/services"
+network:
+  timeout_sec: 30
+  max_retries: 3
+rate_limit:
+  rps: 2
+output:
+  encoding: "utf-8-sig"
+  sep: ","
