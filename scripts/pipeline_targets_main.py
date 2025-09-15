@@ -10,7 +10,7 @@ import logging
 import sys
 from pathlib import Path
 
-from typing import List
+from typing import Any, Callable, Dict, List
 
 import pandas as pd
 import yaml  # type: ignore[import]
@@ -32,7 +32,7 @@ from library.uniprot_client import (
 )
 from library.orthologs import EnsemblHomologyClient, OmaClient
 
-
+from library.protein_classifier import classify_protein
 
 from library.pipeline_targets import (
     PipelineConfig,
@@ -121,9 +121,7 @@ def add_iuphar_classification(
             if mapped and "|" not in mapped:
                 target_id = mapped
         record = (
-            classifier.by_target_id(target_id)
-            if target_id
-            else ClassificationRecord()
+            classifier.by_target_id(target_id) if target_id else ClassificationRecord()
         )
         return pd.Series(
             {
@@ -134,16 +132,82 @@ def add_iuphar_classification(
                 "iuphar_subclass": record.IUPHAR_subclass,
                 "iuphar_chain": ">".join(record.IUPHAR_tree),
                 "iuphar_name": record.IUPHAR_name,
-                "iuphar_full_id_path": data.all_id(record.IUPHAR_target_id)
-                if record.IUPHAR_target_id != "N/A"
-                else "",
-                "iuphar_full_name_path": data.all_name(record.IUPHAR_target_id)
-                if record.IUPHAR_target_id != "N/A"
-                else "",
+                "iuphar_full_id_path": (
+                    data.all_id(record.IUPHAR_target_id)
+                    if record.IUPHAR_target_id != "N/A"
+                    else ""
+                ),
+                "iuphar_full_name_path": (
+                    data.all_name(record.IUPHAR_target_id)
+                    if record.IUPHAR_target_id != "N/A"
+                    else ""
+                ),
             }
         )
 
     class_df = pipeline_df.apply(_classify, axis=1)
+    return pd.concat([pipeline_df, class_df], axis=1)
+
+
+def add_protein_classification(
+    pipeline_df: pd.DataFrame,
+    fetch_entry: Callable[[str], Dict[str, Any] | None],
+) -> pd.DataFrame:
+    """Append automated protein classification columns.
+
+    Parameters
+    ----------
+    pipeline_df:
+        Data frame produced by :func:`run_pipeline`.
+    fetch_entry:
+        Callable returning a UniProt JSON dictionary for a given accession.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``pipeline_df`` extended with predicted classification fields. The
+        following columns are added:
+
+        ``protein_class_pred_L1``, ``protein_class_pred_L2``,
+        ``protein_class_pred_L3``, ``protein_class_pred_rule_id``,
+        ``protein_class_pred_evidence`` and
+        ``protein_class_pred_confidence``.
+    """
+
+    columns = [
+        "protein_class_pred_L1",
+        "protein_class_pred_L2",
+        "protein_class_pred_L3",
+        "protein_class_pred_rule_id",
+        "protein_class_pred_evidence",
+        "protein_class_pred_confidence",
+    ]
+
+    def _classify(acc: str) -> pd.Series:
+        try:
+            entry = fetch_entry(acc)
+        except Exception as exc:  # pragma: no cover - logging side effect
+            logging.getLogger(__name__).warning(
+                "Failed to fetch UniProt entry %s: %s", acc, exc
+            )
+            entry = None
+        result = classify_protein(entry) if entry else {}
+        evidence = result.get("evidence", [])
+        return pd.Series(
+            {
+                "protein_class_pred_L1": result.get("protein_class_L1", ""),
+                "protein_class_pred_L2": result.get("protein_class_L2", ""),
+                "protein_class_pred_L3": result.get("protein_class_L3", ""),
+                "protein_class_pred_rule_id": result.get("rule_id", ""),
+                "protein_class_pred_evidence": "|".join(evidence),
+                "protein_class_pred_confidence": result.get("confidence", ""),
+            }
+        )
+
+    class_df = pipeline_df["uniprot_id_primary"].apply(_classify)
+    for col in columns:
+        if col not in class_df.columns:
+            class_df[col] = ""
     return pd.concat([pipeline_df, class_df], axis=1)
 
 
@@ -342,6 +406,7 @@ def main() -> None:
             args.iuphar_family,
             encoding=args.encoding,
         )
+    out_df = add_protein_classification(out_df, uni_client.fetch_entry_json)
     out_df.to_csv(args.output, index=False, sep=args.sep, encoding=args.encoding)
 
 
