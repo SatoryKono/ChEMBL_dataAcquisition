@@ -30,6 +30,7 @@ from uniprot_client import (
     RateLimitConfig as UniRateConfig,
     UniProtClient,
 )
+from orthologs import EnsemblHomologyClient, OmaClient
 
 
 from pipeline_targets import PipelineConfig, load_pipeline_config, run_pipeline
@@ -51,13 +52,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--affinity-parameter", default="pKi")
     parser.add_argument("--approved-only", default="false")
     parser.add_argument("--primary-target-only", default="true")
+    parser.add_argument("--with-isoforms", action="store_true")
+    parser.add_argument("--with-orthologs", action="store_true")
     return parser.parse_args()
 
 
 def build_clients(
-    cfg_path: str, pipeline_cfg: PipelineConfig
-) -> tuple[UniProtClient, HGNCClient, GtoPClient]:
-    """Initialise UniProt, HGNC, and GtoP clients."""
+    cfg_path: str, pipeline_cfg: PipelineConfig, *, with_orthologs: bool = False
+) -> tuple[
+    UniProtClient,
+    HGNCClient,
+    GtoPClient,
+    EnsemblHomologyClient | None,
+    OmaClient | None,
+    list[str],
+]:
+    """Initialise service clients used by the pipeline."""
 
     with open(cfg_path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
@@ -90,7 +100,30 @@ def build_clients(
         rps=pipeline_cfg.rate_limit_rps,
     )
     gtop = GtoPClient(gcfg)
-    return uni, hgnc, gtop
+
+    ens_client: EnsemblHomologyClient | None = None
+    oma_client: OmaClient | None = None
+    target_species: list[str] = []
+    if with_orthologs:
+        orth_cfg = data.get("orthologs", {})
+        ens_client = EnsemblHomologyClient(
+            base_url="https://rest.ensembl.org",
+            network=UniNetworkConfig(
+                timeout_sec=pipeline_cfg.timeout_sec,
+                max_retries=pipeline_cfg.retries,
+            ),
+            rate_limit=UniRateConfig(rps=pipeline_cfg.rate_limit_rps),
+        )
+        oma_client = OmaClient(
+            base_url="https://omabrowser.org/api",
+            network=UniNetworkConfig(
+                timeout_sec=pipeline_cfg.timeout_sec,
+                max_retries=pipeline_cfg.retries,
+            ),
+            rate_limit=UniRateConfig(rps=pipeline_cfg.rate_limit_rps),
+        )
+        target_species = list(orth_cfg.get("target_species", []))
+    return uni, hgnc, gtop, ens_client, oma_client, target_species
 
 
 def main() -> None:
@@ -108,6 +141,7 @@ def main() -> None:
         else args.approved_only.lower() == "true"
     )
     pipeline_cfg.iuphar.primary_target_only = args.primary_target_only.lower() == "true"
+    pipeline_cfg.include_isoforms = args.with_isoforms
 
     # Load optional ChEMBL column configuration
     with open(args.config, "r", encoding="utf-8") as fh:
@@ -117,7 +151,14 @@ def main() -> None:
     if chembl_cols:
         chembl_cfg.columns = list(chembl_cols)
 
-    uni_client, hgnc_client, gtop_client = build_clients(args.config, pipeline_cfg)
+    (
+        uni_client,
+        hgnc_client,
+        gtop_client,
+        ens_client,
+        oma_client,
+        target_species,
+    ) = build_clients(args.config, pipeline_cfg, with_orthologs=args.with_orthologs)
 
     df = pd.read_csv(args.input, sep=args.sep, encoding=args.encoding)
     if args.id_column not in df.columns:
@@ -134,6 +175,9 @@ def main() -> None:
         uniprot_client=uni_client,
         hgnc_client=hgnc_client,
         gtop_client=gtop_client,
+        ensembl_client=ens_client,
+        oma_client=oma_client,
+        target_species=target_species,
     )
     out_df.to_csv(args.output, index=False, sep=args.sep, encoding=args.encoding)
 

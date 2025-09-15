@@ -12,8 +12,13 @@ from chembl_targets import TargetConfig, fetch_targets
 from gtop_client import GtoPClient, resolve_target
 from gtop_normalize import normalise_interactions, normalise_synonyms
 from hgnc_client import HGNCClient, HGNCRecord
+from orthologs import EnsemblHomologyClient, OmaClient
 from uniprot_client import UniProtClient
-from uniprot_normalize import normalize_entry
+from uniprot_normalize import (
+    extract_ensembl_gene_ids,
+    extract_isoforms,
+    normalize_entry,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -24,10 +29,15 @@ DEFAULT_COLUMNS = [
     "target_chembl_id",
     "uniprot_id_primary",
     "uniprot_ids_all",
+    "isoform_ids",
+    "isoform_names",
+    "isoform_synonyms",
     "hgnc_id",
     "gene_symbol",
     "protein_name_canonical",
     "protein_name_alt",
+    "names_all",
+    "synonyms_all",
     "organism",
     "taxon_id",
     "lineage_superkingdom",
@@ -59,6 +69,9 @@ DEFAULT_COLUMNS = [
     "xref_iuphar",
     "gtop_target_id",
     "gtop_synonyms",
+    "ortholog_uniprot_ids",
+    "orthologs_json",
+    "orthologs_count",
     "gtop_natural_ligands_n",
     "gtop_interactions_n",
     "gtop_function_text_short",
@@ -111,6 +124,7 @@ class PipelineConfig:
     )
     list_format: str = "json"
     include_sequence: bool = False
+    include_isoforms: bool = False
     columns: List[str] = field(default_factory=lambda: list(DEFAULT_COLUMNS))
     iuphar: IupharConfig = field(default_factory=IupharConfig)
 
@@ -135,6 +149,7 @@ def load_pipeline_config(path: str) -> PipelineConfig:
         species_priority=list(cfg.get("species_priority", ["Human", "Homo sapiens"])),
         list_format=cfg.get("list_format", "json"),
         include_sequence=cfg.get("include_sequence", False),
+        include_isoforms=cfg.get("include_isoforms", False),
         columns=list(cfg.get("columns", DEFAULT_COLUMNS)),
         iuphar=IupharConfig(
             affinity_parameter=iuphar.get("affinity_parameter", "pKi"),
@@ -181,6 +196,9 @@ def run_pipeline(
     uniprot_client: UniProtClient,
     hgnc_client: HGNCClient | None = None,
     gtop_client: GtoPClient | None = None,
+    ensembl_client: EnsemblHomologyClient | None = None,
+    oma_client: OmaClient | None = None,
+    target_species: Sequence[str] | None = None,
 ) -> pd.DataFrame:
     """Orchestrate data acquisition for ``ids``.
 
@@ -201,6 +219,12 @@ def run_pipeline(
         Optional client for HGNC lookups.
     gtop_client:
         Optional client for IUPHAR/GtoP data.
+    ensembl_client:
+        Optional client for Ensembl ortholog retrieval.
+    oma_client:
+        Optional client for OMA ortholog lookups.
+    target_species:
+        List of species considered when retrieving orthologs.
     """
 
     chembl_cfg = chembl_config or TargetConfig(list_format=cfg.list_format)
@@ -211,12 +235,31 @@ def run_pipeline(
         comps = json.loads(row.get("target_components") or "[]")
         accessions = [c.get("accession") for c in comps if c.get("accession")]
         uniprot_entries: List[Dict[str, Any]] = []
+        raw_entries: Dict[str, Dict[str, Any]] = {}
         for acc in sorted(dict.fromkeys(accessions)):
-            raw = uniprot_client.fetch(acc)
-            if raw:
-                uniprot_entries.append(
-                    normalize_entry(raw, include_sequence=cfg.include_sequence)
-                )
+            if cfg.include_isoforms or ensembl_client or oma_client:
+                raw = uniprot_client.fetch_entry_json(acc)
+                if raw:
+                    raw_entries[acc] = raw
+                    fasta_headers: List[str] = []
+                    isoforms: List[Dict[str, Any]] = []
+                    if cfg.include_isoforms:
+                        fasta_headers = uniprot_client.fetch_isoforms_fasta(acc)
+                        isoforms = extract_isoforms(raw, fasta_headers)
+                    uniprot_entries.append(
+                        normalize_entry(
+                            raw,
+                            include_sequence=cfg.include_sequence,
+                            isoforms=isoforms,
+                        )
+                    )
+            else:
+                raw = uniprot_client.fetch(acc)
+                if raw:
+                    raw_entries[acc] = raw
+                    uniprot_entries.append(
+                        normalize_entry(raw, include_sequence=cfg.include_sequence)
+                    )
         primary = _select_primary(uniprot_entries, cfg.species_priority)
         primary_id = primary.get("uniprot_id") if primary else ""
         all_ids = [e.get("uniprot_id") for e in uniprot_entries]
@@ -239,6 +282,7 @@ def run_pipeline(
         gtop_nat = 0
         gtop_int = 0
         gtop_func = ""
+        gtop_name = ""
         if gtop_client:
             target = None
             for id_col, value in [
@@ -253,6 +297,7 @@ def run_pipeline(
                         break
             if target:
                 gtop_id = str(target.get("targetId", ""))
+                gtop_name = target.get("name", "") or ""
                 syn_df = normalise_synonyms(
                     int(target.get("targetId", 0)),
                     gtop_client.fetch_target_endpoint(
@@ -281,6 +326,42 @@ def run_pipeline(
                     first = func[0]
                     gtop_func = (first.get("functionText") or "")[:200]
 
+        isoform_ids = primary.get("isoform_ids_all", []) if primary else []
+        isoform_names = primary.get("isoform_names", []) if primary else []
+        isoform_synonyms: List[str] = []
+        if cfg.include_isoforms and primary:
+            try:
+                iso_data = json.loads(primary.get("isoforms_json", "[]"))
+            except json.JSONDecodeError:
+                iso_data = []
+            for iso in iso_data:
+                isoform_synonyms.extend(iso.get("isoform_synonyms", []))
+
+        orthologs_json = "[]"
+        orthologs_count = 0
+        ortholog_ids: List[str] = []
+        if (ensembl_client or oma_client) and primary_id:
+            primary_raw = raw_entries.get(primary_id, {})
+            gene_ids = extract_ensembl_gene_ids(primary_raw)
+            gene_id = gene_ids[0] if gene_ids else ""
+            orthologs = []
+            if ensembl_client and gene_id:
+                orthologs = ensembl_client.get_orthologs(
+                    gene_id, list(target_species or [])
+                )
+            if not orthologs and oma_client:
+                orthologs = oma_client.get_orthologs_by_uniprot(primary_id)
+            if orthologs:
+                ortholog_ids = [
+                    o.target_uniprot_id or "" for o in orthologs if o.target_uniprot_id
+                ]
+                orthologs_json = json.dumps(
+                    [o.to_ordered_dict() for o in orthologs],
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+                orthologs_count = len(orthologs)
+
         pc = json.loads(row.get("protein_classifications") or "[]")
         pc += [""] * (5 - len(pc))
         cross_refs = json.loads(row.get("cross_references") or "[]")
@@ -288,10 +369,41 @@ def run_pipeline(
             r.get("xref_id") for r in cross_refs if r.get("xref_db") == "ChEMBL"
         ]
 
+        names: set[str] = set()
+        synonyms: set[str] = set()
+        if row.get("pref_name"):
+            names.add(row.get("pref_name", ""))
+        syn_list = json.loads(row.get("protein_synonym_list") or "[]")
+        synonyms.update(syn_list)
+        gene_list = json.loads(row.get("gene_symbol_list") or "[]")
+        synonyms.update(gene_list)
+        if primary:
+            if primary.get("protein_recommended_name"):
+                names.add(primary.get("protein_recommended_name", ""))
+            synonyms.update(primary.get("protein_alternative_names", []))
+            if primary.get("gene_primary"):
+                names.add(primary.get("gene_primary", ""))
+            synonyms.update(primary.get("gene_synonyms", []))
+            synonyms.update(primary.get("isoform_names", []))
+        if hgnc_rec:
+            if hgnc_rec.gene_symbol:
+                names.add(hgnc_rec.gene_symbol)
+            if hgnc_rec.gene_name:
+                names.add(hgnc_rec.gene_name)
+            if hgnc_rec.protein_name:
+                names.add(hgnc_rec.protein_name)
+        if gtop_name:
+            names.add(gtop_name)
+        synonyms.update(gtop_synonyms)
+        synonyms.update(isoform_synonyms)
+
         rec: Dict[str, Any] = {
             "target_chembl_id": chembl_id,
             "uniprot_id_primary": primary_id,
             "uniprot_ids_all": _serialise_list(all_ids, cfg.list_format),
+            "isoform_ids": _serialise_list(isoform_ids, "pipe"),
+            "isoform_names": _serialise_list(isoform_names, "pipe"),
+            "isoform_synonyms": _serialise_list(isoform_synonyms, "pipe"),
             "hgnc_id": hgnc_id,
             "gene_symbol": gene_symbol,
             "protein_name_canonical": (
@@ -307,6 +419,8 @@ def run_pipeline(
                 ),
                 cfg.list_format,
             ),
+            "names_all": _serialise_list(list(names), "pipe"),
+            "synonyms_all": _serialise_list(list(synonyms), "pipe"),
             "organism": (
                 primary.get("organism_name", row.get("organism", ""))
                 if primary
@@ -379,6 +493,9 @@ def run_pipeline(
             "xref_iuphar": gtop_id,
             "gtop_target_id": gtop_id,
             "gtop_synonyms": _serialise_list(gtop_synonyms, cfg.list_format),
+            "ortholog_uniprot_ids": _serialise_list(ortholog_ids, "pipe"),
+            "orthologs_json": orthologs_json,
+            "orthologs_count": orthologs_count,
             "gtop_natural_ligands_n": gtop_nat,
             "gtop_interactions_n": gtop_int,
             "gtop_function_text_short": gtop_func,

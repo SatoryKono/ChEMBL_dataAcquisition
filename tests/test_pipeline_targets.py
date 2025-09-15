@@ -139,6 +139,10 @@ def test_pipeline_single_target(monkeypatch):
     assert row["gtop_natural_ligands_n"] == 2
     assert row["gtop_interactions_n"] == 2
     assert json.loads(row["gtop_synonyms"]) == ["Syn1"]
+    names_all = row["names_all"].split("|")
+    assert "Pref" in names_all and "Protein P12345" in names_all
+    syns_all = row["synonyms_all"].split("|")
+    assert "Syn1" in syns_all
 
 
 def test_pipeline_selects_human_uniprot(monkeypatch):

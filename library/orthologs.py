@@ -22,9 +22,9 @@ from dataclasses import dataclass, field
 import logging
 from typing import Any, Dict, Iterable, List, Optional
 
-import requests
+import requests  # type: ignore[import-untyped]
 
-from .uniprot_client import NetworkConfig, RateLimitConfig
+from uniprot_client import NetworkConfig, RateLimitConfig
 
 LOGGER = logging.getLogger(__name__)
 
