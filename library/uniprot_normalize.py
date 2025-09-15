@@ -6,7 +6,7 @@ import hashlib
 import json
 import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple, TypedDict
+from typing import Any, Dict, List, Optional, Set, Tuple, TypedDict
 
 ORDERED_COLUMNS_BASE = [
     "uniprot_id",
@@ -118,6 +118,18 @@ def _collect_cross_refs(entry: Dict[str, Any], db: str) -> List[Dict[str, Any]]:
     return out
 
 
+def _dedupe_preserve_order(items: List[str]) -> List[str]:
+    """Return ``items`` with duplicates removed, preserving order."""
+
+    seen: Set[str] = set()
+    result: List[str] = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            result.append(item)
+    return result
+
+
 def _suffix_from_id(value: str) -> Optional[int]:
     match = re.search(r"-(\d+)$", value)
     return int(match.group(1)) if match else None
@@ -149,17 +161,26 @@ def extract_isoforms(
     json_map: Dict[Optional[int], Dict[str, Any]] = {}
     for comment in _collect_comment(entry_json, "ALTERNATIVE_PRODUCTS"):
         for iso in comment.get("isoforms", []):
-            name = _get(iso, "name", "value") or ""
-            synonyms = [
-                s.get("value") for s in iso.get("synonyms", []) if s.get("value")
-            ]
+            # ``name`` and ``synonyms`` values may contain leading/trailing
+            # whitespace and duplicates.  Normalise these here so that
+            # downstream consumers receive clean data.
+            name = (_get(iso, "name", "value") or "").strip()
+
+            syn_seen: Set[str] = set()
+            synonyms: List[str] = []
+            for s in iso.get("synonyms", []):
+                v = (s.get("value") or "").strip()
+                if v and v not in syn_seen:
+                    syn_seen.add(v)
+                    synonyms.append(v)
+
             is_disp = bool(iso.get("isSequenceDisplayed") or iso.get("isDisplayed"))
             num = _suffix_from_id(iso.get("id", ""))
             if num is None:
                 num = _suffix_from_name(name)
             json_map[num] = {
                 "name": name,
-                "synonyms": sorted(set(synonyms)),
+                "synonyms": synonyms,
                 "is_canonical": is_disp,
             }
 
@@ -392,21 +413,15 @@ def normalize_entry(
     result["ptm_modified_residue"] = [v for _, v in sorted(modres)]
 
     # Isoforms ---------------------------------------------------------
-    iso_ids: List[str] = []
-    iso_names: List[str] = []
-    for c in _collect_comment(entry, "ALTERNATIVE_PRODUCTS"):
-        for iso in c.get("isoforms", []):
-            iso_id = iso.get("id")
-            iso_name = _get(iso, "name", "value")
-            if iso_id:
-                iso_ids.append(iso_id)
-            if iso_name:
-                iso_names.append(iso_name)
-    result["isoform_ids"] = sorted(set(iso_ids))
-    result["isoform_names"] = sorted(set(iso_names))
-    result["isoform_ids_all"] = [
+    iso_ids: List[str] = [
         iso["isoform_uniprot_id"] for iso in isoforms if iso["isoform_uniprot_id"]
     ]
+    iso_names: List[str] = [
+        iso["isoform_name"] for iso in isoforms if iso["isoform_name"]
+    ]
+    result["isoform_ids"] = _dedupe_preserve_order(iso_ids)
+    result["isoform_names"] = _dedupe_preserve_order(iso_names)
+    result["isoform_ids_all"] = iso_ids
     result["isoforms_json"] = json.dumps(
         [dict(iso) for iso in isoforms], separators=(",", ":"), sort_keys=True
     )
