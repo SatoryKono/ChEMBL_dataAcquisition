@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import logging
 import pandas as pd
 import pytest
 import requests
@@ -98,6 +99,29 @@ def test_multiple_mappings(requests_mock, tmp_path: Path, config_path: Path) -> 
     assert read_output(out) == ["P1|P2"]
 
 
+def test_logging_not_configured_globally(
+    requests_mock, tmp_path: Path, config_path: Path
+) -> None:
+    """Calling the mapper should not alter the root logger configuration."""
+
+    run_url = "https://rest.uniprot.org/idmapping/run"
+    status_url = "https://rest.uniprot.org/idmapping/status/1"
+    results_url = "https://rest.uniprot.org/idmapping/results/1"
+    requests_mock.post(run_url, json={"jobId": "1"})
+    requests_mock.get(status_url, json={"jobStatus": "FINISHED"})
+    requests_mock.get(results_url, json={"results": []})
+
+    root_logger = logging.getLogger()
+    prev_handlers = list(root_logger.handlers)
+    prev_level = root_logger.level
+
+    out = tmp_path / "out.csv"
+    map_chembl_to_uniprot(INPUT, out, config_path, log_level="INFO")
+
+    assert root_logger.level == prev_level
+    assert list(root_logger.handlers) == prev_handlers
+
+
 def test_retry_on_server_error(
     requests_mock, tmp_path: Path, config_path: Path
 ) -> None:
@@ -105,6 +129,20 @@ def test_retry_on_server_error(
     status_url = "https://rest.uniprot.org/idmapping/status/1"
     results_url = "https://rest.uniprot.org/idmapping/results/1"
     requests_mock.post(run_url, [{"status_code": 500}, {"json": {"jobId": "1"}}])
+    requests_mock.get(status_url, json={"jobStatus": "FINISHED"})
+    requests_mock.get(results_url, json={"results": []})
+    out = tmp_path / "out.csv"
+    map_chembl_to_uniprot(INPUT, out, config_path)
+    assert read_output(out) == [None, None]
+
+
+def test_retry_on_rate_limit(requests_mock, tmp_path: Path, config_path: Path) -> None:
+    """HTTP 429 responses should be retried with backoff."""
+
+    run_url = "https://rest.uniprot.org/idmapping/run"
+    status_url = "https://rest.uniprot.org/idmapping/status/1"
+    results_url = "https://rest.uniprot.org/idmapping/results/1"
+    requests_mock.post(run_url, [{"status_code": 429}, {"json": {"jobId": "1"}}])
     requests_mock.get(status_url, json={"jobStatus": "FINISHED"})
     requests_mock.get(results_url, json={"results": []})
     out = tmp_path / "out.csv"
@@ -145,6 +183,25 @@ def test_poll_job_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
             timeout=0.1,
             retry_cfg=RetryConfig(max_attempts=1, backoff_sec=0),
         )
+
+
+def test_poll_job_deadline(requests_mock) -> None:
+    """Polling should stop after the timeout even if job never finishes."""
+
+    status_url = "https://rest.uniprot.org/idmapping/status/1"
+
+    requests_mock.get(status_url, json={"jobStatus": "RUNNING"})
+
+    cfg = UniprotConfig(
+        base_url="https://rest.uniprot.org",
+        id_mapping=IdMappingConfig(endpoint="", status_endpoint="/idmapping/status"),
+        polling=PollingConfig(interval_sec=0),
+        rate_limit=RateLimitConfig(rps=1),
+        retry=RetryConfig(max_attempts=1, backoff_sec=0),
+    )
+
+    with pytest.raises(TimeoutError):
+        _poll_job("1", cfg, RateLimiter(0), timeout=0.1, retry_cfg=cfg.retry)
 
 
 def test_deterministic_csv(requests_mock, tmp_path: Path, config_path: Path) -> None:
