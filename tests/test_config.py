@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import logging
 import pytest
 
 from chembl2uniprot.config import load_and_validate_config
@@ -20,11 +21,26 @@ def _write_config(tmp_path: Path, text: str) -> Path:
     return cfg
 
 
-def test_invalid_type(tmp_path: Path) -> None:
+def test_invalid_type(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     cfg_text = CONFIG.read_text().replace("rps: 1000", 'rps: "fast"')
     cfg = _write_config(tmp_path, cfg_text)
-    with pytest.raises(ValueError):
-        load_and_validate_config(cfg)
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(ValueError):
+            load_and_validate_config(cfg)
+    assert "uniprot.rate_limit.rps" in caplog.text
+    assert "'fast'" in caplog.text
+    assert "is not of type 'number'" in caplog.text
+
+
+def test_unknown_key(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    cfg_text = CONFIG.read_text() + "\nunknown: 42\n"
+    cfg = _write_config(tmp_path, cfg_text)
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(ValueError):
+            load_and_validate_config(cfg)
+    assert "unknown" in caplog.text
+    assert "42" in caplog.text
+    assert "Additional properties are not allowed" in caplog.text
 
 
 def test_invalid_value(tmp_path: Path) -> None:

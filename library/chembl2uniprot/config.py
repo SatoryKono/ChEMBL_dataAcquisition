@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, Dict, Literal, cast
 
@@ -256,10 +257,26 @@ def load_and_validate_config(
     validator = Draft202012Validator(schema_dict)
     errors = sorted(validator.iter_errors(config_dict), key=lambda e: e.path)
     if errors:
-        messages = []
+        messages: list[str] = []
         for err in errors:
-            path = ".".join(str(p) for p in err.absolute_path)
-            messages.append(f"{path or '<root>'}: {err.message}")
+            path_parts = [str(p) for p in err.absolute_path]
+            value: Any = err.instance
+            if err.validator == "additionalProperties" and isinstance(
+                err.instance, dict
+            ):
+                match = re.search(r"'(.+?)' was unexpected", err.message)
+                if match:
+                    key = match.group(1)
+                    path_parts.append(key)
+                    value = err.instance.get(key)
+            path = ".".join(path_parts) or "<root>"
+            LOGGER.error(
+                "Configuration validation error at %s: %r - %s",
+                path,
+                value,
+                err.message,
+            )
+            messages.append(f"{path}: {err.message}")
         raise ValueError("Configuration validation error(s): " + "; ".join(messages))
 
     _apply_env_overrides(config_dict)
