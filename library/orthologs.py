@@ -260,7 +260,26 @@ class EnsemblHomologyClient:
             data = resp.json()
         except ValueError:  # pragma: no cover - API guarantees JSON
             return []
-        homs = data.get("data", [{}])[0].get("homologies", [])
+
+        # The Ensembl API returns a "data" list that may be empty when no
+        # orthologs are available.  Guard against this situation to avoid
+        # ``IndexError`` when attempting to access the first element.
+        homologies_container: Dict[str, Any] = {}
+        records = data.get("data")
+        if isinstance(records, list):
+            for record in records:
+                if isinstance(record, dict):
+                    homologies_container = record
+                    break
+        if not homologies_container:
+            LOGGER.debug(
+                "No orthologs returned for %s (records: %s)",
+                ensembl_gene_id,
+                records,
+            )
+            return []
+
+        homs = homologies_container.get("homologies", [])
         orthologs: List[Ortholog] = []
         for hom in homs:
             tgt = hom.get("target", {})
