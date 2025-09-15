@@ -33,7 +33,6 @@ from library.uniprot_client import (
 from library.orthologs import EnsemblHomologyClient, OmaClient
 
 
-
 from library.pipeline_targets import (
     PipelineConfig,
     load_pipeline_config,
@@ -41,6 +40,20 @@ from library.pipeline_targets import (
 )
 
 from iuphar import ClassificationRecord, IUPHARClassifier, IUPHARData
+
+
+# Columns produced by :func:`add_iuphar_classification`.
+IUPHAR_CLASS_COLUMNS = [
+    "iuphar_target_id",
+    "iuphar_family_id",
+    "iuphar_type",
+    "iuphar_class",
+    "iuphar_subclass",
+    "iuphar_chain",
+    "iuphar_name",
+    "iuphar_full_id_path",
+    "iuphar_full_name_path",
+]
 
 
 def merge_chembl_fields(
@@ -121,9 +134,7 @@ def add_iuphar_classification(
             if mapped and "|" not in mapped:
                 target_id = mapped
         record = (
-            classifier.by_target_id(target_id)
-            if target_id
-            else ClassificationRecord()
+            classifier.by_target_id(target_id) if target_id else ClassificationRecord()
         )
         return pd.Series(
             {
@@ -134,12 +145,16 @@ def add_iuphar_classification(
                 "iuphar_subclass": record.IUPHAR_subclass,
                 "iuphar_chain": ">".join(record.IUPHAR_tree),
                 "iuphar_name": record.IUPHAR_name,
-                "iuphar_full_id_path": data.all_id(record.IUPHAR_target_id)
-                if record.IUPHAR_target_id != "N/A"
-                else "",
-                "iuphar_full_name_path": data.all_name(record.IUPHAR_target_id)
-                if record.IUPHAR_target_id != "N/A"
-                else "",
+                "iuphar_full_id_path": (
+                    data.all_id(record.IUPHAR_target_id)
+                    if record.IUPHAR_target_id != "N/A"
+                    else ""
+                ),
+                "iuphar_full_name_path": (
+                    data.all_name(record.IUPHAR_target_id)
+                    if record.IUPHAR_target_id != "N/A"
+                    else ""
+                ),
             }
         )
 
@@ -335,13 +350,27 @@ def main() -> None:
             progress_callback=pbar.update,
         )
     out_df = merge_chembl_fields(out_df, chembl_df)
+
+    # Append optional IUPHAR classification data when both CSV files are provided.
     if args.iuphar_target and args.iuphar_family:
+        target_csv = Path(args.iuphar_target)
+        family_csv = Path(args.iuphar_family)
+        if not target_csv.exists():
+            msg = f"IUPHAR target file not found: {target_csv}"
+            raise FileNotFoundError(msg)
+        if not family_csv.exists():
+            msg = f"IUPHAR family file not found: {family_csv}"
+            raise FileNotFoundError(msg)
         out_df = add_iuphar_classification(
             out_df,
-            args.iuphar_target,
-            args.iuphar_family,
+            target_csv,
+            family_csv,
             encoding=args.encoding,
         )
+        # Keep classification columns grouped together at the end for clarity.
+        cols = [c for c in out_df.columns if c not in IUPHAR_CLASS_COLUMNS]
+        out_df = out_df[cols + IUPHAR_CLASS_COLUMNS]
+
     out_df.to_csv(args.output, index=False, sep=args.sep, encoding=args.encoding)
 
 
