@@ -1,0 +1,13 @@
+pandas
+requests
+PyYAML
+jsonschema
+tqdm
+tenacity
+
+[dev]
+pytest
+requests-mock
+black
+ruff
+mypy
