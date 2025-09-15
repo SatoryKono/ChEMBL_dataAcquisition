@@ -1,0 +1,66 @@
+{
+    "gpcr": {
+        "uniProtKBCrossReferences": [
+            {
+                "database": "GO",
+                "id": "GO:0004930",
+                "properties": [
+                    {"key": "GoTerm", "value": "F:G-protein coupled receptor activity"}
+                ]
+            }
+        ]
+    },
+    "ion_channel": {
+        "uniProtKBCrossReferences": [
+            {
+                "database": "GO",
+                "id": "GO:0005216",
+                "properties": [{"key": "GoTerm", "value": "F:ion channel activity"}]
+            }
+        ],
+        "keywords": [{"name": "Voltage-gated"}]
+    },
+    "transporter": {
+        "uniProtKBCrossReferences": [{"database": "TCDB", "id": "3.A.1.1.1"}],
+        "keywords": [{"name": "ABC transporter"}]
+    },
+    "nuclear_receptor": {
+        "uniProtKBCrossReferences": [
+            {
+                "database": "GO",
+                "id": "GO:0004879",
+                "properties": [
+                    {"key": "GoTerm", "value": "F:nuclear receptor activity"}
+                ]
+            }
+        ]
+    },
+    "kinase": {
+        "uniProtKBCrossReferences": [
+            {
+                "database": "GO",
+                "id": "GO:0004672",
+                "properties": [{"key": "GoTerm", "value": "F:protein kinase activity"}]
+            }
+        ]
+    },
+    "protease": {"uniProtKBCrossReferences": [{"database": "MEROPS", "id": "S01.001"}]},
+    "catalytic": {
+        "uniProtKBCrossReferences": [
+            {
+                "database": "GO",
+                "id": "GO:0003824",
+                "properties": [{"key": "GoTerm", "value": "F:catalytic activity"}]
+            }
+        ]
+    },
+    "receptor_text": {
+        "comments": [
+            {
+                "commentType": "FUNCTION",
+                "texts": [{"value": "This is a receptor involved in signaling."}]
+            }
+        ]
+    },
+    "transmembrane": {"features": [{"type": "TRANSMEM"}]}
+}
