@@ -292,10 +292,14 @@ def run_pipeline(
             "protein_name_canonical": (
                 primary.get("protein_recommended_name")
                 if primary
-                else row.get("pref_name", "")
+                else row.get("protein_name_canonical", row.get("pref_name", ""))
             ),
             "protein_name_alt": _serialise_list(
-                primary.get("protein_alternative_names", []) if primary else [],
+                (
+                    primary.get("protein_alternative_names", [])
+                    if primary
+                    else json.loads(row.get("protein_synonym_list") or "[]")
+                ),
                 cfg.list_format,
             ),
             "organism": (
@@ -303,7 +307,11 @@ def run_pipeline(
                 if primary
                 else row.get("organism", "")
             ),
-            "taxon_id": primary.get("taxon_id", "") if primary else "",
+            "taxon_id": (
+                primary.get("taxon_id", row.get("tax_id", ""))
+                if primary
+                else row.get("tax_id", "")
+            ),
             "lineage_superkingdom": (
                 primary.get("lineage_superkingdom", "") if primary else ""
             ),

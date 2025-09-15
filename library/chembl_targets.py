@@ -116,6 +116,33 @@ def _extract_gene_symbols(payload: Dict[str, Any]) -> List[str]:
     return sorted(g for g in genes if g)
 
 
+def _extract_protein_synonyms(payload: Dict[str, Any]) -> List[str]:
+    """Collect protein name synonyms from the payload.
+
+    The ChEMBL API nests protein synonyms under each entry in the
+    ``target_components`` list.  Synonyms are tagged with a ``syn_type``; we
+    retain those where the type indicates a protein or target name.
+
+    Parameters
+    ----------
+    payload:
+        The JSON dictionary returned by the ChEMBL API.
+
+    Returns
+    -------
+    list[str]
+        Sorted list of unique synonym strings.
+    """
+
+    names: set[str] = set()
+    for comp in payload.get("target_components", []) or []:
+        for syn in comp.get("target_component_synonyms", []) or []:
+            stype = (syn.get("syn_type") or "").upper()
+            if "PROTEIN" in stype or "TARGET" in stype:
+                names.add(syn.get("component_synonym", ""))
+    return sorted(n for n in names if n)
+
+
 def _extract_protein_classifications(payload: Dict[str, Any]) -> List[str]:
     classifications: List[str] = []
     pc = payload.get("protein_classification")
@@ -164,8 +191,11 @@ def fetch_targets(ids: Sequence[str], cfg: TargetConfig) -> pd.DataFrame:
         record = {
             "target_chembl_id": chembl_id,
             "pref_name": payload.get("pref_name"),
+            "protein_name_canonical": payload.get("pref_name"),
             "target_type": payload.get("target_type"),
             "organism": payload.get("organism"),
+            "tax_id": payload.get("tax_id"),
+            "species_group_flag": payload.get("species_group_flag"),
             "target_components": _serialize(
                 _extract_components(payload), list_format=cfg.list_format
             ),
@@ -177,6 +207,9 @@ def fetch_targets(ids: Sequence[str], cfg: TargetConfig) -> pd.DataFrame:
             ),
             "gene_symbol_list": _serialize(
                 _extract_gene_symbols(payload), list_format=cfg.list_format
+            ),
+            "protein_synonym_list": _serialize(
+                _extract_protein_synonyms(payload), list_format=cfg.list_format
             ),
         }
         records.append(record)
