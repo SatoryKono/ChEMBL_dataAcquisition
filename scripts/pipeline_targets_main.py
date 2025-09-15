@@ -170,7 +170,7 @@ def add_iuphar_classification(
 
 def add_protein_classification(
     pipeline_df: pd.DataFrame,
-    fetch_entry: Callable[[str], Dict[str, Any] | None],
+    fetch_entries: Callable[[Iterable[str]], Dict[str, Any]],
 ) -> pd.DataFrame:
     """Append automated protein classification columns.
 
@@ -178,8 +178,9 @@ def add_protein_classification(
     ----------
     pipeline_df:
         Data frame produced by :func:`run_pipeline`.
-    fetch_entry:
-        Callable returning a UniProt JSON dictionary for a given accession.
+    fetch_entries:
+        Callable returning a mapping of UniProt accession to the corresponding
+        JSON entry for a set of accessions.
 
     Returns
     -------
@@ -202,14 +203,15 @@ def add_protein_classification(
         "protein_class_pred_confidence",
     ]
 
+    ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str)).astype(str)
+    try:
+        entry_map = fetch_entries([i for i in ids if i])
+    except Exception as exc:  # pragma: no cover - logging side effect
+        logging.getLogger(__name__).warning("Failed to fetch UniProt entries: %s", exc)
+        entry_map = {}
+
     def _classify(acc: str) -> pd.Series:
-        try:
-            entry = fetch_entry(acc)
-        except Exception as exc:  # pragma: no cover - logging side effect
-            logging.getLogger(__name__).warning(
-                "Failed to fetch UniProt entry %s: %s", acc, exc
-            )
-            entry = None
+        entry = entry_map.get(acc)
         result = classify_protein(entry) if entry else {}
         evidence = result.get("evidence", [])
         return pd.Series(
@@ -223,7 +225,7 @@ def add_protein_classification(
             }
         )
 
-    class_df = pipeline_df["uniprot_id_primary"].apply(_classify)
+    class_df = ids.apply(_classify)
     for col in columns:
         if col not in class_df.columns:
             class_df[col] = ""
@@ -318,6 +320,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--with-orthologs", action="store_true")
     parser.add_argument("--iuphar-target", help="Path to _IUPHAR_target.csv")
     parser.add_argument("--iuphar-family", help="Path to _IUPHAR_family.csv")
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=50,
+        help="Maximum number of IDs per network request",
+    )
     return parser.parse_args()
 
 
@@ -462,7 +470,7 @@ def main() -> None:
     ids: List[str] = list(dict.fromkeys(ids_series))
 
     # Fetch comprehensive ChEMBL data once and reuse it in the pipeline
-    chembl_df = fetch_targets(ids, chembl_cfg)
+    chembl_df = fetch_targets(ids, chembl_cfg, batch_size=args.batch_size)
 
     def _cached_chembl_fetch(
         _: List[str], __: TargetConfig
@@ -505,11 +513,13 @@ def main() -> None:
             family_csv,
             encoding=args.encoding,
         )
-    out_df = add_protein_classification(out_df, uni_client.fetch_entry_json)
+    out_df = add_protein_classification(
+        out_df,
+        lambda accs: uni_client.fetch_entries_json(accs, batch_size=args.batch_size),
+    )
     # Keep classification columns grouped together at the end for clarity.
     cols = [c for c in out_df.columns if c not in IUPHAR_CLASS_COLUMNS]
     out_df = out_df[cols + IUPHAR_CLASS_COLUMNS]
-
 
     out_df.to_csv(args.output, index=False, sep=args.sep, encoding=args.encoding)
 

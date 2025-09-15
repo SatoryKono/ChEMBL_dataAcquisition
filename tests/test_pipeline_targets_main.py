@@ -61,8 +61,8 @@ def test_add_iuphar_classification():
 def test_add_protein_classification():
     samples = json.loads((Path("tests/data/protein_samples.json").read_text()))
 
-    def fetcher(_: str) -> dict:
-        return samples["gpcr"]
+    def fetcher(_: Iterable[str]) -> Dict[str, dict]:
+        return {"P00000": samples["gpcr"]}
 
     df = pd.DataFrame({"uniprot_id_primary": ["P00000"]})
     out = add_protein_classification(df, fetcher)
