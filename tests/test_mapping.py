@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 import pandas as pd
 import pytest
 import requests
@@ -121,6 +122,7 @@ def test_config_validation_error(tmp_path: Path) -> None:
 
 
 def test_poll_job_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+
     """Polling should timeout when the status request repeatedly fails."""
 
     cfg = UniprotConfig(
@@ -128,6 +130,7 @@ def test_poll_job_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
         id_mapping=IdMappingConfig(endpoint="", status_endpoint="/idmapping/status"),
         polling=PollingConfig(interval_sec=0),
         rate_limit=RateLimitConfig(rps=1),
+
         retry=RetryConfig(max_attempts=1, backoff_sec=0),
     )
 
@@ -142,7 +145,9 @@ def test_poll_job_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
             cfg,
             RateLimiter(0),
             timeout=0.1,
+
             retry_cfg=RetryConfig(max_attempts=1, backoff_sec=0),
+
         )
 
 

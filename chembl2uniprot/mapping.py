@@ -2,6 +2,17 @@
 
 The main entry point is :func:`map_chembl_to_uniprot` which performs the
 mapping for a given input CSV file.
+
+Algorithm Notes
+---------------
+1. Read and validate the YAML configuration file to obtain column names,
+   network settings and batching parameters.
+2. Load the input CSV, normalise and deduplicate the ChEMBL identifiers and
+   split them into batches.
+3. For each batch, submit an ID mapping job to the UniProt service, polling
+   for completion when necessary and fetching the resulting mapping.
+4. Combine all retrieved mappings, merge them back into the original DataFrame
+   and emit a CSV with an additional column containing the UniProt IDs.
 """
 
 from __future__ import annotations
@@ -41,12 +52,29 @@ def _chunked(seq: Sequence[str], size: int) -> Iterable[List[str]]:
 
 @dataclass
 class RateLimiter:
-    """Simple rate limiter based on sleep intervals."""
+    """Simple rate limiter based on sleep intervals.
+
+    Parameters
+    ----------
+    rps:
+        Maximum allowed requests per second.  When set to ``0`` the limiter is
+        effectively disabled.
+    last_call:
+        Timestamp of the last recorded call in seconds as returned by
+        :func:`time.monotonic`.
+    """
 
     rps: float
     last_call: float = 0.0
 
     def wait(self) -> None:
+        """Sleep as necessary to honour the configured rate limit.
+
+        Returns
+        -------
+        None
+        """
+
         if self.rps <= 0:
             return
         interval = 1.0 / self.rps
@@ -228,6 +256,10 @@ def map_chembl_to_uniprot(
     input_csv_path: str | Path,
     output_csv_path: str | Path | None = None,
     config_path: str | Path = "config.yaml",
+    *,
+    log_level: str | None = None,
+    sep: str | None = None,
+    encoding: str | None = None,
 ) -> Path:
     """Map ChEMBL identifiers in ``input_csv_path`` to UniProt IDs.
 
@@ -241,17 +273,36 @@ def map_chembl_to_uniprot(
     config_path:
         Path to the YAML configuration file which is validated against
         ``config.schema.json``.
+    log_level:
+        Logging verbosity (e.g. ``"INFO"`` or ``"DEBUG"``). When ``None`` the
+        value from the configuration file is used.
+    sep:
+        CSV field separator. Falls back to the configuration when ``None``.
+    encoding:
+        Character encoding for both reading and writing CSV files. Falls back to
+        the configuration when ``None``.
 
     Returns
     -------
     Path
         Path to the written CSV file containing an extra column with the mapped
         UniProt identifiers.
+
+    Raises
+    ------
+    ValueError
+        If the input CSV does not contain the required ChEMBL identifier column.
     """
 
     cfg: Config = load_and_validate_config(config_path)
 
-    logging.basicConfig(level=getattr(logging, cfg.logging.level.upper()))
+    # Allow overriding the configuration with function arguments
+    log_level = log_level or cfg.logging.level
+    sep = sep or cfg.io.csv.separator
+    encoding_in = encoding or cfg.io.input.encoding
+    encoding_out = encoding or cfg.io.output.encoding
+
+    logging.basicConfig(level=getattr(logging, log_level.upper()))
 
     input_csv_path = Path(input_csv_path)
     if output_csv_path is None:
@@ -260,9 +311,6 @@ def map_chembl_to_uniprot(
         )
     output_csv_path = Path(output_csv_path)
 
-    sep = cfg.io.csv.separator
-    encoding_in = cfg.io.input.encoding
-    encoding_out = cfg.io.output.encoding
     chembl_col = cfg.columns.chembl_id
     out_col = cfg.columns.uniprot_out
     delimiter = cfg.io.csv.multivalue_delimiter
