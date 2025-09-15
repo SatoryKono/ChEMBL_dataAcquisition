@@ -29,7 +29,7 @@
     },
     "columns": {
       "type": "object",
-      "required": ["chembl_id", "uniprot_out"],
+      "required": ["target_chembl_id", "uniprot_out"],
       "properties": {
         "chembl_id": { "type": "string", "minLength": 1 },
         "uniprot_out": { "type": "string", "minLength": 1 }
