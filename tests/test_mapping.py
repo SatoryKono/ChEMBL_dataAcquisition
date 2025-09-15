@@ -14,7 +14,7 @@ from chembl2uniprot.config import (
     RetryConfig,
     UniprotConfig,
 )
-from chembl2uniprot.mapping import RateLimiter, _poll_job
+from chembl2uniprot.mapping import RateLimiter, _poll_job, _request_with_retry
 
 DATA_DIR = Path(__file__).parent / "data"
 CONFIG_DIR = DATA_DIR / "config"
@@ -171,6 +171,22 @@ def test_poll_job_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
             RateLimiter(0),
             timeout=0.1,
             retry_cfg=RetryConfig(max_attempts=1, backoff_sec=0),
+        )
+
+
+def test_request_with_retry_raises_for_client_error(requests_mock) -> None:
+    """Client errors should raise ``HTTPError`` without retrying."""
+
+    url = "https://rest.uniprot.org/idmapping/run"
+    requests_mock.post(url, status_code=404)
+    with pytest.raises(requests.HTTPError):
+        _request_with_retry(
+            "post",
+            url,
+            timeout=1,
+            rate_limiter=RateLimiter(0),
+            max_attempts=1,
+            backoff=0,
         )
 
 

@@ -112,7 +112,9 @@ def _request_with_retry(
             resp.raise_for_status()
         return resp
 
-    return _do_request()
+    resp = _do_request()
+    resp.raise_for_status()
+    return resp
 
 
 # ---------------------------------------------------------------------------
