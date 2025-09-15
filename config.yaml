@@ -10,6 +10,21 @@ uniprot:
   retries: 3
   rps: 3
 
+chembl:
+  columns:
+    - target_chembl_id
+    - pref_name
+    - protein_name_canonical
+    - target_type
+    - organism
+    - tax_id
+    - species_group_flag
+    - target_components
+    - protein_classifications
+    - cross_references
+    - gene_symbol_list
+    - protein_synonym_list
+
 output:
   list_format: json
   encoding: "utf-8-sig"

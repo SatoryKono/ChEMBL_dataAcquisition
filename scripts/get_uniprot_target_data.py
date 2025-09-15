@@ -22,7 +22,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from library.io_utils import CsvConfig, read_ids, write_rows  # noqa: E402
-from library.uniprot_client import NetworkConfig, RateLimitConfig, UniProtClient  # noqa: E402
+from library.uniprot_client import (
+    NetworkConfig,
+    RateLimitConfig,
+    UniProtClient,
+)  # noqa: E402
 from library.uniprot_normalize import (  # noqa: E402
     Isoform,
     extract_ensembl_gene_ids,
@@ -178,7 +182,7 @@ def main(argv: List[str] | None = None) -> None:
         ]
 
     for acc in accessions:
-        data = client.fetch(acc)
+        data = client.fetch_entry_json(acc)
         if data is None:
             logging.warning("No entry for %s", acc)
             row: Dict[str, Any] = {c: "" for c in cols}
@@ -193,24 +197,25 @@ def main(argv: List[str] | None = None) -> None:
 
         isoforms: List[Isoform] = []
         if include_iso:
-            entry = client.fetch_entry_json(acc)
-            if entry is None:
-                logging.warning("No full entry for %s", acc)
-            else:
-                fasta_headers: List[str] = []
-                if use_fasta_stream:
-                    fasta_headers = client.fetch_isoforms_fasta(acc)
-                isoforms = extract_isoforms(entry, fasta_headers)
-                for iso in isoforms:
-                    iso_rows.append(
-                        {
-                            "parent_uniprot_id": acc,
-                            "isoform_uniprot_id": iso["isoform_uniprot_id"],
-                            "isoform_name": iso["isoform_name"],
-                            "isoform_synonyms": iso["isoform_synonyms"],
-                            "is_canonical": str(iso["is_canonical"]).lower(),
-                        }
-                    )
+            entry = data
+            fasta_headers: List[str] = []
+            if use_fasta_stream:
+                fasta_headers = client.fetch_isoforms_fasta(acc)
+            isoforms = extract_isoforms(entry, fasta_headers)
+            for iso in isoforms:
+                iso_rows.append(
+                    {
+                        "parent_uniprot_id": acc,
+                        "isoform_uniprot_id": iso["isoform_uniprot_id"],
+                        "isoform_name": iso["isoform_name"],
+                        "isoform_synonyms": json.dumps(
+                            iso["isoform_synonyms"],
+                            ensure_ascii=False,
+                            sort_keys=True,
+                        ),
+                        "is_canonical": str(iso["is_canonical"]).lower(),
+                    }
+                )
 
         row = normalize_entry(data, include_seq, isoforms)
 
