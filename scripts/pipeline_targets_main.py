@@ -25,6 +25,7 @@ if str(LIB_DIR) not in sys.path:
 from chembl_targets import fetch_targets
 from gtop_client import GtoPClient, GtoPConfig
 from hgnc_client import HGNCClient, load_config as load_hgnc_config
+from orthologs import EnsemblHomologyClient, OmaClient
 from uniprot_client import (
     NetworkConfig as UniNetworkConfig,
     RateLimitConfig as UniRateConfig,
@@ -54,10 +55,14 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_clients(
-    cfg_path: str, pipeline_cfg: PipelineConfig
-) -> tuple[UniProtClient, HGNCClient, GtoPClient]:
-    """Initialise UniProt, HGNC, and GtoP clients."""
+def build_clients(cfg_path: str, pipeline_cfg: PipelineConfig) -> tuple[
+    UniProtClient,
+    HGNCClient,
+    GtoPClient,
+    EnsemblHomologyClient,
+    OmaClient,
+]:
+    """Initialise UniProt, HGNC, GtoP, and ortholog clients."""
 
     with open(cfg_path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
@@ -90,7 +95,26 @@ def build_clients(
         rps=pipeline_cfg.rate_limit_rps,
     )
     gtop = GtoPClient(gcfg)
-    return uni, hgnc, gtop
+
+    orth_cfg = data.get("orthologs", {})
+    ortho_rl = orth_cfg.get("rate_limit_rps", pipeline_cfg.rate_limit_rps)
+    ensembl = EnsemblHomologyClient(
+        base_url=orth_cfg.get("base_url", "https://rest.ensembl.org"),
+        network=UniNetworkConfig(
+            timeout_sec=orth_cfg.get("timeout_sec", pipeline_cfg.timeout_sec),
+            max_retries=orth_cfg.get("retries", pipeline_cfg.retries),
+        ),
+        rate_limit=UniRateConfig(rps=ortho_rl),
+    )
+    oma = OmaClient(
+        base_url=orth_cfg.get("oma_base_url", "https://omabrowser.org/api"),
+        network=UniNetworkConfig(
+            timeout_sec=orth_cfg.get("timeout_sec", pipeline_cfg.timeout_sec),
+            max_retries=orth_cfg.get("retries", pipeline_cfg.retries),
+        ),
+        rate_limit=UniRateConfig(rps=ortho_rl),
+    )
+    return uni, hgnc, gtop, ensembl, oma
 
 
 def main() -> None:
@@ -109,7 +133,13 @@ def main() -> None:
     )
     pipeline_cfg.iuphar.primary_target_only = args.primary_target_only.lower() == "true"
 
-    uni_client, hgnc_client, gtop_client = build_clients(args.config, pipeline_cfg)
+    (
+        uni_client,
+        hgnc_client,
+        gtop_client,
+        ensembl_client,
+        oma_client,
+    ) = build_clients(args.config, pipeline_cfg)
 
     df = pd.read_csv(args.input, sep=args.sep, encoding=args.encoding)
     if args.id_column not in df.columns:
@@ -125,6 +155,8 @@ def main() -> None:
         uniprot_client=uni_client,
         hgnc_client=hgnc_client,
         gtop_client=gtop_client,
+        ensembl_client=ensembl_client,
+        oma_client=oma_client,
     )
     out_df.to_csv(args.output, index=False, sep=args.sep, encoding=args.encoding)
 

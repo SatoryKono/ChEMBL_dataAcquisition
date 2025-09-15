@@ -63,6 +63,10 @@ pipeline:
      - gtop_natural_ligands_n
      - gtop_interactions_n
      - gtop_function_text_short
+     - uniprot_isoforms
+     - orthologs_json
+     - orthologs_count
+     - names_synonyms_all
      - uniprot_last_update
      - uniprot_version
      - pipeline_version

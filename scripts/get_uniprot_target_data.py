@@ -22,7 +22,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from library.io_utils import CsvConfig, read_ids, write_rows  # noqa: E402
-from library.uniprot_client import NetworkConfig, RateLimitConfig, UniProtClient  # noqa: E402
+from library.uniprot_client import (  # noqa: E402
+    NetworkConfig,
+    RateLimitConfig,
+    UniProtClient,
+)
 from library.uniprot_normalize import (  # noqa: E402
     Isoform,
     extract_ensembl_gene_ids,
@@ -130,7 +134,7 @@ def main(argv: List[str] | None = None) -> None:
 
     accessions = read_ids(input_path, args.column, csv_cfg)
     rows: List[Dict[str, Any]] = []
-    iso_rows: List[Dict[str, str]] = []
+    iso_rows: List[Dict[str, Any]] = []
 
     cols = output_columns(include_seq)
 
@@ -178,25 +182,21 @@ def main(argv: List[str] | None = None) -> None:
         ]
 
     for acc in accessions:
-        data = client.fetch(acc)
-        if data is None:
-            logging.warning("No entry for %s", acc)
-            row: Dict[str, Any] = {c: "" for c in cols}
-            row["uniprot_id"] = acc
-            if ensembl_client:
-                row["orthologs_json"] = "[]"
-                row["orthologs_count"] = 0
-            rows.append(row)
-            continue
-
-        gene_ids = extract_ensembl_gene_ids(data)
-
-        isoforms: List[Isoform] = []
-        if include_iso:
+        if include_iso or include_seq:
             entry = client.fetch_entry_json(acc)
             if entry is None:
-                logging.warning("No full entry for %s", acc)
-            else:
+                logging.warning("No entry for %s", acc)
+                row: Dict[str, Any] = {c: "" for c in cols}
+                row["uniprot_id"] = acc
+                if ensembl_client:
+                    row["orthologs_json"] = "[]"
+                    row["orthologs_count"] = 0
+                rows.append(row)
+                continue
+            data = entry
+            gene_ids = extract_ensembl_gene_ids(entry)
+            isoforms: List[Isoform] = []
+            if include_iso:
                 fasta_headers: List[str] = []
                 if use_fasta_stream:
                     fasta_headers = client.fetch_isoforms_fasta(acc)
@@ -211,6 +211,20 @@ def main(argv: List[str] | None = None) -> None:
                             "is_canonical": str(iso["is_canonical"]).lower(),
                         }
                     )
+        else:
+            data_opt = client.fetch(acc)
+            if data_opt is None:
+                logging.warning("No entry for %s", acc)
+                row = {c: "" for c in cols}
+                row["uniprot_id"] = acc
+                if ensembl_client:
+                    row["orthologs_json"] = "[]"
+                    row["orthologs_count"] = 0
+                rows.append(row)
+                continue
+            data = data_opt
+            gene_ids = extract_ensembl_gene_ids(data)
+            isoforms = []
 
         row = normalize_entry(data, include_seq, isoforms)
 

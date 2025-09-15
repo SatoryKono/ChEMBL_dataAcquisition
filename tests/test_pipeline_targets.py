@@ -6,6 +6,7 @@ from typing import Dict, List
 import pandas as pd
 
 from hgnc_client import HGNCRecord
+from orthologs import Ortholog
 from pipeline_targets import PipelineConfig, run_pipeline
 
 
@@ -16,8 +17,11 @@ def make_uniprot(
     lineage: List[str],
     *,
     hgnc: str | None = None,
+    isoforms: List[str] | None = None,
+    gene_synonyms: List[str] | None = None,
+    alt_names: List[str] | None = None,
 ) -> Dict:
-    return {
+    entry = {
         "primaryAccession": accession,
         "entryType": "reviewed",
         "proteinDescription": {
@@ -32,7 +36,11 @@ def make_uniprot(
         "sequence": {"length": 100, "sequenceChecksum": "abcd"},
         "uniProtKBCrossReferences": [
             {"database": "ChEMBL", "id": "CHEMBL1"},
-            {"database": "Ensembl", "id": "ENSG1"},
+            {
+                "database": "Ensembl",
+                "id": "ENSG1",
+                "properties": [{"key": "GeneId", "value": "ENSG1"}],
+            },
             {"database": "PDB", "id": "1ABC"},
             {"database": "AlphaFoldDB", "id": accession},
         ]
@@ -42,6 +50,23 @@ def make_uniprot(
             "entryVersion": 2,
         },
     }
+    if alt_names:
+        entry["proteinDescription"]["recommendedName"]["shortNames"] = [
+            {"value": n} for n in alt_names
+        ]
+    if gene_synonyms:
+        entry["genes"][0]["synonyms"] = [{"value": s} for s in gene_synonyms]
+    if isoforms:
+        entry["comments"] = [
+            {
+                "commentType": "ALTERNATIVE_PRODUCTS",
+                "isoforms": [
+                    {"id": iso, "name": {"value": f"Isoform {i+1}"}}
+                    for i, iso in enumerate(isoforms)
+                ],
+            }
+        ]
+    return entry
 
 
 class DummyUniProt:
@@ -94,9 +119,21 @@ def make_chembl_df(accessions: List[str]) -> pd.DataFrame:
                 "target_components": json.dumps(comps, sort_keys=True),
                 "protein_classifications": json.dumps(["ClassA"], sort_keys=True),
                 "cross_references": json.dumps([], sort_keys=True),
+                "gene_symbol_list": json.dumps([], sort_keys=True),
             }
         ]
     )
+
+
+class DummyEnsembl:
+    def get_orthologs(self, gene_id: str, target_species: List[str]):
+        return [
+            Ortholog(
+                target_species="mus_musculus",
+                target_gene_symbol="GeneMouse",
+                target_ensembl_gene_id="ENSMUSG1",
+            )
+        ]
 
 
 def test_pipeline_single_target(monkeypatch):
@@ -198,7 +235,52 @@ def test_pipeline_missing_hgnc(monkeypatch):
     )
     row = df.iloc[0]
     assert row["hgnc_id"] == ""
-    assert row["gene_symbol"].startswith("GENE")
+
+
+def test_pipeline_isoforms_orthologs_names(monkeypatch):
+    def chembl_fetch(ids, cfg=None):
+        df = make_chembl_df(["P12345"])
+        df.loc[0, "gene_symbol_list"] = json.dumps(["ChemGene"], sort_keys=True)
+        return df
+
+    uni = DummyUniProt(
+        {
+            "P12345": make_uniprot(
+                "P12345",
+                "Homo sapiens",
+                9606,
+                ["Eukaryota"],
+                hgnc="HGNC:1",
+                isoforms=["P12345-1", "P12345-2"],
+                gene_synonyms=["GSYN"],
+                alt_names=["AltProt"],
+            )
+        }
+    )
+    hgnc = DummyHGNC(
+        {"P12345": HGNCRecord("P12345", "HGNC:1", "SYMB", "HName", "Prot")}
+    )
+    gtop = DummyGtoP({(111, "synonyms"): [{"synonym": "SynG"}]})
+    monkeypatch.setattr("pipeline_targets.resolve_target", fake_resolve)
+    cfg = PipelineConfig(ortholog_target_species=["mouse"])
+    df = run_pipeline(
+        ["CHEMBL1"],
+        cfg,
+        chembl_fetcher=chembl_fetch,
+        uniprot_client=uni,
+        hgnc_client=hgnc,
+        gtop_client=gtop,
+        ensembl_client=DummyEnsembl(),
+    )
+    row = df.iloc[0]
+    assert row["uniprot_isoforms"] == "P12345-1|P12345-2"
+    assert row["orthologs_count"] == 1
+    assert "GeneMouse" in row["orthologs_json"]
+    names = row["names_synonyms_all"].split("|")
+    assert {"Pref", "ChemGene", "AltProt", "GSYN", "SYMB", "HName", "SynG"}.issubset(
+        set(names)
+    )
+    assert row["gene_symbol"] == "SYMB"
 
 
 def test_pipeline_reproducible(tmp_path, monkeypatch):
