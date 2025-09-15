@@ -16,6 +16,7 @@ import time
 
 import pandas as pd
 import requests
+import yaml
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -249,7 +250,9 @@ def map_chembl_to_uniprot(
     -------
     Path
         Path to the written CSV file containing an extra column with the mapped
-        UniProt identifiers.
+        UniProt identifiers. Rows and columns are sorted for deterministic
+        output. A corresponding ``.meta.yaml`` file is written alongside the
+        CSV containing the SHA256 hash and column schema.
     """
 
     cfg = load_and_validate_config(config_path).raw
@@ -318,6 +321,20 @@ def map_chembl_to_uniprot(
         return delimiter.join(ids)
 
     df[out_col] = df[chembl_col].map(_join_ids)
+    # Sort by key column to ensure deterministic row order
+    df = df.sort_values(by=chembl_col)
+    # Reorder columns alphabetically for stable schema
+    df = df[sorted(df.columns)]
 
-    df.to_csv(output_csv_path, sep=sep, encoding=encoding_out, index=False)
+    # Serialise to CSV and compute SHA256 hash
+    csv_bytes = df.to_csv(sep=sep, encoding=encoding_out, index=False).encode(
+        encoding_out
+    )
+    output_csv_path.write_bytes(csv_bytes)
+
+    file_hash = hashlib.sha256(csv_bytes).hexdigest()
+    schema = {col: str(dtype) for col, dtype in df.dtypes.items()}
+    meta_path = output_csv_path.with_suffix(output_csv_path.suffix + ".meta.yaml")
+    meta_path.write_text(yaml.safe_dump({"hash": file_hash, "schema": schema}))
+
     return output_csv_path

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import pandas as pd
 import pytest
+import yaml
 
 from chembl2uniprot import map_chembl_to_uniprot
 
@@ -105,3 +106,27 @@ def test_config_validation_error(tmp_path: Path) -> None:
     cfg.write_text("io: {}")  # invalid
     with pytest.raises(ValueError):
         map_chembl_to_uniprot(INPUT, tmp_path / "out.csv", cfg)
+
+
+def test_hash_reproducible(requests_mock, tmp_path: Path, config_path: Path) -> None:
+    run_url = "https://rest.uniprot.org/idmapping/run"
+    status_url = "https://rest.uniprot.org/idmapping/status/123"
+    results_url = "https://rest.uniprot.org/idmapping/results/123"
+    requests_mock.post(run_url, json={"jobId": "123"})
+    requests_mock.get(status_url, json={"jobStatus": "FINISHED"})
+    requests_mock.get(
+        results_url,
+        json={"results": [{"from": "CHEMBL1", "to": "P1"}]},
+    )
+
+    out1 = tmp_path / "out1.csv"
+    out2 = tmp_path / "out2.csv"
+    map_chembl_to_uniprot(INPUT, out1, config_path)
+    map_chembl_to_uniprot(INPUT, out2, config_path)
+
+    def read_hash(path: Path) -> str:
+        meta_path = path.with_suffix(path.suffix + ".meta.yaml")
+        meta = yaml.safe_load(meta_path.read_text())
+        return meta["hash"]
+
+    assert read_hash(out1) == read_hash(out2)
