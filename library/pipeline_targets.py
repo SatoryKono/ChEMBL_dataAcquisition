@@ -7,18 +7,45 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Sequence
 
 import pandas as pd
+from typing import TYPE_CHECKING
 
-from chembl_targets import TargetConfig, fetch_targets
-from gtop_client import GtoPClient, resolve_target
-from gtop_normalize import normalise_interactions, normalise_synonyms
-from hgnc_client import HGNCClient, HGNCRecord
-from orthologs import EnsemblHomologyClient, OmaClient
-from uniprot_client import UniProtClient
-from uniprot_normalize import (
-    extract_ensembl_gene_ids,
-    extract_isoforms,
-    normalize_entry,
-)
+if TYPE_CHECKING:  # pragma: no cover - for static type checking only
+    from .chembl_targets import TargetConfig, fetch_targets
+    from .gtop_client import GtoPClient, resolve_target
+    from .gtop_normalize import normalise_interactions, normalise_synonyms
+    from .hgnc_client import HGNCClient, HGNCRecord
+    from .orthologs import EnsemblHomologyClient, OmaClient
+    from .uniprot_client import UniProtClient
+    from .uniprot_normalize import (
+        extract_ensembl_gene_ids,
+        extract_isoforms,
+        normalize_entry,
+    )
+else:  # pragma: no cover - support both package and direct imports
+    try:
+        from .chembl_targets import TargetConfig, fetch_targets
+        from .gtop_client import GtoPClient, resolve_target
+        from .gtop_normalize import normalise_interactions, normalise_synonyms
+        from .hgnc_client import HGNCClient, HGNCRecord
+        from .orthologs import EnsemblHomologyClient, OmaClient
+        from .uniprot_client import UniProtClient
+        from .uniprot_normalize import (
+            extract_ensembl_gene_ids,
+            extract_isoforms,
+            normalize_entry,
+        )
+    except ImportError:
+        from chembl_targets import TargetConfig, fetch_targets
+        from gtop_client import GtoPClient, resolve_target
+        from gtop_normalize import normalise_interactions, normalise_synonyms
+        from hgnc_client import HGNCClient, HGNCRecord
+        from orthologs import EnsemblHomologyClient, OmaClient
+        from uniprot_client import UniProtClient
+        from uniprot_normalize import (
+            extract_ensembl_gene_ids,
+            extract_isoforms,
+            normalize_entry,
+        )
 
 LOGGER = logging.getLogger(__name__)
 
