@@ -139,6 +139,7 @@ def run(
         rows.append(data)
     out_df = pd.DataFrame(rows)
     out_df = out_df.sort_values("PubMed.PMID").reset_index(drop=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     out_df.to_csv(output_path, sep=sep, index=False, encoding=encoding)
     LOGGER.info("Wrote %d rows to %s", len(out_df), output_path)
 
