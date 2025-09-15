@@ -10,7 +10,9 @@ sys.path.insert(0, str(Path("scripts")))
 from pipeline_targets_main import (
     add_iuphar_classification,
     add_protein_classification,
+    add_isoform_fields,
     add_uniprot_fields,
+    extract_isoform,
     merge_chembl_fields,
 )
 
@@ -94,3 +96,55 @@ def test_add_uniprot_fields() -> None:
     assert row["geneName"] == "GENE1"
     assert row["secondaryAccessionNames"] == "Name1|Name2"
     assert row["molecular_function"] == "binding"
+
+
+def test_extract_isoform() -> None:
+    entry = {
+        "comments": [
+            {
+                "commentType": "ALTERNATIVE PRODUCTS",
+                "isoforms": [
+                    {
+                        "name": {"value": "Isoform 1"},
+                        "isoformIds": ["P1-1"],
+                        "synonyms": [{"value": "Alpha"}, {"value": "Beta"}],
+                    },
+                    {
+                        "name": {"value": "Isoform 2"},
+                        "isoformIds": ["P1-2"],
+                        "synonyms": [],
+                    },
+                ],
+            }
+        ]
+    }
+    result = extract_isoform(entry)
+    assert result["isoform_names"] == "Isoform 1|Isoform 2"
+    assert result["isoform_ids"] == "P1-1|P1-2"
+    assert result["isoform_synonyms"] == "Alpha:Beta|N/A"
+
+
+def test_add_isoform_fields() -> None:
+    df = pd.DataFrame({"uniprot_id_primary": ["P99999"]})
+
+    def fetch_entry(_: str) -> dict:
+        return {
+            "comments": [
+                {
+                    "commentType": "ALTERNATIVE PRODUCTS",
+                    "isoforms": [
+                        {
+                            "name": {"value": "Isoform 1"},
+                            "isoformIds": ["P1-1"],
+                            "synonyms": [{"value": "Alpha"}],
+                        }
+                    ],
+                }
+            ]
+        }
+
+    out = add_isoform_fields(df, fetch_entry)
+    row = out.iloc[0]
+    assert row["isoform_names"] == "Isoform 1"
+    assert row["isoform_ids"] == "P1-1"
+    assert row["isoform_synonyms"] == "Alpha"
