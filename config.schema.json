@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["io", "columns", "uniprot", "network", "batch", "logging"],
+  "properties": {
+    "io": {
+      "type": "object",
+      "required": ["input", "output", "csv"],
+      "properties": {
+        "input": {
+          "type": "object",
+          "required": ["encoding"],
+          "properties": { "encoding": { "type": "string" } }
+        },
+        "output": {
+          "type": "object",
+          "required": ["encoding"],
+          "properties": { "encoding": { "type": "string" } }
+        },
+        "csv": {
+          "type": "object",
+          "required": ["separator", "multivalue_delimiter"],
+          "properties": {
+            "separator": { "type": "string", "minLength": 1 },
+            "multivalue_delimiter": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "columns": {
+      "type": "object",
+      "required": ["chembl_id", "uniprot_out"],
+      "properties": {
+        "chembl_id": { "type": "string", "minLength": 1 },
+        "uniprot_out": { "type": "string", "minLength": 1 }
+      }
+    },
+    "uniprot": {
+      "type": "object",
+      "required": ["base_url", "id_mapping", "polling", "rate_limit", "retry"],
+      "properties": {
+        "base_url": { "type": "string", "minLength": 1 },
+        "id_mapping": {
+          "type": "object",
+          "required": ["endpoint"],
+          "properties": {
+            "endpoint": { "type": "string", "minLength": 1 },
+            "status_endpoint": { "type": "string" },
+            "results_endpoint": { "type": "string" },
+            "from_db": { "type": "string" },
+            "to_db": { "type": "string" }
+          }
+        },
+        "polling": {
+          "type": "object",
+          "required": ["interval_sec"],
+          "properties": { "interval_sec": { "type": "number", "minimum": 0 } }
+        },
+        "rate_limit": {
+          "type": "object",
+          "required": ["rps"],
+          "properties": { "rps": { "type": "number", "exclusiveMinimum": 0 } }
+        },
+        "retry": {
+          "type": "object",
+          "required": ["max_attempts", "backoff_sec"],
+          "properties": {
+            "max_attempts": { "type": "integer", "minimum": 0 },
+            "backoff_sec": { "type": "number", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "network": {
+      "type": "object",
+      "required": ["timeout_sec"],
+      "properties": { "timeout_sec": { "type": "number", "exclusiveMinimum": 0 } }
+    },
+    "batch": {
+      "type": "object",
+      "required": ["size"],
+      "properties": { "size": { "type": "integer", "minimum": 1 } }
+    },
+    "logging": {
+      "type": "object",
+      "required": ["level"],
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

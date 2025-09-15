@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chembl2uniprot"
+version = "0.1.0"
+description = "Map ChEMBL IDs to UniProt IDs"
+authors = [{name = "AutoGen", email = "noreply@example.com"}]
+requires-python = ">=3.10"
+dependencies = [
+    "pandas",
+    "requests",
+    "PyYAML",
+    "jsonschema",
+    "tqdm",
+    "tenacity",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "requests-mock",
+    "black",
+    "ruff",
+    "mypy",
+]
