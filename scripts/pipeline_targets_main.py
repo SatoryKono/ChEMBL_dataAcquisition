@@ -36,6 +36,7 @@ from library.orthologs import EnsemblHomologyClient, OmaClient
 from library.protein_classifier import classify_protein
 
 
+
 from library.pipeline_targets import (
     PipelineConfig,
     load_pipeline_config,
