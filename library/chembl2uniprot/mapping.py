@@ -97,8 +97,6 @@ def _request_with_retry(
 ) -> requests.Response:
     """Perform an HTTP request with retry and rate limiting."""
 
-    rate_limiter.wait()
-
     @retry(
         reraise=True,
         retry=retry_if_exception_type(requests.RequestException),
@@ -106,13 +104,17 @@ def _request_with_retry(
         wait=wait_exponential(multiplier=backoff),
     )
     def _do_request() -> requests.Response:
+        # Honour the rate limit before each network call, including retries.
+        rate_limiter.wait()
         resp = requests.request(method, url, timeout=timeout, **kwargs)
         if resp.status_code >= 500:
             # Trigger retry by raising for 5xx responses
             resp.raise_for_status()
         return resp
 
-    return _do_request()
+    resp = _do_request()
+    resp.raise_for_status()
+    return resp
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +173,11 @@ def _poll_job(
             rate_limiter=rate_limiter,
             max_attempts=retry_cfg.max_attempts,
             backoff=retry_cfg.backoff_sec,
+            allow_redirects=False,
         )
+        if resp.status_code == 303:
+            # UniProt signals completion via HTTP 303 and a "Location" header
+            return
         try:
             payload = resp.json()
         except json.JSONDecodeError:
@@ -316,6 +322,7 @@ def map_chembl_to_uniprot(
     encoding_out = encoding or cfg.io.output.encoding
 
     logging.basicConfig(level=getattr(logging, log_level.upper()))
+    logging.getLogger("urllib3").setLevel(logging.INFO)  # Reduce HTTP verbosity
 
     input_csv_path = Path(input_csv_path)
     if output_csv_path is None:

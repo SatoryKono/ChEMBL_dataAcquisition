@@ -27,6 +27,6 @@ uniprot:
 network:
   timeout_sec: 30
 batch:
-  size: 2
+  size: 10
 logging:
   level: "DEBUG"
