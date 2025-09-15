@@ -34,7 +34,7 @@ pipeline:
   retries: 3
   timeout_sec: 30
   species_priority: ["Human", "Homo sapiens"]
-  list_format: json
+  list_format: pipe
   include_sequence: false
   columns:
      - target_chembl_id
@@ -49,9 +49,6 @@ pipeline:
      - lineage_superkingdom
      - lineage_phylum
      - lineage_class
-     - lineage_order
-     - lineage_family
-     - target_type
      - protein_class_L1
      - protein_class_L2
      - protein_class_L3
@@ -65,13 +62,9 @@ pipeline:
      - ptm_lipidation
      - ptm_disulfide_bond
      - ptm_modified_residue
-     - pfam
-     - interpro
      - xref_chembl
      - xref_uniprot
-     - xref_ensembl
-     - xref_pdb
-     - xref_alphafold
+     - xref_ensembl    
      - xref_iuphar
      - gtop_target_id
      - gtop_synonyms
