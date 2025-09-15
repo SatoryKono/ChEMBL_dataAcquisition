@@ -22,11 +22,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from library.io_utils import CsvConfig, read_ids, write_rows  # noqa: E402
-from library.uniprot_client import (
+from library.uniprot_client import (  # noqa: E402
     NetworkConfig,
     RateLimitConfig,
     UniProtClient,
-)  # noqa: E402
+)
 from library.uniprot_normalize import (  # noqa: E402
     Isoform,
     extract_ensembl_gene_ids,
