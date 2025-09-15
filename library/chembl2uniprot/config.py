@@ -129,6 +129,29 @@ class Config:
     logging: LoggingConfig
 
 
+def _normalise_column_aliases(
+    columns: Dict[str, Any], drop_legacy: bool = False
+) -> Dict[str, Any]:
+    """Ensure ``columns`` contains both old and new ChEMBL ID keys.
+
+    Parameters
+    ----------
+    columns:
+        Mapping of column names from the configuration file.
+    drop_legacy:
+        When ``True`` remove the legacy ``target_chembl_id`` key after
+        normalisation.
+    """
+
+    if "chembl_id" in columns and "target_chembl_id" not in columns:
+        columns["target_chembl_id"] = columns["chembl_id"]
+    if "target_chembl_id" in columns and "chembl_id" not in columns:
+        columns["chembl_id"] = columns["target_chembl_id"]
+    if drop_legacy:
+        columns.pop("target_chembl_id", None)
+    return columns
+
+
 def _build_config(data: Dict[str, Any]) -> Config:
     """Construct a :class:`Config` object from ``data``.
 
@@ -139,12 +162,9 @@ def _build_config(data: Dict[str, Any]) -> Config:
         structure matches the JSON schema.
     """
     # Accept legacy configuration where ``target_chembl_id`` was used instead
-    # of the generic ``chembl_id`` key.  This keeps backwards compatibility
-    # with older configuration files while standardising on ``chembl_id``
-    # internally.
-    columns_cfg = dict(data["columns"])
-    if "chembl_id" not in columns_cfg and "target_chembl_id" in columns_cfg:
-        columns_cfg["chembl_id"] = columns_cfg.pop("target_chembl_id")
+    # of ``chembl_id`` and standardise on the modern key.
+    columns_cfg = _normalise_column_aliases(dict(data["columns"]), drop_legacy=True)
+
 
     io_cfg = IOConfig(
         input=EncodingConfig(**data["io"]["input"]),
@@ -213,6 +233,9 @@ def load_and_validate_config(
     schema_path = Path(schema_path)
 
     config_dict = _read_yaml(config_path)
+    columns_dict = _normalise_column_aliases(config_dict.get("columns", {}))
+    config_dict["columns"] = columns_dict
+
     schema_dict = _read_json(schema_path)
 
     validator = Draft202012Validator(schema_dict)

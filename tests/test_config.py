@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import pytest
 
 from chembl2uniprot.config import load_and_validate_config
@@ -38,3 +39,20 @@ def test_target_chembl_id_alias() -> None:
     cfg = CONFIG_DIR / "alias.yaml"
     loaded = load_and_validate_config(cfg)
     assert loaded.columns.chembl_id == "chembl_id"
+
+
+
+def test_chembl_id_with_legacy_schema(tmp_path: Path) -> None:
+    """Config using ``chembl_id`` passes against a schema requiring ``target_chembl_id``."""
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(CONFIG.read_text())
+    legacy_schema = json.loads(SCHEMA.read_text())
+    columns_schema = legacy_schema["properties"]["columns"]
+    columns_schema["properties"].pop("chembl_id")
+    columns_schema["required"] = ["target_chembl_id", "uniprot_out"]
+    columns_schema.pop("anyOf", None)
+    schema_path = tmp_path / "config.schema.json"
+    schema_path.write_text(json.dumps(legacy_schema))
+    loaded = load_and_validate_config(cfg_path, schema_path)
+    assert loaded.columns.chembl_id == "target_chembl_id"
+
