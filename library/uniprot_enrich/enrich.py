@@ -1,0 +1,363 @@
+import logging
+import random
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Dict, Iterable, List, Optional
+
+import pandas as pd
+import requests
+
+OUTPUT_COLUMNS = [
+    "uniprotkb_Id",
+    "recommended_name",
+    "synonyms",
+    "type",
+    "secondary_uniprot_id",
+    "gene_name",
+    "genus",
+    "superkingdom",
+    "phylum",
+    "taxon_id",
+    "ec_number",
+    "hgnc_name",
+    "hgnc_id",
+    "molecular_function",
+    "cellular_component",
+    "subcellular_location",
+    "topology",
+    "transmembrane",
+    "intramembrane",
+    "glycosylation",
+    "lipidation",
+    "disulfide_bond",
+    "modified_residue",
+    "phosphorylation",
+    "acetylation",
+    "ubiquitination",
+    "signal_peptide",
+    "propeptide",
+    "isoform_names",
+    "isoform_ids",
+    "isoform_synonyms",
+    "reactions",
+    "GuidetoPHARMACOLOGY",
+]
+
+LOGGER = logging.getLogger(__name__)
+
+
+def _serialize_list(values: Iterable[str], sep: str) -> str:
+    seen = set()
+    items = []
+    for v in values:
+        v = v.strip()
+        if v and v not in seen:
+            items.append(v)
+            seen.add(v)
+    return sep.join(items)
+
+
+class UniProtClient:
+    """Lightweight client for UniProt REST API."""
+
+    def __init__(
+        self,
+        session: Optional[requests.Session] = None,
+        max_workers: int = 4,
+        base_url: str = "https://rest.uniprot.org/uniprotkb",
+        list_sep: str = "|",
+    ) -> None:
+        self.session = session or requests.Session()
+        self.max_workers = max_workers
+        self.base_url = base_url.rstrip("/")
+        self.cache: Dict[str, Dict[str, str]] = {}
+        self.list_sep = list_sep
+
+    # Retry logic with exponential backoff
+    def _request(self, method: str, url: str, **kwargs) -> Optional[requests.Response]:
+        """Perform HTTP request with exponential backoff."""
+        last_exc: Optional[Exception] = None
+        for attempt in range(5):
+            try:
+                resp = self.session.request(method, url, timeout=30, **kwargs)
+            except requests.RequestException as exc:  # network errors
+                last_exc = exc
+                wait = (2**attempt) + random.random()
+                time.sleep(wait)
+                continue
+            if resp.status_code == 200:
+                return resp
+            if resp.status_code in {429, 500, 502, 503, 504}:
+                wait = (2**attempt) + random.random()
+                time.sleep(wait)
+                continue
+            return resp
+        if last_exc:
+            raise RuntimeError(f"Failed to fetch {url}: {last_exc}")
+        return None
+
+    def _fetch_single(self, accession: str) -> Optional[dict]:
+        url = f"{self.base_url}/{accession}?format=json"
+        resp = self._request("GET", url)
+        if resp and resp.status_code == 200:
+            return resp.json()
+        return None
+
+    def _fetch_batch(self, accessions: List[str]) -> List[dict]:
+        query = " OR ".join(f"accession:{a}" for a in accessions)
+        params = {"query": query, "format": "json", "size": len(accessions)}
+        url = f"{self.base_url}/search"
+        resp = self._request("GET", url, params=params)
+        if resp and resp.status_code == 200:
+            return resp.json().get("results", [])
+        return []
+
+    def fetch_all(self, accessions: Iterable[str]) -> Dict[str, Dict[str, str]]:
+        unique = list(dict.fromkeys(accessions))
+        results: Dict[str, Dict[str, str]] = {}
+        if len(unique) > 100:
+            for i in range(0, len(unique), 100):
+                chunk = unique[i : i + 100]
+                for entry in self._fetch_batch(chunk):
+                    parsed = _parse_entry(entry, self.list_sep)
+                    acc = entry.get("primaryAccession", "")
+                    results[acc] = parsed
+                    self.cache[acc] = parsed
+            for acc in unique:
+                if acc not in results:
+                    results[acc] = {c: "" for c in OUTPUT_COLUMNS}
+        else:
+            with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+                future_map = {pool.submit(self.fetch_entry, acc): acc for acc in unique}
+                for fut in as_completed(future_map):
+                    acc = future_map[fut]
+                    results[acc] = fut.result()
+        return results
+
+    def fetch_entry(self, accession: str) -> Dict[str, str]:
+        if accession in self.cache:
+            return self.cache[accession]
+        data = self._fetch_single(accession)
+        if not data:
+            parsed = {c: "" for c in OUTPUT_COLUMNS}
+        else:
+            parsed = _parse_entry(data, self.list_sep)
+        self.cache[accession] = parsed
+        return parsed
+
+
+# Helper functions ---------------------------------------------------------
+
+
+def _feature_to_string(feature: dict) -> str:
+    desc = feature.get("description", "").strip()
+    loc = feature.get("location", {})
+    start = loc.get("start", {}).get("value")
+    end = loc.get("end", {}).get("value")
+    pos = ""
+    if start is not None and end is not None:
+        pos = str(start) if start == end else f"{start}-{end}"
+    if desc and pos:
+        return f"{desc}[{pos}]"
+    if desc:
+        return desc
+    if pos:
+        return f"[{pos}]"
+    return ""
+
+
+def _parse_entry(entry: dict, sep: str) -> Dict[str, str]:
+    data = {c: "" for c in OUTPUT_COLUMNS}
+    data["uniprotkb_Id"] = entry.get("primaryAccession", "")
+    data["type"] = entry.get("entryType", "")
+    # Names
+    protein = entry.get("proteinDescription", {})
+    rec = protein.get("recommendedName", {})
+    data["recommended_name"] = rec.get("fullName", {}).get("value", "")
+    synonyms: List[str] = []
+    for sn in rec.get("shortNames", []):
+        v = sn.get("value")
+        if v:
+            synonyms.append(v)
+    for alt in protein.get("alternativeNames", []):
+        v = alt.get("fullName", {}).get("value")
+        if v:
+            synonyms.append(v)
+        for sn in alt.get("shortNames", []):
+            v = sn.get("value")
+            if v:
+                synonyms.append(v)
+    data["synonyms"] = _serialize_list(synonyms, sep)
+    ec_numbers: List[str] = []
+    for ec in rec.get("ecNumbers", []):
+        v = ec.get("value")
+        if v:
+            ec_numbers.append(v)
+    for alt in protein.get("alternativeNames", []):
+        for ec in alt.get("ecNumbers", []):
+            v = ec.get("value")
+            if v:
+                ec_numbers.append(v)
+    data["ec_number"] = _serialize_list(ec_numbers, sep)
+    data["secondary_uniprot_id"] = _serialize_list(
+        entry.get("secondaryAccessions", []), sep
+    )
+    # Genes
+    genes = entry.get("genes", [])
+    if genes:
+        data["gene_name"] = genes[0].get("geneName", {}).get("value", "")
+    # Taxonomy
+    organism = entry.get("organism", {})
+    lineage = organism.get("lineage", [])
+    if lineage:
+        data["superkingdom"] = lineage[0] if len(lineage) > 0 else ""
+        data["phylum"] = lineage[2] if len(lineage) > 2 else ""
+        data["genus"] = lineage[-1]
+    data["taxon_id"] = str(organism.get("taxonId", ""))
+    # Cross references
+    hgnc_names: List[str] = []
+    hgnc_ids: List[str] = []
+    mf_terms: List[str] = []
+    cc_terms: List[str] = []
+    guide_ids: List[str] = []
+    for ref in entry.get("uniProtKBCrossReferences", []):
+        db = ref.get("database")
+        if db == "HGNC":
+            hgnc_ids.append(ref.get("id", ""))
+            for prop in ref.get("properties", []):
+                if prop.get("key") == "Name":
+                    hgnc_names.append(prop.get("value", ""))
+        elif db == "GO":
+            term = ""
+            for prop in ref.get("properties", []):
+                if prop.get("key") == "GoTerm":
+                    term = prop.get("value", "")
+                    break
+            if term.startswith("F:"):
+                mf_terms.append(f"{term[2:]} ({ref.get('id')})")
+            elif term.startswith("C:"):
+                cc_terms.append(f"{term[2:]} ({ref.get('id')})")
+        elif db == "GuidetoPHARMACOLOGY":
+            guide_ids.append(ref.get("id", ""))
+    data["hgnc_name"] = _serialize_list(hgnc_names, sep)
+    data["hgnc_id"] = _serialize_list(hgnc_ids, sep)
+    data["molecular_function"] = _serialize_list(mf_terms, sep)
+    data["cellular_component"] = _serialize_list(cc_terms, sep)
+    data["GuidetoPHARMACOLOGY"] = _serialize_list(guide_ids, sep)
+    # Comments
+    sublocs: List[str] = []
+    isoform_names: List[str] = []
+    isoform_ids: List[str] = []
+    isoform_synonyms: List[str] = []
+    reactions: List[str] = []
+    for comment in entry.get("comments", []):
+        ctype = comment.get("commentType")
+        if ctype == "SUBCELLULAR_LOCATION":
+            for loc in comment.get("subcellularLocations", []):
+                val = loc.get("location", {}).get("value")
+                if val:
+                    sublocs.append(val)
+        elif ctype == "ALTERNATIVE_PRODUCTS":
+            for iso in comment.get("isoforms", []):
+                name = iso.get("name", {}).get("value")
+                if name:
+                    isoform_names.append(name)
+                iso_id = iso.get("id")
+                if iso_id:
+                    isoform_ids.append(iso_id)
+                for syn in iso.get("synonyms", []):
+                    v = syn.get("value")
+                    if v:
+                        isoform_synonyms.append(v)
+        elif ctype == "CATALYTIC_ACTIVITY":
+            reaction = comment.get("reaction", {}).get("name")
+            if reaction:
+                reactions.append(reaction)
+    data["subcellular_location"] = _serialize_list(sublocs, sep)
+    data["isoform_names"] = _serialize_list(isoform_names, sep)
+    data["isoform_ids"] = _serialize_list(isoform_ids, sep)
+    data["isoform_synonyms"] = _serialize_list(isoform_synonyms, sep)
+    data["reactions"] = _serialize_list(reactions, sep)
+    # Features
+    feature_map = {
+        "Topological domain": "topology",
+        "Transmembrane region": "transmembrane",
+        "Intramembrane region": "intramembrane",
+        "Glycosylation": "glycosylation",
+        "Lipidation": "lipidation",
+        "Disulfide bond": "disulfide_bond",
+        "Modified residue": "modified_residue",
+        "Signal peptide": "signal_peptide",
+        "Propeptide": "propeptide",
+    }
+    feats: Dict[str, List[str]] = {
+        col: []
+        for col in [
+            "topology",
+            "transmembrane",
+            "intramembrane",
+            "glycosylation",
+            "lipidation",
+            "disulfide_bond",
+            "modified_residue",
+            "phosphorylation",
+            "acetylation",
+            "ubiquitination",
+            "signal_peptide",
+            "propeptide",
+        ]
+    }
+    for feat in entry.get("features", []):
+        ftype = feat.get("type")
+        desc = feat.get("description", "").lower()
+        out = feature_map.get(ftype)
+        if ftype == "Modified residue":
+            if "phospho" in desc:
+                feats["phosphorylation"].append(_feature_to_string(feat))
+                continue
+            if "acetyl" in desc:
+                feats["acetylation"].append(_feature_to_string(feat))
+                continue
+            if "ubiquitin" in desc:
+                feats["ubiquitination"].append(_feature_to_string(feat))
+                continue
+        if out:
+            feats[out].append(_feature_to_string(feat))
+        else:
+            if ftype == "Modified residue":
+                feats["modified_residue"].append(_feature_to_string(feat))
+    for col, values in feats.items():
+        data[col] = _serialize_list(values, sep)
+    return data
+
+
+# Public API ---------------------------------------------------------------
+
+
+def enrich_uniprot(input_csv_path: str, list_sep: str = "|") -> None:
+    """Read a CSV file and enrich with UniProt annotations.
+
+    Parameters
+    ----------
+    input_csv_path : str
+        Path to input CSV containing a ``uniprot_id`` column.
+    list_sep : str, optional
+        Separator used for serializing lists, by default "|".
+    """
+    df = pd.read_csv(input_csv_path, dtype={"uniprot_id": str})
+    if "uniprot_id" not in df.columns:
+        raise ValueError("input CSV must contain 'uniprot_id' column")
+    ids = df["uniprot_id"].astype(str).tolist()
+    unique_ids = list(dict.fromkeys(ids))
+    LOGGER.info("Unique UniProt IDs: %d", len(unique_ids))
+    client = UniProtClient(list_sep=list_sep)
+    id_map = client.fetch_all(unique_ids)
+    success = sum(1 for v in id_map.values() if any(v.values()))
+    LOGGER.info("Fetched %d records, %d failures", success, len(id_map) - success)
+    for col in OUTPUT_COLUMNS:
+        df[col] = [id_map.get(i, {}).get(col, "") for i in ids]
+    # backup
+    backup_path = f"{input_csv_path}.bak"
+    df_original = pd.read_csv(input_csv_path)
+    df_original.to_csv(backup_path, index=False, encoding="utf-8", lineterminator="\n")
+    df.to_csv(input_csv_path, index=False, encoding="utf-8", lineterminator="\n")
