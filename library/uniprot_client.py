@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 import requests
 from tenacity import (
@@ -170,6 +170,46 @@ class UniProtClient:
         except json.JSONDecodeError:  # pragma: no cover - API guarantees JSON
             LOGGER.warning("Invalid JSON for %s", accession)
             return None
+
+    def fetch_entries_json(
+        self, accessions: Iterable[str], *, batch_size: int = 100
+    ) -> Dict[str, Dict[str, Any]]:
+        """Retrieve multiple UniProt entries in batches.
+
+        Parameters
+        ----------
+        accessions:
+            Iterable of UniProt accessions to retrieve.
+        batch_size:
+            Maximum number of accessions to query per HTTP request.
+
+        Returns
+        -------
+        Dict[str, Dict[str, Any]]
+            Mapping from accession to the corresponding JSON entry. Missing
+            accessions are omitted from the result.
+        """
+
+        unique = [a for a in dict.fromkeys(accessions) if a]
+        entries: Dict[str, Dict[str, Any]] = {}
+        for i in range(0, len(unique), batch_size):
+            chunk = unique[i : i + batch_size]
+            query = " OR ".join(f"accession:{acc}" for acc in chunk)
+            params = {"format": "json", "query": query, "size": str(len(chunk))}
+            url = f"{self.base_url}/stream"
+            resp = self._request(url, params)
+            if not resp:
+                continue
+            try:
+                data = resp.json()
+            except json.JSONDecodeError:  # pragma: no cover - API guarantees JSON
+                LOGGER.warning("Invalid JSON for %s", ",".join(chunk))
+                continue
+            for entry in data.get("results", []) or []:
+                acc = entry.get("primaryAccession")
+                if acc:
+                    entries[acc] = entry
+        return entries
 
     def fetch_isoforms_fasta(self, accession: str) -> List[str]:
         """Return FASTA headers for ``accession`` including isoforms.
