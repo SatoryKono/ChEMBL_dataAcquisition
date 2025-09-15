@@ -21,9 +21,12 @@ Development and testing additionally require:
 
 - pytest >= 7.4
 - requests-mock >= 1.11
+- hypothesis
 - black >= 23.0
 - ruff >= 0.1
 - mypy >= 1.4
+- types-requests
+- types-PyYAML
 
 ## Installation
 

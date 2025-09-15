@@ -25,7 +25,7 @@ def read_ids(path: Path, column: str, cfg: CsvConfig) -> List[str]:
     if column not in df.columns:
         msg = f"Missing required column '{column}'"
         raise KeyError(msg)
-    ids = [str(v).strip().upper() for v in df[column].fillna("")]  # type: ignore[arg-type]
+    ids = [str(v).strip().upper() for v in df[column].fillna("")]
     seen = set()
     unique: List[str] = []
     for v in ids:

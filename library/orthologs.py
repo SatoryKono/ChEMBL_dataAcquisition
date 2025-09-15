@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 import logging
 from typing import Any, Dict, Iterable, List, Optional
 
-import requests  # type: ignore[import-untyped]
+import requests
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover - for static type checking only
