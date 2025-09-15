@@ -36,7 +36,6 @@ from library.orthologs import EnsemblHomologyClient, OmaClient
 from library.protein_classifier import classify_protein
 
 
-
 from library.pipeline_targets import (
     PipelineConfig,
     load_pipeline_config,
@@ -434,9 +433,12 @@ def main() -> None:
             encoding=args.encoding,
         )
     out_df = add_protein_classification(out_df, uni_client.fetch_entry_json)
-        # Keep classification columns grouped together at the end for clarity.
-    cols = [c for c in out_df.columns if c not in IUPHAR_CLASS_COLUMNS]
-    out_df = out_df[cols + IUPHAR_CLASS_COLUMNS]
+    # Keep classification columns grouped together at the end for clarity. Only
+    # columns present in the output frame are considered to avoid ``KeyError``
+    # when the optional IUPHAR classification has not been requested.
+    existing_iuphar_cols = [c for c in IUPHAR_CLASS_COLUMNS if c in out_df.columns]
+    cols = [c for c in out_df.columns if c not in existing_iuphar_cols]
+    out_df = out_df[cols + existing_iuphar_cols]
 
     out_df.to_csv(args.output, index=False, sep=args.sep, encoding=args.encoding)
 
