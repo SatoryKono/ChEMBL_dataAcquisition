@@ -14,6 +14,7 @@ from typing import List, cast
 
 import pandas as pd
 import yaml
+from library.data_profiling import analyze_table_quality
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -137,6 +138,9 @@ def main() -> None:
         sep=cfg_dict.get("output", {}).get("sep", ","),
         quoting=csv.QUOTE_MINIMAL,
     )
+    analyze_table_quality(
+        targets_df, table_name=str((out_dir / "targets").with_suffix(""))
+    )
     syn_df = (
         pd.concat(syn_rows, ignore_index=True)
         if syn_rows
@@ -148,6 +152,9 @@ def main() -> None:
         encoding=cfg_dict.get("output", {}).get("encoding", "utf-8-sig"),
         sep=cfg_dict.get("output", {}).get("sep", ","),
         quoting=csv.QUOTE_MINIMAL,
+    )
+    analyze_table_quality(
+        syn_df, table_name=str((out_dir / "targets_synonyms").with_suffix(""))
     )
     int_df = (
         pd.concat(int_rows, ignore_index=True)
@@ -173,6 +180,9 @@ def main() -> None:
         encoding=cfg_dict.get("output", {}).get("encoding", "utf-8-sig"),
         sep=cfg_dict.get("output", {}).get("sep", ","),
         quoting=csv.QUOTE_MINIMAL,
+    )
+    analyze_table_quality(
+        int_df, table_name=str((out_dir / "targets_interactions").with_suffix(""))
     )
 
 

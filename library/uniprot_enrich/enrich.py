@@ -3,9 +3,15 @@ import random
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Iterable, List, Optional
+from pathlib import Path
 
 import pandas as pd
 import requests
+
+try:
+    from data_profiling import analyze_table_quality
+except ModuleNotFoundError:  # pragma: no cover
+    from ..data_profiling import analyze_table_quality
 
 OUTPUT_COLUMNS = [
     "uniprotkb_Id",
@@ -509,3 +515,4 @@ def enrich_uniprot(input_csv_path: str, list_sep: str = "|") -> None:
     df_original = pd.read_csv(input_csv_path)
     df_original.to_csv(backup_path, index=False, encoding="utf-8", lineterminator="\n")
     df.to_csv(input_csv_path, index=False, encoding="utf-8", lineterminator="\n")
+    analyze_table_quality(df, table_name=str(Path(input_csv_path).with_suffix("")))

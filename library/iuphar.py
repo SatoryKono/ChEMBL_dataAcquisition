@@ -15,6 +15,11 @@ import pandas as pd
 import requests
 from requests import Session
 
+try:
+    from data_profiling import analyze_table_quality
+except ModuleNotFoundError:  # pragma: no cover
+    from .data_profiling import analyze_table_quality
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -545,6 +550,7 @@ class IUPHARData:
         df["full_name_path"] = df["target_id"].apply(self.all_name)
 
         df.to_csv(output_path, index=False, encoding=encoding, sep=sep)
+        analyze_table_quality(df, table_name=str(Path(output_path).with_suffix("")))
         LOGGER.info("file_written", extra={"rows": len(df), "path": str(output_path)})
         return df
 
