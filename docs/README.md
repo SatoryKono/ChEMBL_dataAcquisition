@@ -66,7 +66,7 @@ requirements.txt     # Dependency pinning
 python scripts/chembl2uniprot_main.py \
     --input input.csv \
     --output output.csv \
-    --config config.yaml \
+    --config schemas\config.yaml \
     --log-level INFO \
     --sep , \
     --encoding utf-8
