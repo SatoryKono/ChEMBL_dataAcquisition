@@ -71,3 +71,20 @@ def test_fetch_targets_parses_fields(requests_mock: requests_mock.Mocker) -> Non
     assert names == ["ProtAlt"]
     classes = json.loads(record["protein_classifications"])
     assert classes == ["L4", "L5"]
+
+
+def test_fetch_targets_respects_configured_columns(
+    requests_mock: requests_mock.Mocker,
+) -> None:
+    """Only configured columns are returned in the output."""
+
+    cfg = TargetConfig(
+        base_url="http://test",
+        list_format="json",
+        rps=0,
+        columns=["target_chembl_id", "pref_name"],
+    )
+    url = "http://test/target/CHEMBL612?format=json"
+    requests_mock.get(url, json={"pref_name": "Example"})
+    df = fetch_targets(["CHEMBL612"], cfg)
+    assert list(df.columns) == ["target_chembl_id", "pref_name"]

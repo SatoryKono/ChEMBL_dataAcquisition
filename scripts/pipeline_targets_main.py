@@ -22,7 +22,7 @@ if str(LIB_DIR) not in sys.path:
     sys.path.insert(0, str(LIB_DIR))
 
 
-from chembl_targets import fetch_targets
+from chembl_targets import TargetConfig, fetch_targets
 from gtop_client import GtoPClient, GtoPConfig
 from hgnc_client import HGNCClient, load_config as load_hgnc_config
 from uniprot_client import (
@@ -109,6 +109,14 @@ def main() -> None:
     )
     pipeline_cfg.iuphar.primary_target_only = args.primary_target_only.lower() == "true"
 
+    # Load optional ChEMBL column configuration
+    with open(args.config, "r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh) or {}
+    chembl_cols = data.get("chembl", {}).get("columns")
+    chembl_cfg: TargetConfig = TargetConfig(list_format=pipeline_cfg.list_format)
+    if chembl_cols:
+        chembl_cfg.columns = list(chembl_cols)
+
     uni_client, hgnc_client, gtop_client = build_clients(args.config, pipeline_cfg)
 
     df = pd.read_csv(args.input, sep=args.sep, encoding=args.encoding)
@@ -122,6 +130,7 @@ def main() -> None:
         ids,
         pipeline_cfg,
         chembl_fetcher=fetch_targets,
+        chembl_config=chembl_cfg,
         uniprot_client=uni_client,
         hgnc_client=hgnc_client,
         gtop_client=gtop_client,

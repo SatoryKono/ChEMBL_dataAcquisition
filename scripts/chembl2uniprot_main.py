@@ -88,7 +88,6 @@ def main(argv: list[str] | None = None) -> None:
             output_csv_path=Path(args.output) if args.output else None,
             config_path=config_path,
             schema_path=schema_path,
-
         )
     else:
         cfg_path = ROOT / "config.yaml"

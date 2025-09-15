@@ -184,6 +184,9 @@ python scripts/get_target_data_main.py \
 Nested fields in the output are encoded as JSON strings to ensure
 deterministic, machine-readable results.
 
+The set of columns retrieved from ChEMBL can be customised in
+``config.yaml`` under the ``chembl.columns`` section.
+
 ### Unified pipeline
 
 Combine ChEMBL, UniProt, HGNC and GtoP data into a single table:

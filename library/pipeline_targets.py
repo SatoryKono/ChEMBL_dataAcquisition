@@ -177,6 +177,7 @@ def run_pipeline(
     cfg: PipelineConfig,
     *,
     chembl_fetcher=fetch_targets,
+    chembl_config: TargetConfig | None = None,
     uniprot_client: UniProtClient,
     hgnc_client: HGNCClient | None = None,
     gtop_client: GtoPClient | None = None,
@@ -191,6 +192,9 @@ def run_pipeline(
         Pipeline configuration controlling behaviour.
     chembl_fetcher:
         Function used to download ChEMBL target information.
+    chembl_config:
+        Configuration passed to ``chembl_fetcher``. When ``None`` a
+        :class:`TargetConfig` using the pipeline's list format is created.
     uniprot_client:
         Client instance for the UniProt service.
     hgnc_client:
@@ -199,7 +203,8 @@ def run_pipeline(
         Optional client for IUPHAR/GtoP data.
     """
 
-    chembl_df = chembl_fetcher(ids, TargetConfig(list_format="json"))
+    chembl_cfg = chembl_config or TargetConfig(list_format=cfg.list_format)
+    chembl_df = chembl_fetcher(ids, chembl_cfg)
     records: List[Dict[str, Any]] = []
     for row in chembl_df.to_dict(orient="records"):
         chembl_id = row.get("target_chembl_id", "")

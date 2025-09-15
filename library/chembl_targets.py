@@ -9,7 +9,7 @@ depending on the configuration.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import logging
 from typing import Any, Dict, List, Sequence
@@ -27,7 +27,28 @@ LOGGER = logging.getLogger(__name__)
 
 @dataclass
 class TargetConfig:
-    """Configuration controlling data acquisition."""
+    """Configuration controlling data acquisition.
+
+    Attributes
+    ----------
+    base_url:
+        Base URL for the ChEMBL API.
+    timeout_sec:
+        Timeout in seconds for HTTP requests.
+    max_retries:
+        Maximum number of retry attempts for failed requests.
+    rps:
+        Allowed requests per second against the API.
+    output_encoding:
+        Encoding used when writing CSV output.
+    output_sep:
+        Column separator for CSV output.
+    list_format:
+        Serialisation format for list-like fields (``"json"`` or ``"pipe"``).
+    columns:
+        Ordered list of columns to include in the resulting
+        :class:`~pandas.DataFrame`.
+    """
 
     base_url: str = "https://www.ebi.ac.uk/chembl/api/data"
     timeout_sec: float = 30.0
@@ -36,6 +57,22 @@ class TargetConfig:
     output_encoding: str = "utf-8-sig"
     output_sep: str = ","
     list_format: str = "json"  # "json" or "pipe"
+    columns: List[str] = field(
+        default_factory=lambda: [
+            "target_chembl_id",
+            "pref_name",
+            "protein_name_canonical",
+            "target_type",
+            "organism",
+            "tax_id",
+            "species_group_flag",
+            "target_components",
+            "protein_classifications",
+            "cross_references",
+            "gene_symbol_list",
+            "protein_synonym_list",
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -159,14 +196,15 @@ def _extract_protein_classifications(payload: Dict[str, Any]) -> List[str]:
 
 
 def fetch_targets(ids: Sequence[str], cfg: TargetConfig) -> pd.DataFrame:
-    """Fetch ChEMBL targets and return a normalised DataFrame.
+    """Fetch ChEMBL targets and return a normalised :class:`~pandas.DataFrame`.
 
     Parameters
     ----------
     ids:
         Sequence of target ChEMBL identifiers.
     cfg:
-        Configuration governing network behaviour and output formatting.
+        Configuration governing network behaviour, serialisation options and
+        the set of columns returned in the output.
     """
 
     norm_ids = normalise_ids(ids)
@@ -213,7 +251,7 @@ def fetch_targets(ids: Sequence[str], cfg: TargetConfig) -> pd.DataFrame:
             ),
         }
         records.append(record)
-    df = pd.DataFrame(records)
+    df = pd.DataFrame(records, columns=cfg.columns)
     return df
 
 

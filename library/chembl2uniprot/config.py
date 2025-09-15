@@ -142,7 +142,6 @@ def _normalise_column_aliases(
     return columns
 
 
-
 def _build_config(data: Dict[str, Any]) -> Config:
     """Construct a :class:`Config` object from ``data``.
 
@@ -176,7 +175,6 @@ def _build_config(data: Dict[str, Any]) -> Config:
         batch=BatchConfig(**data["batch"]),
         logging=LoggingConfig(**data["logging"]),
     )
-
 
 
 def _read_yaml(path: Path) -> Dict[str, Any]:

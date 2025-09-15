@@ -56,10 +56,8 @@ def test_chembl_id_with_legacy_schema(tmp_path: Path) -> None:
     assert loaded.columns.chembl_id == "target_chembl_id"
 
 
-
 def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     """Environment variables override YAML configuration values."""
     monkeypatch.setenv("CHEMBL_BATCH__SIZE", "5")
     loaded = load_and_validate_config(CONFIG)
     assert loaded.batch.size == 5
-
