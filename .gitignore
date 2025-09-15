@@ -19,3 +19,4 @@ dist/
 .vscode/
 schemas/.Rhistory
 scripts/.Rhistory
+/dictionary/uniprot

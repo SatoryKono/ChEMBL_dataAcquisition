@@ -1,0 +1,60 @@
+status,score,order,condition_field,condition_value,active
+incorrect association in ChEMBL,2000,100,ASSAY_ID,null,FALSE
+unicellular_organism,1890,200,unicellular_organism,FALSE,TRUE
+signlton (unicellular_organism),1900,190,signlton_unicellular_organism,null,TRUE
+multifunctional enzyme,1690,400,multifunctional_enzyme,FALSE,TRUE
+signlton (multifunctional enzyme),1700,390,signlton_multifunctional_enzyme,null,TRUE
+test Item with unknown chirality,1590,500,unknown_chirality,FALSE,TRUE
+signlton (test Item with unknown chirality),1600,490,signlton_unknown_chirality,null,TRUE
+multiply activity for same test item,1390,600,multmol_assay,FALSE,TRUE
+signlton (multiply activity for same test item),1400,590,signlton_multmol_assay,null,TRUE
+exact data citation,1190,800,exact_data_citation,FALSE,TRUE
+signlton (exact data citation),1200,790,signlton_exact_cited_activity,null,TRUE
+highly correlated assays,990,1000,higly_correlated_assay,FALSE,TRUE
+signlton (highly correlated assays),1000,990,signlton_higly_correlated_cit,null,TRUE
+shuffled assays,790,1200,shuffled_assay,FALSE,TRUE
+signlton (shuffled assays),800,1190,signlton_shuffled_cit,null,TRUE
+review,590,1400,review,FALSE,TRUE
+signlton (review),600,1390,signlton_review,null,TRUE
+rounded data citation,390,1600,rounded_data_citation,FALSE,TRUE
+signlton (rounded data citation),400,1590,signlton_approx_cited_activity,null,TRUE
+high citation rate,190,1800,high_citation_rate,FALSE,TRUE
+signlton (high citation rate),200,1790,signlton_high_citation_rate,null,TRUE
+no issue,100,2000,no_issue,FALSE,TRUE
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+,,,,,
+exact data citation,1890,200,exact_data_citation,FALSE,TRUE
+signlton (exact data citation),1900,190,signlton_exact_cited_activity,null,TRUE
+highly correlated assays,1690,400,higly_correlated_assay,FALSE,TRUE
+signlton (highly correlated assays),1700,390,signlton_higly_correlated_cit,null,TRUE
+review,1590,500,review,FALSE,TRUE
+signlton (review),1600,490,signlton_review,null,TRUE
+shuffled assays,1390,600,shuffled_assay,FALSE,TRUE
+signlton (shuffled assays),1400,590,signlton_shuffled_cit,null,TRUE
+rounded data citation,1190,800,rounded_data_citation,FALSE,TRUE
+signlton (rounded data citation),1200,790,signlton_approx_cited_activity,null,TRUE
+high citation rate,990,1000,high_citation_rate,FALSE,TRUE
+signlton (high citation rate),1000,990,signlton_high_citation_rate,null,TRUE
