@@ -1,0 +1,19 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+
+# Packaging
+build/
+dist/
+
+# Virtual environments
+.venv/
+
+# Cache directories
+.mypy_cache/
+.pytest_cache/
+
+# VS Code etc
+.vscode/
