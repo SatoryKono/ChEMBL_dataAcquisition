@@ -25,11 +25,19 @@ if str(LIB_DIR) not in sys.path:
 from io_utils import CsvConfig, read_ids, write_rows  # noqa: E402
 from uniprot_client import NetworkConfig, RateLimitConfig, UniProtClient  # noqa: E402
 from uniprot_normalize import (  # noqa: E402
+
     extract_ensembl_gene_ids,
     normalize_entry,
     output_columns,
 )
 from orthologs import EnsemblHomologyClient, OmaClient  # noqa: E402
+
+    Isoform,
+    extract_isoforms,
+    normalize_entry,
+    output_columns,
+)
+
 
 DEFAULT_INPUT = "input.csv"
 DEFAULT_OUTPUT = "output_input_{date}.csv"
@@ -54,7 +62,18 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument("--sep", default=DEFAULT_SEP, help="CSV separator")
     parser.add_argument("--encoding", default=DEFAULT_ENCODING, help="File encoding")
     parser.add_argument(
-        "--include-sequence", action="store_true", help="Include full protein sequence"
+        "--include-sequence",
+        action="store_true",
+        help="Include full protein sequence",
+    )
+    parser.add_argument(
+        "--with-isoforms",
+        action="store_true",
+        help="Fetch and export isoform information",
+    )
+    parser.add_argument(
+        "--isoforms-output",
+        help="Path to write normalised isoform table",
     )
     parser.add_argument(
         "--with-orthologs", action="store_true", help="Retrieve ortholog information"
@@ -73,37 +92,50 @@ def main(argv: List[str] | None = None) -> None:
 
     config = yaml.safe_load((ROOT / "config.yaml").read_text())
     uniprot_cfg = config.get("uniprot", {})
-    network_cfg = config.get("network", {})
-    rate_cfg = config.get("rate_limit", {})
     output_cfg = config.get("output", {})
     orth_cfg = config.get("orthologs", {})
 
     list_format = output_cfg.get("list_format", "json")
     include_seq = args.include_sequence or output_cfg.get("include_sequence", False)
+    include_iso = args.with_isoforms or uniprot_cfg.get("include_isoforms", False)
+    use_fasta_stream = uniprot_cfg.get("use_fasta_stream_for_isoform_ids", True)
 
     csv_cfg = CsvConfig(sep=args.sep, encoding=args.encoding, list_format=list_format)
 
     client = UniProtClient(
         base_url=uniprot_cfg.get("base_url", "https://rest.uniprot.org/uniprotkb"),
-        fields=",".join(uniprot_cfg.get("fields", [])),
+        fields=(
+            ",".join(uniprot_cfg.get("fields", [])) if uniprot_cfg.get("fields") else ""
+        ),
         network=NetworkConfig(
-            timeout_sec=network_cfg.get("timeout_sec", 30),
-            max_retries=network_cfg.get("max_retries", 3),
+            timeout_sec=uniprot_cfg.get("timeout_sec", 30),
+            max_retries=uniprot_cfg.get("retries", 3),
             backoff_sec=1.0,
         ),
-        rate_limit=RateLimitConfig(rps=rate_cfg.get("rps", 3)),
+        rate_limit=RateLimitConfig(rps=uniprot_cfg.get("rps", 3)),
     )
 
     input_path = Path(args.input)
     output_path = Path(args.output) if args.output else _default_output(input_path)
+
     orthologs_path = (
         Path(args.orthologs_output)
         if args.orthologs_output
         else output_path.with_name(output_path.stem + "_orthologs.csv")
     )
 
+
+
+    iso_out_path = (
+        Path(args.isoforms_output)
+        if args.isoforms_output
+        else output_path.with_name(f"{output_path.stem}_isoforms.csv")
+    )
+
     accessions = read_ids(input_path, args.column, csv_cfg)
-    rows: List[Dict[str, Any]] = []
+    rows: List[Dict[str, str]] = []
+    iso_rows: List[Dict[str, str]] = []
+
     cols = output_columns(include_seq)
 
     target_species: List[str] = []
@@ -150,12 +182,21 @@ def main(argv: List[str] | None = None) -> None:
         ]
 
     for acc in accessions:
+<
         data = client.fetch(acc)
         gene_ids: List[str] = []
         if data is None:
+
+        entry = client.fetch_entry_json(acc)
+        fasta_headers: List[str] = []
+        if include_iso and entry is not None and use_fasta_stream:
+            fasta_headers = client.fetch_isoforms_fasta(acc)
+        if entry is None:
+
             logging.warning("No entry for %s", acc)
             row: Dict[str, Any] = {c: "" for c in cols}
             row["uniprot_id"] = acc
+
         else:
             gene_ids = extract_ensembl_gene_ids(data)
             row = normalize_entry(data, include_seq)
@@ -242,6 +283,47 @@ def main(argv: List[str] | None = None) -> None:
         )
         write_rows(orthologs_path, orth_rows, orth_cols, csv_cfg)
         print(orthologs_path)
+
+            rows.append(row)
+            continue
+        isoforms: List[Isoform] = []
+        if include_iso:
+            isoforms = extract_isoforms(entry, fasta_headers)
+            for iso in isoforms:
+                iso_rows.append(
+                    {
+                        "parent_uniprot_id": acc,
+                        "isoform_uniprot_id": iso["isoform_uniprot_id"],
+                        "isoform_name": iso["isoform_name"],
+                        "isoform_synonyms": iso["isoform_synonyms"],
+                        "is_canonical": str(iso["is_canonical"]).lower(),
+                    }
+                )
+        row = normalize_entry(entry, include_seq, isoforms)
+        rows.append(row)
+
+    rows.sort(key=lambda r: r.get("uniprot_id", ""))
+    write_rows(output_path, rows, cols, csv_cfg)
+    if include_iso:
+        iso_cols = [
+            "parent_uniprot_id",
+            "isoform_uniprot_id",
+            "isoform_name",
+            "isoform_synonyms",
+            "is_canonical",
+        ]
+        iso_rows.sort(
+            key=lambda r: (
+                r["parent_uniprot_id"],
+                (
+                    int(r["isoform_uniprot_id"].split("-")[-1])
+                    if r["isoform_uniprot_id"].count("-")
+                    else 999999
+                ),
+            )
+        )
+        write_rows(iso_out_path, iso_rows, iso_cols, csv_cfg)
+
     print(output_path)
 
 

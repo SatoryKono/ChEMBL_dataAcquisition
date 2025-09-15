@@ -44,7 +44,6 @@ library/
         config.py
     mapping.py
 schemas/
-    default_config.yaml  # Built-in configuration
     config.schema.json   # JSON schema for configuration validation
 scripts/
     chembl2uniprot_main.py  # ChEMBL to UniProt mapper
@@ -52,6 +51,7 @@ scripts/
 tests/
     data/            # Sample config and CSV files used in tests
     test_mapping.py  # Unit tests
+config.yaml         # Unified configuration
 pyproject.toml       # Build system and dependency declaration
 requirements.txt     # Dependency pinning
 .gitignore
@@ -60,17 +60,26 @@ requirements.txt     # Dependency pinning
 ## Usage
 
 
-1. Prepare a configuration file (see ``tests/data/config/valid.yaml`` for an example).
+1. Prepare a configuration file (see ``tests/data/config/valid.yaml`` for an example)
+   or use the bundled ``config.yaml``.
 2. Run the mapper:
 
 ```bash
 python scripts/chembl2uniprot_main.py \
     --input input.csv \
     --output output.csv \
-    --config schemas\config.yaml \
     --log-level INFO \
     --sep , \
     --encoding utf-8
+```
+
+To supply an alternative configuration file:
+
+```bash
+python scripts/chembl2uniprot_main.py \
+    --input input.csv \
+    --output output.csv \
+    --config my_config.yaml
 ```
 
 
@@ -113,16 +122,28 @@ python scripts/get_uniprot_target_data.py \
 The behaviour is configured via ``config.yaml``.  Lists are serialised either as
 JSON (default) or as ``|``-delimited strings depending on the configuration.
 
+
 ### Including orthologs
 
 Orthologous genes can be fetched via the Ensembl REST API and attached to the
 output.  Enable this behaviour with ``--with-orthologs`` and optionally specify
 an explicit path for the normalised ortholog table using ``--orthologs-output``.
 
+### Isoforms
+
+When the ``--with-isoforms`` flag is supplied the script queries the UniProt
+REST API for the full set of isoforms for each accession.  A separate CSV file
+is written via ``--isoforms-output`` containing one row per isoform with the
+columns ``parent_uniprot_id``, ``isoform_uniprot_id``, ``isoform_name``,
+``isoform_synonyms`` and ``is_canonical``.  The main output gains the aggregated
+fields ``isoform_ids_all``, ``isoforms_json`` and ``isoforms_count``.
+
+
 ```bash
 python scripts/get_uniprot_target_data.py \
     --input ids.csv \
     --output targets.csv \
+
     --with-orthologs \
     --orthologs-output orthologs.csv
 ```
@@ -139,6 +160,14 @@ perc_id, perc_pos, dn, ds, is_high_confidence, source_db``.
 Supported target species in the default configuration are ``human``, ``mouse``,
 ``rat``, ``zebrafish``, ``dog`` and ``macaque``.
 
+    --with-isoforms \
+    --isoforms-output isoforms.csv
+```
+
+Further details about alternative products are available in the
+[UniProt documentation](https://www.uniprot.org/help/alternative_products).
+
+
 ### Downloading target metadata
 
 Fetch basic information for targets listed in ``targets.csv`` and write the
@@ -154,6 +183,22 @@ python scripts/get_target_data_main.py \
 
 Nested fields in the output are encoded as JSON strings to ensure
 deterministic, machine-readable results.
+
+### Unified pipeline
+
+Combine ChEMBL, UniProt, HGNC and GtoP data into a single table:
+
+```bash
+python scripts/pipeline_targets_main.py \
+    --input targets.csv \
+    --output final.csv \
+    --id-column target_chembl_id
+```
+
+The output contains one row per ``target_chembl_id`` with blocks of columns
+covering identifiers, taxonomy, sequence features, cross-references and a brief
+IUPHAR summary.  Lists are serialised as JSON arrays and sorted to guarantee
+reproducible files.  See the source for the full column list.
 
 
 ## Testing and quality checks

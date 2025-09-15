@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Dict, List, Tuple
+import json
+import logging
+import re
+from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 ORDERED_COLUMNS_BASE = [
     "uniprot_id",
@@ -40,6 +43,9 @@ ORDERED_COLUMNS_BASE = [
     "ptm_modified_residue",
     "isoform_ids",
     "isoform_names",
+    "isoform_ids_all",
+    "isoforms_json",
+    "isoforms_count",
     "domains_pfam",
     "domains_interpro",
     "3d_pdb_ids",
@@ -50,6 +56,18 @@ ORDERED_COLUMNS_BASE = [
     "last_annotation_update",
     "entry_version",
 ]
+
+
+class Isoform(TypedDict):
+    """Representation of a single protein isoform."""
+
+    isoform_uniprot_id: str
+    isoform_name: str
+    isoform_synonyms: List[str]
+    is_canonical: bool
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def output_columns(include_sequence: bool) -> List[str]:
@@ -100,12 +118,115 @@ def _collect_cross_refs(entry: Dict[str, Any], db: str) -> List[Dict[str, Any]]:
     return out
 
 
+def _suffix_from_id(value: str) -> Optional[int]:
+    match = re.search(r"-(\d+)$", value)
+    return int(match.group(1)) if match else None
+
+
+def _suffix_from_name(value: str) -> Optional[int]:
+    match = re.search(r"Isoform\s+(\d+)", value or "")
+    return int(match.group(1)) if match else None
+
+
+def extract_isoforms(
+    entry_json: Dict[str, Any], fasta_headers: List[str]
+) -> List[Isoform]:
+    """Extract isoform information from UniProt entry and FASTA headers.
+
+    Parameters
+    ----------
+    entry_json:
+        Raw UniProt entry as JSON.
+    fasta_headers:
+        FASTA header lines returned from the UniProt stream endpoint.
+
+    Returns
+    -------
+    List[Isoform]
+        Normalised list of isoforms sorted by numeric suffix.
+    """
+
+    json_map: Dict[Optional[int], Dict[str, Any]] = {}
+    for comment in _collect_comment(entry_json, "ALTERNATIVE_PRODUCTS"):
+        for iso in comment.get("isoforms", []):
+            name = _get(iso, "name", "value") or ""
+            synonyms = [
+                s.get("value") for s in iso.get("synonyms", []) if s.get("value")
+            ]
+            is_disp = bool(iso.get("isSequenceDisplayed") or iso.get("isDisplayed"))
+            num = _suffix_from_id(iso.get("id", ""))
+            if num is None:
+                num = _suffix_from_name(name)
+            json_map[num] = {
+                "name": name,
+                "synonyms": sorted(set(synonyms)),
+                "is_canonical": is_disp,
+            }
+
+    fasta_map: Dict[int, str] = {}
+    for header in fasta_headers:
+        match = re.search(r"\|([A-Z0-9]+-\d+)\|", header)
+        if not match:
+            continue
+        iso_id = match.group(1)
+        num = _suffix_from_id(iso_id)
+        if num is None:
+            continue
+        fasta_map[num] = iso_id
+
+    json_nums = {k for k in json_map if k is not None}
+    if json_nums != set(fasta_map):
+        LOGGER.warning(
+            "Isoform mismatch for %s: json=%s fasta=%s",
+            entry_json.get("primaryAccession", ""),
+            sorted(json_nums),
+            sorted(fasta_map),
+        )
+
+    all_nums = sorted(json_nums | set(fasta_map))
+    result: List[Isoform] = []
+    for num in all_nums:
+        data = json_map.get(num, {})
+        iso_id = fasta_map.get(num, "")
+        is_canon = bool(data.get("is_canonical")) or num == 1
+        result.append(
+            Isoform(
+                isoform_uniprot_id=iso_id,
+                isoform_name=data.get("name", ""),
+                isoform_synonyms=data.get("synonyms", []),
+                is_canonical=is_canon,
+            )
+        )
+
+    if None in json_map:
+        data = json_map[None]
+        result.append(
+            Isoform(
+                isoform_uniprot_id="",
+                isoform_name=data.get("name", ""),
+                isoform_synonyms=data.get("synonyms", []),
+                is_canonical=bool(data.get("is_canonical")),
+            )
+        )
+
+    def _sort_key(iso: Isoform) -> Tuple[int, str]:
+        num = _suffix_from_id(iso["isoform_uniprot_id"])
+        if num is None:
+            num = _suffix_from_name(iso["isoform_name"]) or 999999
+        return num, iso["isoform_name"]
+
+    result.sort(key=_sort_key)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Normalisation
 
 
 def normalize_entry(
-    entry: Dict[str, Any], include_sequence: bool = False
+    entry: Dict[str, Any],
+    include_sequence: bool = False,
+    isoforms: List[Isoform] | None = None,
 ) -> Dict[str, Any]:
     """Normalise a raw UniProt record into a flat dictionary.
 
@@ -118,6 +239,7 @@ def normalize_entry(
     """
 
     result: Dict[str, Any] = {c: "" for c in output_columns(include_sequence)}
+    isoforms = isoforms or []
 
     result["uniprot_id"] = entry.get("primaryAccession", "")
     result["entry_type"] = entry.get("entryType", "").lower()
@@ -282,6 +404,13 @@ def normalize_entry(
                 iso_names.append(iso_name)
     result["isoform_ids"] = sorted(set(iso_ids))
     result["isoform_names"] = sorted(set(iso_names))
+    result["isoform_ids_all"] = [
+        iso["isoform_uniprot_id"] for iso in isoforms if iso["isoform_uniprot_id"]
+    ]
+    result["isoforms_json"] = json.dumps(
+        [dict(iso) for iso in isoforms], separators=(",", ":"), sort_keys=True
+    )
+    result["isoforms_count"] = len(isoforms)
 
     # Cross references -------------------------------------------------
     def _domains(db: str) -> List[Tuple[str, str]]:

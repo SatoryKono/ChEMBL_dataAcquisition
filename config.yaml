@@ -1,61 +1,79 @@
 
-
-
-gtop:
-  base_url: "https://www.guidetopharmacology.org/services"
-
 gtop:
   base_url: "https://www.guidetopharmacology.org/services"
 
 uniprot:
-  base_url: https://rest.uniprot.org/uniprotkb
-  fields:
-    - accession
-    - reviewed
-    - protein_name
-    - gene_primary
-    - gene_names
-    - organism_name
-    - organism_id
-    - lineage
-    - protein_existence
-    - sequence
-    - length
-    - mass
-    - sequence_md5
-    - cc_subcellular_location
-    - cc_function
-    - cc_catalytic_activity
-    - cc_cofactor
-    - cc_pathway
-    - cc_tissue_specificity
-    - cc_expression
-    - ft_signal
-    - ft_transmem
-    - ft_topo_dom
-    - ft_glycosylation
-    - ft_lipidation
-    - ft_disulfid
-    - ft_mod_res
-    - cc_alternative_products
-    - xref_pfam
-    - xref_interpro
-    - xref_pdb
-    - xref_alphafold
-    - xref_chembl
-    - xref_hgnc
-    - xref_ensembl
-    - last_annotation_update
-    - version
-
-
-network:
+  base_url: "https://rest.uniprot.org/uniprotkb"
+  include_isoforms: true
+  use_fasta_stream_for_isoform_ids: true
   timeout_sec: 30
-  max_retries: 3
-rate_limit:
+  retries: 3
+  rps: 3
+
+output:
+  list_format: json
+  encoding: "utf-8-sig"
+
+pipeline:
+  rate_limit_rps: 2
+  retries: 3
+  timeout_sec: 30
+  species_priority: ["Human", "Homo sapiens"]
+  list_format: json
+  include_sequence: false
+  iuphar:
+    affinity_parameter: pKi
+    approved_only: null
+    primary_target_only: true
 
 
-  rps: 2
+chembl2uniprot:
+  io:
+    input:
+      encoding: "utf-8"
+    output:
+      encoding: "utf-8"
+    csv:
+      separator: ","
+      multivalue_delimiter: "|"
+  columns:
+    chembl_id: "target_chembl_id"
+    uniprot_out: "mapped_uniprot_id"
+  uniprot:
+    base_url: "https://rest.uniprot.org"
+    id_mapping:
+      endpoint: "/idmapping/run"
+      status_endpoint: "/idmapping/status"
+      results_endpoint: "/idmapping/results"
+      from_db: "ChEMBL"
+      to_db: "UniProtKB"
+    polling:
+      interval_sec: 0
+    rate_limit:
+      rps: 1000
+    retry:
+      max_attempts: 2
+      backoff_sec: 0
+  network:
+    timeout_sec: 30
+  batch:
+    size: 100
+  logging:
+    level: "DEBUG"
+
+hgnc:
+  hgnc:
+    base_url: "https://rest.genenames.org/fetch/uniprot_ids"
+  network:
+    timeout_sec: 30
+    max_retries: 3
+  rate_limit:
+    rps: 3
+  output:
+    sep: ","
+    encoding: "utf-8"
+
+
 
 output:
   sep: ","
@@ -81,3 +99,4 @@ orthologs:
   timeout_sec: 30
   retries: 3
   backoff_base_sec: 1.0
+

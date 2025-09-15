@@ -29,14 +29,19 @@ import argparse
 import sys
 import shutil
 from pathlib import Path
+import shutil
 
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+
 from library.uniprot_enrich import enrich_uniprot
 from library.chembl2uniprot.logging_utils import configure_logging
+
+
+
 
 
 DEFAULT_LOG_LEVEL = "INFO"
@@ -78,10 +83,19 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args()
     configure_logging(args.log_level, json_logs=args.log_format == "json")
+
     enrich_uniprot(args.input, list_sep=args.sep)
     if args.output:
         shutil.copy(args.input, args.output)
     print(args.output or args.input)
+
+    target = args.input
+    if args.output:
+        shutil.copy(args.input, args.output)
+        target = args.output
+    enrich_uniprot(target, list_sep=args.sep)
+    print(target)
+
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point
