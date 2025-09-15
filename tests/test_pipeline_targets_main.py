@@ -14,6 +14,7 @@ from pipeline_targets_main import (
     add_uniprot_fields,
     extract_isoform,
     merge_chembl_fields,
+    save_output,
 )
 
 
@@ -148,3 +149,13 @@ def test_add_isoform_fields() -> None:
     assert row["isoform_names"] == "Isoform 1"
     assert row["isoform_ids"] == "P1-1"
     assert row["isoform_synonyms"] == "Alpha"
+
+
+def test_save_output_creates_path_and_expands_user(tmp_path, monkeypatch) -> None:
+    df = pd.DataFrame({"a": [1]})
+    monkeypatch.setenv("HOME", str(tmp_path))
+    path = Path("~") / "nested" / "file.csv"
+    result = save_output(df, path)
+    expected = tmp_path / "nested" / "file.csv"
+    assert result == expected
+    assert expected.exists()
