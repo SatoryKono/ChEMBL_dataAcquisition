@@ -23,7 +23,12 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
-from http_client import HttpClient
+# ``gtop_client`` is imported both as a module within the package and directly in
+# tests. The conditional import below supports both patterns.
+try:  # pragma: no cover - support test environments
+    from .http_client import HttpClient
+except ImportError:  # pragma: no cover
+    from http_client import HttpClient  # type: ignore[no-redef]
 
 
 LOGGER = logging.getLogger(__name__)

@@ -32,7 +32,9 @@ from library.uniprot_client import (
 )
 from library.orthologs import EnsemblHomologyClient, OmaClient
 
+
 from library.protein_classifier import classify_protein
+
 
 from library.pipeline_targets import (
     PipelineConfig,
@@ -40,7 +42,7 @@ from library.pipeline_targets import (
     run_pipeline,
 )
 
-from iuphar import ClassificationRecord, IUPHARClassifier, IUPHARData
+from library.iuphar import ClassificationRecord, IUPHARClassifier, IUPHARData
 
 
 def merge_chembl_fields(
