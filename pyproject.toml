@@ -25,6 +25,7 @@ dev = [
     "black",
     "ruff",
     "mypy",
+    "pydantic>=2.0",
     "pandas-stubs",
     "types-PyYAML",
     "types-jsonschema",
