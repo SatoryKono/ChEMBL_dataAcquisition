@@ -13,6 +13,7 @@ OUTPUT_COLUMNS = [
     "synonyms",
     "type",
     "secondary_uniprot_id",
+    "secondary_accession_names",
     "gene_name",
     "genus",
     "superkingdom",
@@ -40,7 +41,15 @@ OUTPUT_COLUMNS = [
     "isoform_ids",
     "isoform_synonyms",
     "reactions",
+    "reaction_ec_numbers",
     "GuidetoPHARMACOLOGY",
+    "family",
+    "SUPFAM",
+    "PROSITE",
+    "InterPro",
+    "Pfam",
+    "PRINTS",
+    "TCDB",
 ]
 
 LOGGER = logging.getLogger(__name__)
@@ -142,6 +151,18 @@ class UniProtClient:
             parsed = {c: "" for c in OUTPUT_COLUMNS}
         else:
             parsed = _parse_entry(data, self.list_sep)
+            sec_ids = parsed.get("secondary_uniprot_id", "")
+            if sec_ids:
+                sec_names: List[str] = []
+                for sid in sec_ids.split(self.list_sep):
+                    entry_sec = self._fetch_single(sid)
+                    if entry_sec:
+                        sec_names.extend(_protein_names_from_entry(entry_sec))
+                parsed["secondary_accession_names"] = _serialize_list(
+                    sec_names, self.list_sep
+                )
+            else:
+                parsed["secondary_accession_names"] = ""
         self.cache[accession] = parsed
         return parsed
 
@@ -164,6 +185,64 @@ def _feature_to_string(feature: dict) -> str:
     if pos:
         return f"[{pos}]"
     return ""
+
+
+def _collect_ec_numbers(name_obj: dict) -> List[str]:
+    """Extract EC numbers from a UniProt name object.
+
+    Parameters
+    ----------
+    name_obj:
+        Name or reaction object potentially containing ``ecNumbers`` or
+        ``ecNumber`` entries.
+
+    Returns
+    -------
+    List[str]
+        All EC numbers found within ``name_obj``.
+    """
+
+    numbers: List[str] = []
+    ec_data = name_obj.get("ecNumbers") or name_obj.get("ecNumber")
+    if isinstance(ec_data, list):
+        for item in ec_data:
+            if isinstance(item, dict):
+                value = item.get("value")
+                if value:
+                    numbers.append(value)
+            elif isinstance(item, str):
+                numbers.append(item)
+    elif isinstance(ec_data, dict):
+        value = ec_data.get("value")
+        if value:
+            numbers.append(value)
+    elif isinstance(ec_data, str):
+        numbers.append(ec_data)
+    return numbers
+
+
+def _protein_names_from_entry(entry: dict) -> List[str]:
+    """Return protein names from ``entry``.
+
+    The function collects the recommended full name and all alternative full
+    names. It is used to resolve names for secondary accession records.
+    """
+
+    names: List[str] = []
+    desc = entry.get("proteinDescription", {})
+    if not isinstance(desc, dict):
+        return names
+    rec = desc.get("recommendedName", {})
+    if isinstance(rec, dict):
+        value = rec.get("fullName", {}).get("value")
+        if value:
+            names.append(value)
+    for alt in desc.get("alternativeNames", []) or []:
+        if isinstance(alt, dict):
+            value = alt.get("fullName", {}).get("value")
+            if value:
+                names.append(value)
+    return names
 
 
 def _parse_entry(entry: dict, sep: str) -> Dict[str, str]:
@@ -220,6 +299,13 @@ def _parse_entry(entry: dict, sep: str) -> Dict[str, str]:
     mf_terms: List[str] = []
     cc_terms: List[str] = []
     guide_ids: List[str] = []
+    family_ids: List[str] = []
+    supfam_ids: List[str] = []
+    prosite_ids: List[str] = []
+    interpro_ids: List[str] = []
+    pfam_ids: List[str] = []
+    prints_ids: List[str] = []
+    tcdb_ids: List[str] = []
     for ref in entry.get("uniProtKBCrossReferences", []):
         db = ref.get("database")
         if db == "HGNC":
@@ -239,17 +325,39 @@ def _parse_entry(entry: dict, sep: str) -> Dict[str, str]:
                 cc_terms.append(f"{term[2:]} ({ref.get('id')})")
         elif db == "GuidetoPHARMACOLOGY":
             guide_ids.append(ref.get("id", ""))
+        elif db == "family":
+            family_ids.append(ref.get("id", ""))
+        elif db == "SUPFAM":
+            supfam_ids.append(ref.get("id", ""))
+        elif db == "PROSITE":
+            prosite_ids.append(ref.get("id", ""))
+        elif db == "InterPro":
+            interpro_ids.append(ref.get("id", ""))
+        elif db == "Pfam":
+            pfam_ids.append(ref.get("id", ""))
+        elif db == "PRINTS":
+            prints_ids.append(ref.get("id", ""))
+        elif db == "TCDB":
+            tcdb_ids.append(ref.get("id", ""))
     data["hgnc_name"] = _serialize_list(hgnc_names, sep)
     data["hgnc_id"] = _serialize_list(hgnc_ids, sep)
     data["molecular_function"] = _serialize_list(mf_terms, sep)
     data["cellular_component"] = _serialize_list(cc_terms, sep)
     data["GuidetoPHARMACOLOGY"] = _serialize_list(guide_ids, sep)
+    data["family"] = _serialize_list(family_ids, sep)
+    data["SUPFAM"] = _serialize_list(supfam_ids, sep)
+    data["PROSITE"] = _serialize_list(prosite_ids, sep)
+    data["InterPro"] = _serialize_list(interpro_ids, sep)
+    data["Pfam"] = _serialize_list(pfam_ids, sep)
+    data["PRINTS"] = _serialize_list(prints_ids, sep)
+    data["TCDB"] = _serialize_list(tcdb_ids, sep)
     # Comments
     sublocs: List[str] = []
     isoform_names: List[str] = []
     isoform_ids: List[str] = []
     isoform_synonyms: List[str] = []
     reactions: List[str] = []
+    reaction_ecs: List[str] = []
     for comment in entry.get("comments", []):
         ctype = comment.get("commentType")
         if ctype == "SUBCELLULAR_LOCATION":
@@ -270,14 +378,20 @@ def _parse_entry(entry: dict, sep: str) -> Dict[str, str]:
                     if v:
                         isoform_synonyms.append(v)
         elif ctype == "CATALYTIC_ACTIVITY":
-            reaction = comment.get("reaction", {}).get("name")
-            if reaction:
-                reactions.append(reaction)
+            reaction = comment.get("reaction", {})
+            if isinstance(reaction, dict):
+                name = reaction.get("name")
+                if isinstance(name, dict):
+                    name = name.get("value")
+                if name:
+                    reactions.append(name)
+                reaction_ecs.extend(_collect_ec_numbers(reaction))
     data["subcellular_location"] = _serialize_list(sublocs, sep)
     data["isoform_names"] = _serialize_list(isoform_names, sep)
     data["isoform_ids"] = _serialize_list(isoform_ids, sep)
     data["isoform_synonyms"] = _serialize_list(isoform_synonyms, sep)
     data["reactions"] = _serialize_list(reactions, sep)
+    data["reaction_ec_numbers"] = _serialize_list(reaction_ecs, sep)
     # Features
     feature_map = {
         "Topological domain": "topology",
