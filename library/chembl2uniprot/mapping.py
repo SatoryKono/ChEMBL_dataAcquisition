@@ -97,8 +97,6 @@ def _request_with_retry(
 ) -> requests.Response:
     """Perform an HTTP request with retry and rate limiting."""
 
-    rate_limiter.wait()
-
     @retry(
         reraise=True,
         retry=retry_if_exception_type(requests.RequestException),
@@ -106,6 +104,8 @@ def _request_with_retry(
         wait=wait_exponential(multiplier=backoff),
     )
     def _do_request() -> requests.Response:
+        # Honour the rate limit before each network call, including retries.
+        rate_limiter.wait()
         resp = requests.request(method, url, timeout=timeout, **kwargs)
         if resp.status_code >= 500:
             # Trigger retry by raising for 5xx responses
