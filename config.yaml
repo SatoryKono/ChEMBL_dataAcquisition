@@ -48,7 +48,7 @@ chembl:
     - tax_id
     - species_group_flag
     - target_components
-    - protein_classifications
+    - protein_classifications 
     - cross_references
     - gene_symbol_list
     - protein_synonym_list
@@ -56,6 +56,7 @@ chembl:
 output:
   list_format: json
   encoding: "utf-8-sig"
+ 
 
 pipeline:
   rate_limit_rps: 2
@@ -160,9 +161,14 @@ hgnc:
 
 
 output:
+  # Separator used for CSV output, e.g. "," or "\t"
   sep: ","
-  encoding: utf-8-sig
-  list_format: json
+  # File encoding for generated CSV files
+  encoding: "utf-8-sig"
+  # Serialisation format for list-like fields: "json" or "pipe"
+  list_format: pipe
+  # Include protein sequence column by default
+
   include_sequence: false
 
 orthologs:

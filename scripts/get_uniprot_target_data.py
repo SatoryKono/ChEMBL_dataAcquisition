@@ -61,8 +61,8 @@ def main(argv: List[str] | None = None) -> None:
     parser.add_argument(
         "--column", default=DEFAULT_COLUMN, help="Column with UniProt IDs"
     )
-    parser.add_argument("--sep", default=DEFAULT_SEP, help="CSV separator")
-    parser.add_argument("--encoding", default=DEFAULT_ENCODING, help="File encoding")
+    parser.add_argument("--sep", help="CSV separator, e.g. ','")
+    parser.add_argument("--encoding", help="File encoding, e.g. 'utf-8'")
     parser.add_argument(
         "--include-sequence",
         action="store_true",
@@ -99,10 +99,13 @@ def main(argv: List[str] | None = None) -> None:
 
     list_format = output_cfg.get("list_format", "json")
     include_seq = args.include_sequence or output_cfg.get("include_sequence", False)
+    sep = args.sep or output_cfg.get("sep", DEFAULT_SEP)
+    encoding = args.encoding or output_cfg.get("encoding", DEFAULT_ENCODING)
     include_iso = args.with_isoforms or uniprot_cfg.get("include_isoforms", False)
     use_fasta_stream = uniprot_cfg.get("use_fasta_stream_for_isoform_ids", True)
 
-    csv_cfg = CsvConfig(sep=args.sep, encoding=args.encoding, list_format=list_format)
+    # Use configuration defaults when CLI options are omitted
+    csv_cfg = CsvConfig(sep=sep, encoding=encoding, list_format=list_format)
 
     client = UniProtClient(
         base_url=uniprot_cfg.get("base_url", "https://rest.uniprot.org/uniprotkb"),
