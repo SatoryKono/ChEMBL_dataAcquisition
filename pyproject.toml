@@ -24,4 +24,8 @@ dev = [
     "black",
     "ruff",
     "mypy",
+    "types-PyYAML",
+    "types-jsonschema",
+    "pandas-stubs",
+    "types-requests",
 ]

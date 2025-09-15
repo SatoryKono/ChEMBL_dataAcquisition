@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, cast
 import json
 import logging
 
@@ -33,13 +33,17 @@ class Config:
 
 
 def _read_yaml(path: Path) -> Dict[str, Any]:
-    with path.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh) or {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict):
+        raise ValueError("Configuration file must contain a mapping at the root")
+    return cast(Dict[str, Any], data)
 
 
 def _read_json(path: Path) -> Dict[str, Any]:
-    with path.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("Schema file must contain a JSON object at the root")
+    return cast(Dict[str, Any], data)
 
 
 def load_and_validate_config(

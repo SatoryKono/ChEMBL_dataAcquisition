@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence
+from typing import Any, Dict, Iterable, List, Sequence, cast
 import hashlib
 import json
 import logging
@@ -65,7 +65,7 @@ def _request_with_retry(
     rate_limiter: RateLimiter,
     max_attempts: int,
     backoff: float,
-    **kwargs,
+    **kwargs: Any,
 ) -> requests.Response:
     """Perform an HTTP request with retry and rate limiting."""
 
@@ -114,10 +114,15 @@ def _start_job(
         data=payload,
     )
     try:
-        return resp.json()
+        payload = resp.json()
     except json.JSONDecodeError:
         LOGGER.debug("Unparseable response from %s: %s", url, resp.text)
         raise
+    if not isinstance(payload, dict):
+        LOGGER.debug("Unexpected response payload: %s", payload)
+        raise ValueError("Invalid response payload")
+    payload_dict: Dict[str, Any] = payload
+    return payload_dict
 
 
 def _poll_job(
@@ -181,6 +186,10 @@ def _fetch_results(
     except json.JSONDecodeError:
         LOGGER.debug("Unparseable results response: %s", resp.text)
         raise
+    if not isinstance(payload, dict):
+        LOGGER.debug("Unexpected results payload: %s", payload)
+        raise ValueError("Invalid results payload")
+    payload = cast(Dict[str, Any], payload)
 
     mapping: Dict[str, List[str]] = {}
     for item in payload.get("results", []):
@@ -263,12 +272,12 @@ def map_chembl_to_uniprot(
         )
     output_csv_path = Path(output_csv_path)
 
-    sep = cfg["io"]["csv"]["separator"]
-    encoding_in = cfg["io"]["input"]["encoding"]
-    encoding_out = cfg["io"]["output"]["encoding"]
-    chembl_col = cfg["columns"]["chembl_id"]
-    out_col = cfg["columns"]["uniprot_out"]
-    delimiter = cfg["io"]["csv"]["multivalue_delimiter"]
+    sep: str = cfg["io"]["csv"]["separator"]
+    encoding_in: str = cfg["io"]["input"]["encoding"]
+    encoding_out: str = cfg["io"]["output"]["encoding"]
+    chembl_col: str = cfg["columns"]["chembl_id"]
+    out_col: str = cfg["columns"]["uniprot_out"]
+    delimiter: str = cfg["io"]["csv"]["multivalue_delimiter"]
 
     # Compute SHA256 of input file for logging purposes
     with input_csv_path.open("rb") as fh:
