@@ -24,6 +24,10 @@ dev = [
     "black",
     "ruff",
     "mypy",
+    "pandas-stubs",
+    "types-PyYAML",
+    "types-jsonschema",
+    "types-requests",
 ]
 
 [tool.setuptools.package-data]
