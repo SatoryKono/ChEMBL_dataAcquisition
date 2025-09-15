@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import requests_mock
 
-from gtop_client import GtoPClient, GtoPConfig, resolve_target
-from gtop_normalize import normalise_interactions, normalise_synonyms
+
+from library.gtop_client import GtoPClient, GtoPConfig, resolve_target
+from library.gtop_normalize import normalise_interactions, normalise_synonyms
+
 
 
 def _client() -> GtoPClient:
