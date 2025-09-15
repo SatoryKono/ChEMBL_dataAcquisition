@@ -138,6 +138,22 @@ python scripts/get_target_data_main.py \
 Nested fields in the output are encoded as JSON strings to ensure
 deterministic, machine-readable results.
 
+### Unified pipeline
+
+Combine ChEMBL, UniProt, HGNC and GtoP data into a single table:
+
+```bash
+python scripts/pipeline_targets_main.py \
+    --input targets.csv \
+    --output final.csv \
+    --id-column target_chembl_id
+```
+
+The output contains one row per ``target_chembl_id`` with blocks of columns
+covering identifiers, taxonomy, sequence features, cross-references and a brief
+IUPHAR summary.  Lists are serialised as JSON arrays and sorted to guarantee
+reproducible files.  See the source for the full column list.
+
 
 ## Testing and quality checks
 

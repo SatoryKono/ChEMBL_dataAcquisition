@@ -57,6 +57,18 @@ output:
   list_format: json
   include_sequence: false
 
+pipeline:
+  rate_limit_rps: 2
+  retries: 3
+  timeout_sec: 30
+  species_priority: ["Human", "Homo sapiens"]
+  list_format: json
+  include_sequence: false
+  iuphar:
+    affinity_parameter: pKi
+    approved_only: null
+    primary_target_only: true
+
 
 chembl2uniprot:
   io:
