@@ -42,7 +42,10 @@ MOCK_ENTRY = {
                 }
             ],
         },
-        {"commentType": "CATALYTIC_ACTIVITY", "reaction": {"name": "A + B = C"}},
+        {
+            "commentType": "CATALYTIC_ACTIVITY",
+            "reaction": {"name": "A + B = C", "ecNumber": "1.2.3.4"},
+        },
     ],
     "features": [
         {
@@ -78,7 +81,16 @@ MOCK_ENTRY = {
             "id": "GO:0005634",
             "properties": [{"key": "GoTerm", "value": "C:nucleus"}],
         },
+        {"database": "PROSITE", "id": "PS12345"},
+        {"database": "Pfam", "id": "PF00001"},
     ],
+}
+
+MOCK_SECONDARY = {
+    "primaryAccession": "Q99999",
+    "proteinDescription": {
+        "recommendedName": {"fullName": {"value": "Secondary protein"}}
+    },
 }
 
 
@@ -97,16 +109,23 @@ def test_enrich_uniprot(data_file: Path) -> None:
             text=json.dumps(MOCK_ENTRY),
         )
         m.get(
+            "https://rest.uniprot.org/uniprotkb/Q99999?format=json",
+            text=json.dumps(MOCK_SECONDARY),
+        )
+        m.get(
             "https://rest.uniprot.org/uniprotkb/P99999?format=json",
             status_code=404,
         )
         enrich_uniprot(str(data_file))
-        assert m.call_count == 2
+        assert m.call_count == 3
     df = pd.read_csv(data_file, dtype=str).fillna("")
     assert df.loc[0, "recommended_name"] == "Test protein"
     assert df.loc[0, "synonyms"] == "Alt1|Alt2"
     assert df.loc[1, "recommended_name"] == ""
     assert df.loc[2, "gene_name"] == "TP"
+    assert df.loc[0, "secondary_accession_names"] == "Secondary protein"
+    assert df.loc[0, "PROSITE"] == "PS12345"
+    assert df.loc[0, "reaction_ec_numbers"] == "1.2.3.4"
     # column order
     expected_cols = ["uniprot_id", "other"] + list(
         enrich_uniprot.__globals__["OUTPUT_COLUMNS"]
