@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
+import requests_mock
 
 from hgnc_client import map_uniprot_to_hgnc
 
@@ -17,10 +19,10 @@ def _write_csv(path: Path, values: list[str]) -> None:
 
 def _read_output(path: Path) -> list[dict[str, str]]:
     df = pd.read_csv(path).fillna("")
-    return df.to_dict(orient="records")
+    return cast(list[dict[str, str]], df.to_dict(orient="records"))
 
 
-def test_valid_uniprot_id(requests_mock, tmp_path: Path) -> None:
+def test_valid_uniprot_id(requests_mock: requests_mock.Mocker, tmp_path: Path) -> None:
     in_csv = tmp_path / "in.csv"
     _write_csv(in_csv, ["P35348"])
     out_csv = tmp_path / "out.csv"
@@ -64,7 +66,9 @@ def test_valid_uniprot_id(requests_mock, tmp_path: Path) -> None:
     ]
 
 
-def test_non_human_uniprot_id(requests_mock, tmp_path: Path) -> None:
+def test_non_human_uniprot_id(
+    requests_mock: requests_mock.Mocker, tmp_path: Path
+) -> None:
     in_csv = tmp_path / "in.csv"
     _write_csv(in_csv, ["Q91X72"])
     out_csv = tmp_path / "out.csv"
@@ -87,7 +91,9 @@ def test_non_human_uniprot_id(requests_mock, tmp_path: Path) -> None:
     assert uniprot_mock.call_count == 0
 
 
-def test_duplicate_input_ids(requests_mock, tmp_path: Path) -> None:
+def test_duplicate_input_ids(
+    requests_mock: requests_mock.Mocker, tmp_path: Path
+) -> None:
     in_csv = tmp_path / "in.csv"
     _write_csv(in_csv, ["P35348", "P35348"])
     out_csv = tmp_path / "out.csv"

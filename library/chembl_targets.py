@@ -369,20 +369,16 @@ def fetch_targets(
             "limit": str(len(chunk)),
         }
         url = f"{base}/target"
-        try:
-            resp = client.request("get", url, params=params)
-            if resp.status_code == 200:
-                data = resp.json()
-                payload_map = {
-                    t.get("target_chembl_id"): t for t in data.get("targets", []) or []
-                }
-            else:
-                LOGGER.warning(
-                    "Non-200 response for %s: %s", ",".join(chunk), resp.status_code
-                )
-                payload_map = {}
-        except Exception as exc:  # noqa: BLE001 - we log and continue
-            LOGGER.warning("Failed to fetch %s: %s", ",".join(chunk), exc)
+        resp = client.request("get", url, params=params)
+        if resp.status_code == 200:
+            data = resp.json()
+            payload_map = {
+                t.get("target_chembl_id"): t for t in data.get("targets", []) or []
+            }
+        else:
+            LOGGER.warning(
+                "Non-200 response for %s: %s", ",".join(chunk), resp.status_code
+            )
             payload_map = {}
         for chembl_id in chunk:
             payload = payload_map.get(chembl_id, {})

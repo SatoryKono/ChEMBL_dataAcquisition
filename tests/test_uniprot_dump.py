@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import re
+from typing import Any, cast
 
 import pandas as pd
 import requests_mock
@@ -17,8 +18,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = ROOT / "scripts" / "get_uniprot_target_data.py"
 
 
-def _load_sample() -> dict:
-    return json.loads((ROOT / "tests/data/uniprot_entry.json").read_text())
+def _load_sample() -> dict[str, Any]:
+    return cast(
+        dict[str, Any],
+        json.loads((ROOT / "tests/data/uniprot_entry.json").read_text()),
+    )
 
 
 def test_normalize_entry_sorts_lists() -> None:

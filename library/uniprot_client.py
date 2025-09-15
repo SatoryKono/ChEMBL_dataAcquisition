@@ -117,9 +117,9 @@ class UniProtClient:
 
         try:
             resp = _do_request()
-        except requests.RequestException as exc:  # pragma: no cover - network failure
-            LOGGER.warning("Request failed for %s: %s", url, exc)
-            return None
+        except requests.RequestException:  # pragma: no cover - network failure
+            LOGGER.error("Request for %s failed after all retries", url, exc_info=True)
+            raise
         if resp.status_code == 404:
             return None
         if resp.status_code != 200:  # pragma: no cover - unexpected codes

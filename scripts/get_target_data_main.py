@@ -52,6 +52,12 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     cfg = TargetConfig(output_sep=args.sep, output_encoding=args.encoding)
     result = fetch_targets(ids, cfg)
+
+    # Sort by columns and then by the primary ID to ensure deterministic output
+    result = result.reindex(sorted(result.columns), axis=1)
+    if args.column in result.columns:
+        result = result.sort_values(by=args.column).reset_index(drop=True)
+
     result.to_csv(
         args.output, index=False, sep=cfg.output_sep, encoding=cfg.output_encoding
     )

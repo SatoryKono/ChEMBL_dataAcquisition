@@ -13,3 +13,6 @@ black>=23.0
 ruff>=0.1
 mypy>=1.4
 pydantic>=2.0
+hypothesis
+types-requests
+types-PyYAML

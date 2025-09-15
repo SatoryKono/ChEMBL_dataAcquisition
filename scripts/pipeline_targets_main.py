@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Sequence
 
 import pandas as pd
-import yaml  # type: ignore[import]
+import yaml
 from tqdm.auto import tqdm
 
 
