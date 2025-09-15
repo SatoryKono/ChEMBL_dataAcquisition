@@ -1,6 +1,12 @@
 
 gtop:
   base_url: "https://www.guidetopharmacology.org/services"
+  columns:
+    - gtop_target_id
+    - gtop_synonyms
+    - gtop_natural_ligands_n
+    - gtop_interactions_n
+    - gtop_function_text_short
 
 uniprot:
   base_url: "https://rest.uniprot.org/uniprotkb"
@@ -9,6 +15,28 @@ uniprot:
   timeout_sec: 30
   retries: 3
   rps: 3
+  columns:
+    - uniprot_id_primary
+    - uniprot_ids_all
+    - isoform_ids
+    - isoform_names
+    - isoform_synonyms
+    - sequence_length
+    - features_signal_peptide
+    - features_transmembrane
+    - features_topology
+    - ptm_glycosylation
+    - ptm_lipidation
+    - ptm_disulfide_bond
+    - ptm_modified_residue
+    - pfam
+    - interpro
+    - xref_uniprot
+    - xref_ensembl
+    - xref_pdb
+    - xref_alphafold
+    - uniprot_last_update
+    - uniprot_version
 
 chembl:
   columns:
@@ -116,6 +144,10 @@ chembl2uniprot:
     level: "DEBUG"
 
 hgnc:
+  columns:
+    - hgnc_id
+    - gene_symbol
+    - hgnc_name
   hgnc:
     base_url: "https://rest.genenames.org/fetch/uniprot_ids"
   network:

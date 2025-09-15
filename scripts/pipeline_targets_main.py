@@ -201,6 +201,16 @@ def main() -> None:
         list_format=pipeline_cfg.list_format, columns=columns
     )
 
+    # Merge additional column requirements from other data sources so that the
+    # final output includes every requested field. This allows individual
+    # sections in the YAML configuration (``uniprot``, ``gtop``, ``hgnc``) to
+    # declare their own column lists without having to manually duplicate them
+    # under ``pipeline.columns``.
+    for section in ("uniprot", "gtop", "hgnc"):
+        for col in data.get(section, {}).get("columns", []):
+            if col not in pipeline_cfg.columns:
+                pipeline_cfg.columns.append(col)
+
     (
         uni_client,
         hgnc_client,
