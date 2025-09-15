@@ -263,7 +263,9 @@ def map_chembl_to_uniprot(
     input_csv_path: str | Path,
     output_csv_path: str | Path | None = None,
     config_path: str | Path = "config.yaml",
+    schema_path: str | Path | None = None,
     *,
+    config_section: str | None = None,
     log_level: str | None = None,
     log_format: str | None = None,
     sep: str | None = None,
@@ -279,8 +281,14 @@ def map_chembl_to_uniprot(
         Optional path for the output CSV file.  When ``None`` a file with the
         suffix ``"_with_uniprot.csv"`` is created next to ``input_csv_path``.
     config_path:
-        Path to the YAML configuration file which is validated against
+        Path to the YAML configuration file.
+    schema_path:
+        Optional path to the JSON schema used for validation.  When ``None``
+        the schema is assumed to reside next to ``config_path`` under the name
         ``config.schema.json``.
+    config_section:
+        Optional top-level key within the YAML file containing the
+        configuration relevant to this function.
     log_level:
         Logging verbosity (e.g. ``"INFO"`` or ``"DEBUG"``). When ``None`` the
         value from the configuration file is used.
@@ -305,7 +313,9 @@ def map_chembl_to_uniprot(
         If the input CSV does not contain the required ChEMBL identifier column.
     """
 
-    cfg: Config = load_and_validate_config(config_path)
+    cfg: Config = load_and_validate_config(
+        config_path, schema_path, section=config_section
+    )
 
     # Allow overriding the configuration with function arguments
     log_level = log_level or cfg.logging.level

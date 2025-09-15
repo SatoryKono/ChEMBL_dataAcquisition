@@ -38,13 +38,16 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.config:
         config_path = Path(args.config)
+        section = None
     else:
-        config_path = ROOT / "schemas" / "hgnc_config.yaml"
+        config_path = ROOT / "config.yaml"
+        section = "hgnc"
 
     out_path = map_uniprot_to_hgnc(
         input_csv_path=Path(args.input),
         output_csv_path=Path(args.output) if args.output else None,
         config_path=config_path,
+        config_section=section,
         column=args.column,
         sep=args.sep,
         encoding=args.encoding,

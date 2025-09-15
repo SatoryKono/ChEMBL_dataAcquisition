@@ -1,9 +1,4 @@
 
-
-
-gtop:
-  base_url: "https://www.guidetopharmacology.org/services"
-
 gtop:
   base_url: "https://www.guidetopharmacology.org/services"
 
@@ -48,12 +43,11 @@ uniprot:
     - last_annotation_update
     - version
 
-
 network:
   timeout_sec: 30
   max_retries: 3
-rate_limit:
 
+rate_limit:
 
   rps: 2
 
@@ -62,3 +56,52 @@ output:
   encoding: utf-8-sig
   list_format: json
   include_sequence: false
+
+
+chembl2uniprot:
+  io:
+    input:
+      encoding: "utf-8"
+    output:
+      encoding: "utf-8"
+    csv:
+      separator: ","
+      multivalue_delimiter: "|"
+  columns:
+    chembl_id: "target_chembl_id"
+    uniprot_out: "mapped_uniprot_id"
+  uniprot:
+    base_url: "https://rest.uniprot.org"
+    id_mapping:
+      endpoint: "/idmapping/run"
+      status_endpoint: "/idmapping/status"
+      results_endpoint: "/idmapping/results"
+      from_db: "ChEMBL"
+      to_db: "UniProtKB"
+    polling:
+      interval_sec: 0
+    rate_limit:
+      rps: 1000
+    retry:
+      max_attempts: 2
+      backoff_sec: 0
+  network:
+    timeout_sec: 30
+  batch:
+    size: 100
+  logging:
+    level: "DEBUG"
+
+hgnc:
+  hgnc:
+    base_url: "https://rest.genenames.org/fetch/uniprot_ids"
+  network:
+    timeout_sec: 30
+    max_retries: 3
+  rate_limit:
+    rps: 3
+  output:
+    sep: ","
+    encoding: "utf-8"
+
+

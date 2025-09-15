@@ -207,7 +207,10 @@ def _apply_env_overrides(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def load_and_validate_config(
-    config_path: str | Path, schema_path: str | Path | None = None
+    config_path: str | Path,
+    schema_path: str | Path | None = None,
+    *,
+    section: str | None = None,
 ) -> Config:
     """Load ``config_path`` and validate it against ``config.schema.json``.
 
@@ -219,6 +222,10 @@ def load_and_validate_config(
         Optional path to the JSON schema.  When ``None`` the schema is assumed
         to be located in the same directory as ``config_path`` under the name
         ``config.schema.json``.
+    section:
+        Optional top-level key within the YAML file.  When provided, only this
+        subsection is validated against the schema.  Useful when multiple
+        configurations share a single file.
 
     Returns
     -------
@@ -239,6 +246,11 @@ def load_and_validate_config(
     schema_path = Path(schema_path)
 
     config_dict = _read_yaml(config_path)
+    if section:
+        try:
+            config_dict = config_dict[section]
+        except KeyError as exc:  # pragma: no cover - defensive programming
+            raise KeyError(f"Section '{section}' not found in {config_path}") from exc
     columns_dict = _normalise_column_aliases(config_dict.get("columns", {}))
     config_dict["columns"] = columns_dict
 
