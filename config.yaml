@@ -11,7 +11,6 @@ gtop:
 uniprot:
   base_url: "https://rest.uniprot.org/uniprotkb"
   include_isoforms: true
-  use_fasta_stream_for_isoform_ids: true
   use_fasta_stream_for_isoform_ids: false
   timeout_sec: 30
   retries: 3
@@ -55,7 +54,6 @@ chembl:
     - protein_synonym_list
 
 output:
-  list_format: pipe
   encoding: "utf-8-sig"
 
 pipeline:
@@ -78,11 +76,6 @@ pipeline:
      - lineage_superkingdom
      - lineage_phylum
      - lineage_class
-     - protein_class_L1
-     - protein_class_L2
-     - protein_class_L3
-     - protein_class_L4
-     - protein_class_L5
      - sequence_length
      - features_signal_peptide
      - features_transmembrane
