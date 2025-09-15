@@ -66,6 +66,33 @@ def test_success_mapping_single_batch(
     assert read_output(out) == ["P1", "P2"]
 
 
+def test_success_mapping_redirect(
+    requests_mock, tmp_path: Path, config_path: Path
+) -> None:
+    run_url = "https://rest.uniprot.org/idmapping/run"
+    status_url = "https://rest.uniprot.org/idmapping/status/123"
+    results_url = "https://rest.uniprot.org/idmapping/results/123"
+    requests_mock.post(run_url, json={"jobId": "123"})
+    requests_mock.get(
+        status_url,
+        status_code=303,
+        headers={"Location": results_url},
+    )
+    requests_mock.get(
+        results_url,
+        json={
+            "results": [
+                {"from": "CHEMBL1", "to": "P1"},
+                {"from": "CHEMBL2", "to": "P2"},
+            ]
+        },
+    )
+
+    out = tmp_path / "out.csv"
+    map_chembl_to_uniprot(INPUT, out, config_path)
+    assert read_output(out) == ["P1", "P2"]
+
+
 def test_no_mapping(requests_mock, tmp_path: Path, config_path: Path) -> None:
     run_url = "https://rest.uniprot.org/idmapping/run"
     status_url = "https://rest.uniprot.org/idmapping/status/1"
