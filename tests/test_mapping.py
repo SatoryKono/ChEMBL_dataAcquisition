@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import pandas as pd
 import pytest
+from requests_mock.mocker import Mocker
 
 from chembl2uniprot import map_chembl_to_uniprot
 
@@ -30,7 +31,7 @@ def read_output(path: Path) -> list[str | None]:
 
 
 def test_success_mapping_single_batch(
-    requests_mock, tmp_path: Path, config_path: Path
+    requests_mock: Mocker, tmp_path: Path, config_path: Path
 ) -> None:
     run_url = "https://rest.uniprot.org/idmapping/run"
     status_url = "https://rest.uniprot.org/idmapping/status/123"
@@ -52,7 +53,7 @@ def test_success_mapping_single_batch(
     assert read_output(out) == ["P1", "P2"]
 
 
-def test_no_mapping(requests_mock, tmp_path: Path, config_path: Path) -> None:
+def test_no_mapping(requests_mock: Mocker, tmp_path: Path, config_path: Path) -> None:
     run_url = "https://rest.uniprot.org/idmapping/run"
     status_url = "https://rest.uniprot.org/idmapping/status/1"
     results_url = "https://rest.uniprot.org/idmapping/results/1"
@@ -64,7 +65,9 @@ def test_no_mapping(requests_mock, tmp_path: Path, config_path: Path) -> None:
     assert read_output(out) == [None, None]
 
 
-def test_multiple_mappings(requests_mock, tmp_path: Path, config_path: Path) -> None:
+def test_multiple_mappings(
+    requests_mock: Mocker, tmp_path: Path, config_path: Path
+) -> None:
     run_url = "https://rest.uniprot.org/idmapping/run"
     status_url = "https://rest.uniprot.org/idmapping/status/1"
     results_url = "https://rest.uniprot.org/idmapping/results/1"
@@ -85,7 +88,7 @@ def test_multiple_mappings(requests_mock, tmp_path: Path, config_path: Path) -> 
 
 
 def test_retry_on_server_error(
-    requests_mock, tmp_path: Path, config_path: Path
+    requests_mock: Mocker, tmp_path: Path, config_path: Path
 ) -> None:
     run_url = "https://rest.uniprot.org/idmapping/run"
     status_url = "https://rest.uniprot.org/idmapping/status/1"
