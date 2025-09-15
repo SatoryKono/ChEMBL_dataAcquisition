@@ -230,6 +230,26 @@ def add_protein_classification(
     return pd.concat([pipeline_df, class_df], axis=1)
 
 
+def reorder_iuphar_columns(out_df: pd.DataFrame) -> pd.DataFrame:
+    """Move IUPHAR classification columns to the end of the frame.
+
+    Parameters
+    ----------
+    out_df:
+        Data frame to reorder.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``out_df`` with any IUPHAR classification columns moved to the end.
+        Columns not present are ignored.
+    """
+
+    existing_iuphar_cols = [c for c in IUPHAR_CLASS_COLUMNS if c in out_df.columns]
+    cols = [c for c in out_df.columns if c not in existing_iuphar_cols]
+    return out_df[cols + existing_iuphar_cols]
+
+
 def add_uniprot_fields(
     pipeline_df: pd.DataFrame,
     fetch_all: Callable[[Iterable[str]], Dict[str, Dict[str, str]]],
@@ -506,10 +526,10 @@ def main() -> None:
             encoding=args.encoding,
         )
     out_df = add_protein_classification(out_df, uni_client.fetch_entry_json)
-    # Keep classification columns grouped together at the end for clarity.
-    cols = [c for c in out_df.columns if c not in IUPHAR_CLASS_COLUMNS]
-    out_df = out_df[cols + IUPHAR_CLASS_COLUMNS]
-
+    # Keep classification columns grouped together at the end for clarity. Only
+    # columns present in the output frame are considered to avoid ``KeyError``
+    # when the optional IUPHAR classification has not been requested.
+    out_df = reorder_iuphar_columns(out_df)
 
     out_df.to_csv(args.output, index=False, sep=args.sep, encoding=args.encoding)
 

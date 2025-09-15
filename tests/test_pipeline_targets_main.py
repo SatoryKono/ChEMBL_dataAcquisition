@@ -12,6 +12,7 @@ from pipeline_targets_main import (
     add_protein_classification,
     add_uniprot_fields,
     merge_chembl_fields,
+    reorder_iuphar_columns,
 )
 
 
@@ -94,3 +95,22 @@ def test_add_uniprot_fields() -> None:
     assert row["geneName"] == "GENE1"
     assert row["secondaryAccessionNames"] == "Name1|Name2"
     assert row["molecular_function"] == "binding"
+
+
+def test_reorder_iuphar_columns_handles_absent_columns() -> None:
+    df = pd.DataFrame({"a": [1], "b": [2]})
+    out = reorder_iuphar_columns(df)
+    assert list(out.columns) == ["a", "b"]
+
+
+def test_reorder_iuphar_columns_moves_existing() -> None:
+    df = pd.DataFrame(
+        {
+            "col": [1],
+            "iuphar_name": ["n"],
+            "b": [2],
+            "iuphar_type": ["t"],
+        }
+    )
+    out = reorder_iuphar_columns(df)
+    assert list(out.columns) == ["col", "b", "iuphar_type", "iuphar_name"]
