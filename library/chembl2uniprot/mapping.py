@@ -159,6 +159,10 @@ def _poll_job(
         cfg.base_url.rstrip("/") + (cfg.id_mapping.status_endpoint or "") + "/" + job_id
     )
     interval = cfg.polling.interval_sec
+    max_polls = cfg.polling.max_polls
+    total_timeout = cfg.polling.total_timeout_sec
+    polls = 0
+    start_time = time.monotonic()
     while True:
         resp = _request_with_retry(
             "get",
@@ -177,6 +181,15 @@ def _poll_job(
             return
         if payload.get("jobStatus") in {"ERROR", "failed"}:
             raise RuntimeError(f"UniProt job {job_id} failed: {payload}")
+        polls += 1
+        if max_polls is not None and polls >= max_polls:
+            raise TimeoutError(
+                f"UniProt job {job_id} exceeded maximum poll attempts ({max_polls})"
+            )
+        if total_timeout is not None and time.monotonic() - start_time >= total_timeout:
+            raise TimeoutError(
+                f"UniProt job {job_id} exceeded polling timeout of {total_timeout} seconds"
+            )
         time.sleep(interval)
 
 

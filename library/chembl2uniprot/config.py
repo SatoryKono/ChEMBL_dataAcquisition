@@ -65,9 +65,23 @@ class IdMappingConfig:
 
 @dataclass
 class PollingConfig:
-    """Polling behaviour for asynchronous jobs."""
+    """Polling behaviour for asynchronous jobs.
+
+    Parameters
+    ----------
+    interval_sec:
+        Delay between polling requests in seconds.
+    max_polls:
+        Maximum number of status requests before giving up. ``None`` disables the
+        limit.
+    total_timeout_sec:
+        Total allowed time spent polling before aborting. ``None`` disables the
+        limit.
+    """
 
     interval_sec: float
+    max_polls: int | None = None
+    total_timeout_sec: float | None = None
 
 
 @dataclass
@@ -164,7 +178,6 @@ def _build_config(data: Dict[str, Any]) -> Config:
     # Accept legacy configuration where ``target_chembl_id`` was used instead
     # of ``chembl_id`` and standardise on the modern key.
     columns_cfg = _normalise_column_aliases(dict(data["columns"]), drop_legacy=True)
-
 
     io_cfg = IOConfig(
         input=EncodingConfig(**data["io"]["input"]),

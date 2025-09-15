@@ -147,6 +147,30 @@ def test_poll_job_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
         )
 
 
+def test_poll_job_max_polls(requests_mock) -> None:
+    """Polling stops after exceeding the configured maximum attempts."""
+
+    cfg = UniprotConfig(
+        base_url="https://rest.uniprot.org",
+        id_mapping=IdMappingConfig(endpoint="", status_endpoint="/idmapping/status"),
+        polling=PollingConfig(interval_sec=0, max_polls=2),
+        rate_limit=RateLimitConfig(rps=1),
+        retry=RetryConfig(max_attempts=1, backoff_sec=0),
+    )
+
+    status_url = "https://rest.uniprot.org/idmapping/status/1"
+    requests_mock.get(status_url, json={"jobStatus": "RUNNING"})
+
+    with pytest.raises(TimeoutError):
+        _poll_job(
+            "1",
+            cfg,
+            RateLimiter(0),
+            timeout=0.1,
+            retry_cfg=RetryConfig(max_attempts=1, backoff_sec=0),
+        )
+
+
 def test_deterministic_csv(requests_mock, tmp_path: Path, config_path: Path) -> None:
     run_url = "https://rest.uniprot.org/idmapping/run"
     status_url = "https://rest.uniprot.org/idmapping/status/1"

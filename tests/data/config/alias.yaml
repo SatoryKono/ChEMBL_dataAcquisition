@@ -19,6 +19,7 @@ uniprot:
     to_db: "UniProtKB"
   polling:
     interval_sec: 0
+    max_polls: 10
   rate_limit:
     rps: 1000
   retry:
