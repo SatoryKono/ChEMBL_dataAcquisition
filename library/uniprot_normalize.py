@@ -82,6 +82,7 @@ def output_columns(include_sequence: bool) -> List[str]:
 
 
 def _get(entry: Dict[str, Any], *path: str) -> Any:
+    """Safely get a nested value from a dictionary."""
     cur: Any = entry
     for p in path:
         if isinstance(cur, dict) and p in cur:
@@ -92,6 +93,7 @@ def _get(entry: Dict[str, Any], *path: str) -> Any:
 
 
 def _loc_to_range(feature: Dict[str, Any]) -> str:
+    """Convert a feature location to a string range."""
     loc = feature.get("location", {})
     start = _get(loc, "start", "value")
     end = _get(loc, "end", "value")
@@ -103,6 +105,7 @@ def _loc_to_range(feature: Dict[str, Any]) -> str:
 
 
 def _collect_comment(entry: Dict[str, Any], ctype: str) -> List[Dict[str, Any]]:
+    """Collect all comments of a specific type from a UniProt entry."""
     items: List[Dict[str, Any]] = []
     for c in entry.get("comments", []):
         if c.get("commentType") == ctype:
@@ -111,6 +114,7 @@ def _collect_comment(entry: Dict[str, Any], ctype: str) -> List[Dict[str, Any]]:
 
 
 def _collect_cross_refs(entry: Dict[str, Any], db: str) -> List[Dict[str, Any]]:
+    """Collect all cross-references to a specific database."""
     out: List[Dict[str, Any]] = []
     for xref in entry.get("uniProtKBCrossReferences", []):
         if xref.get("database") == db:
@@ -119,7 +123,18 @@ def _collect_cross_refs(entry: Dict[str, Any], db: str) -> List[Dict[str, Any]]:
 
 
 def _dedupe_preserve_order(items: List[str]) -> List[str]:
-    """Return ``items`` with duplicates removed, preserving order."""
+    """Deduplicate a list of strings while preserving the original order.
+
+    Parameters
+    ----------
+    items:
+        The list of strings to deduplicate.
+
+    Returns
+    -------
+    List[str]
+        The deduplicated list.
+    """
 
     seen: Set[str] = set()
     result: List[str] = []
@@ -131,11 +146,13 @@ def _dedupe_preserve_order(items: List[str]) -> List[str]:
 
 
 def _suffix_from_id(value: str) -> Optional[int]:
+    """Extract the numeric suffix from a UniProt isoform ID."""
     match = re.search(r"-(\d+)$", value)
     return int(match.group(1)) if match else None
 
 
 def _suffix_from_name(value: str) -> Optional[int]:
+    """Extract the numeric suffix from an isoform name."""
     match = re.search(r"Isoform\s+(\d+)", value or "")
     return int(match.group(1)) if match else None
 

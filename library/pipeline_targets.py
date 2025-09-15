@@ -191,6 +191,23 @@ def load_pipeline_config(path: str) -> PipelineConfig:
 
 
 def _serialise_list(items: Sequence[Any], list_format: str) -> str:
+    """Serialize a sequence of items into a string.
+
+    The items are first cleaned (None and empty strings removed), deduplicated,
+    and sorted. Then, they are serialized according to the specified format.
+
+    Parameters
+    ----------
+    items:
+        The sequence of items to serialize.
+    list_format:
+        The format to use for serialization ("pipe" or "json").
+
+    Returns
+    -------
+    str
+        The serialized string.
+    """
     cleaned = [x for x in items if x not in (None, "")]
     cleaned = sorted(dict.fromkeys(cleaned))
     if list_format == "pipe":
@@ -201,6 +218,23 @@ def _serialise_list(items: Sequence[Any], list_format: str) -> str:
 def _select_primary(
     entries: List[Dict[str, Any]], priority: Sequence[str]
 ) -> Dict[str, Any] | None:
+    """Select the primary UniProt entry from a list of entries.
+
+    The selection is based on a priority list of species. If no entry matches
+    the priority list, the first entry in the sorted list is returned.
+
+    Parameters
+    ----------
+    entries:
+        A list of normalized UniProt entry dictionaries.
+    priority:
+        A sequence of species names in order of priority.
+
+    Returns
+    -------
+    Dict[str, Any] | None
+        The selected primary entry, or None if the input list is empty.
+    """
     if not entries:
         return None
     for sp in priority:

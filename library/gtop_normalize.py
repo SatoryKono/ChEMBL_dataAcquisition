@@ -41,6 +41,22 @@ def normalise_targets(items: Iterable[Dict[str, Any]]) -> pd.DataFrame:
 
 
 def normalise_synonyms(target_id: int, items: Iterable[Dict[str, Any]]) -> pd.DataFrame:
+    """Normalize a list of synonym objects into a DataFrame.
+
+    Each synonym is associated with the given target ID.
+
+    Parameters
+    ----------
+    target_id:
+        The GtoPdb ID of the target.
+    items:
+        An iterable of synonym dictionaries from the GtoPdb API.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame with columns "targetId", "synonym", and "source".
+    """
     columns = ["targetId", "synonym", "source"]
     records = []
     for item in items or []:
@@ -60,6 +76,22 @@ def normalise_synonyms(target_id: int, items: Iterable[Dict[str, Any]]) -> pd.Da
 def normalise_interactions(
     target_id: int, items: Iterable[Dict[str, Any]]
 ) -> pd.DataFrame:
+    """Normalize a list of interaction objects into a DataFrame.
+
+    Each interaction is associated with the given target ID.
+
+    Parameters
+    ----------
+    target_id:
+        The GtoPdb ID of the target.
+    items:
+        An iterable of interaction dictionaries from the GtoPdb API.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing normalized interaction data.
+    """
     columns = [
         "targetId",
         "ligandId",

@@ -56,6 +56,22 @@ LOGGER = logging.getLogger(__name__)
 
 
 def _serialize_list(values: Iterable[str], sep: str) -> str:
+    """Serialize an iterable of strings into a single delimited string.
+
+    Duplicate values and empty strings are removed.
+
+    Parameters
+    ----------
+    values:
+        An iterable of strings to serialize.
+    sep:
+        The separator to use between values.
+
+    Returns
+    -------
+    str
+        A single string with the values joined by the separator.
+    """
     seen = set()
     items = []
     for v in values:
@@ -67,7 +83,24 @@ def _serialize_list(values: Iterable[str], sep: str) -> str:
 
 
 class UniProtClient:
-    """Lightweight client for UniProt REST API."""
+    """A lightweight client for the UniProt REST API.
+
+    This client provides methods to fetch and parse protein data from UniProt,
+    with support for batching, caching, and retries.
+
+    Attributes
+    ----------
+    session:
+        A `requests.Session` object for making HTTP requests.
+    max_workers:
+        The maximum number of threads to use for concurrent requests.
+    base_url:
+        The base URL for the UniProt API.
+    cache:
+        A dictionary to cache fetched UniProt entries.
+    list_sep:
+        The separator to use for joining list values in the output.
+    """
 
     def __init__(
         self,
@@ -84,7 +117,26 @@ class UniProtClient:
 
     # Retry logic with exponential backoff
     def _request(self, method: str, url: str, **kwargs) -> Optional[requests.Response]:
-        """Perform HTTP request with exponential backoff."""
+        """Perform an HTTP request with exponential backoff.
+
+        This method attempts a request up to 5 times, with an increasing delay
+        between attempts. It retries on network errors and specific HTTP status
+        codes (429, 500, 502, 503, 504).
+
+        Parameters
+        ----------
+        method:
+            The HTTP method to use (e.g., "GET", "POST").
+        url:
+            The URL to request.
+        **kwargs:
+            Additional keyword arguments to pass to `requests.request`.
+
+        Returns
+        -------
+        Optional[requests.Response]
+            The HTTP response object if the request is successful, otherwise None.
+        """
         last_exc: Optional[Exception] = None
         for attempt in range(5):
             try:
@@ -106,6 +158,18 @@ class UniProtClient:
         return None
 
     def _fetch_single(self, accession: str) -> Optional[dict]:
+        """Fetch a single UniProt entry by its accession number.
+
+        Parameters
+        ----------
+        accession:
+            The UniProt accession number.
+
+        Returns
+        -------
+        Optional[dict]
+            A dictionary representing the UniProt entry, or None if not found.
+        """
         url = f"{self.base_url}/{accession}?format=json"
         resp = self._request("GET", url)
         if resp and resp.status_code == 200:
@@ -113,6 +177,18 @@ class UniProtClient:
         return None
 
     def _fetch_batch(self, accessions: List[str]) -> List[dict]:
+        """Fetch a batch of UniProt entries using a single search query.
+
+        Parameters
+        ----------
+        accessions:
+            A list of UniProt accession numbers.
+
+        Returns
+        -------
+        List[dict]
+            A list of dictionaries, each representing a UniProt entry.
+        """
         query = " OR ".join(f"accession:{a}" for a in accessions)
         params = {"query": query, "format": "json", "size": len(accessions)}
         url = f"{self.base_url}/search"
@@ -122,6 +198,22 @@ class UniProtClient:
         return []
 
     def fetch_all(self, accessions: Iterable[str]) -> Dict[str, Dict[str, str]]:
+        """Fetch and parse all specified UniProt entries.
+
+        This method orchestrates fetching all requested accessions, using either
+        batch or individual requests based on the number of unique IDs. It uses a
+        `ThreadPoolExecutor` for concurrent fetching of smaller batches.
+
+        Parameters
+        ----------
+        accessions:
+            An iterable of UniProt accession numbers.
+
+        Returns
+        -------
+        Dict[str, Dict[str, str]]
+            A dictionary mapping each accession to its parsed UniProt data.
+        """
         unique = list(dict.fromkeys(accessions))
         results: Dict[str, Dict[str, str]] = {}
         if len(unique) > 100:
@@ -144,6 +236,22 @@ class UniProtClient:
         return results
 
     def fetch_entry(self, accession: str) -> Dict[str, str]:
+        """Fetch, parse, and cache a single UniProt entry.
+
+        If the entry is already in the cache, it is returned directly. Otherwise,
+        it is fetched, parsed, and stored in the cache before being returned.
+        This method also resolves names for secondary accession IDs.
+
+        Parameters
+        ----------
+        accession:
+            The UniProt accession number.
+
+        Returns
+        -------
+        Dict[str, str]
+            A dictionary of parsed data for the UniProt entry.
+        """
         if accession in self.cache:
             return self.cache[accession]
         data = self._fetch_single(accession)
@@ -171,6 +279,21 @@ class UniProtClient:
 
 
 def _feature_to_string(feature: dict) -> str:
+    """Format a UniProt feature object into a descriptive string.
+
+    The string includes the feature's description and its position, if
+    available.
+
+    Parameters
+    ----------
+    feature:
+        A dictionary representing a feature from a UniProt entry.
+
+    Returns
+    -------
+    str
+        A formatted string describing the feature.
+    """
     desc = feature.get("description", "").strip()
     loc = feature.get("location", {})
     start = loc.get("start", {}).get("value")
@@ -246,6 +369,23 @@ def _protein_names_from_entry(entry: dict) -> List[str]:
 
 
 def _parse_entry(entry: dict, sep: str) -> Dict[str, str]:
+    """Parse a raw UniProt entry dictionary into a flattened dictionary.
+
+    This function extracts relevant fields from the nested UniProt JSON
+    structure and formats them into a flat dictionary with predefined keys.
+
+    Parameters
+    ----------
+    entry:
+        The raw UniProt entry as a dictionary.
+    sep:
+        The separator to use for joining list values.
+
+    Returns
+    -------
+    Dict[str, str]
+        A flat dictionary containing the parsed UniProt data.
+    """
     data = {c: "" for c in OUTPUT_COLUMNS}
     data["uniprotkb_Id"] = entry.get("primaryAccession", "")
     data["type"] = entry.get("entryType", "")
