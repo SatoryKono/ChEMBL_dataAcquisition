@@ -1,0 +1,2 @@
+target_id,uniprot_id,hgnc_name,hgnc_id,gene_name,synonyms,family_id,target_name
+0001,P12345,ABC1,1,ABC1,Alpha|Beta,F001,Alpha Beta

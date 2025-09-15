@@ -1,0 +1,2 @@
+family_id,family_name,parent_family_id,target_id,type
+F001,Kinase family,,0001,Enzyme.Transferase
