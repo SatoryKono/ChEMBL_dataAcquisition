@@ -23,7 +23,13 @@ from typing import Any, Dict, List, Sequence
 
 import pandas as pd
 
-from http_client import HttpClient
+# ``chembl_targets`` can be imported either as part of the ``library`` package or
+# as a standalone module during testing. We therefore try a relative import
+# first and fall back to the top-level module.
+try:  # pragma: no cover - fallback for test environments
+    from .http_client import HttpClient
+except ImportError:  # pragma: no cover
+    from http_client import HttpClient  # type: ignore[no-redef]
 
 LOGGER = logging.getLogger(__name__)
 

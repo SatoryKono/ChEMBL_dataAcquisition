@@ -33,14 +33,13 @@ from library.uniprot_client import (
 from library.orthologs import EnsemblHomologyClient, OmaClient
 
 
-
 from library.pipeline_targets import (
     PipelineConfig,
     load_pipeline_config,
     run_pipeline,
 )
 
-from iuphar import ClassificationRecord, IUPHARClassifier, IUPHARData
+from library.iuphar import ClassificationRecord, IUPHARClassifier, IUPHARData
 
 
 def merge_chembl_fields(
@@ -121,9 +120,7 @@ def add_iuphar_classification(
             if mapped and "|" not in mapped:
                 target_id = mapped
         record = (
-            classifier.by_target_id(target_id)
-            if target_id
-            else ClassificationRecord()
+            classifier.by_target_id(target_id) if target_id else ClassificationRecord()
         )
         return pd.Series(
             {
@@ -134,12 +131,16 @@ def add_iuphar_classification(
                 "iuphar_subclass": record.IUPHAR_subclass,
                 "iuphar_chain": ">".join(record.IUPHAR_tree),
                 "iuphar_name": record.IUPHAR_name,
-                "iuphar_full_id_path": data.all_id(record.IUPHAR_target_id)
-                if record.IUPHAR_target_id != "N/A"
-                else "",
-                "iuphar_full_name_path": data.all_name(record.IUPHAR_target_id)
-                if record.IUPHAR_target_id != "N/A"
-                else "",
+                "iuphar_full_id_path": (
+                    data.all_id(record.IUPHAR_target_id)
+                    if record.IUPHAR_target_id != "N/A"
+                    else ""
+                ),
+                "iuphar_full_name_path": (
+                    data.all_name(record.IUPHAR_target_id)
+                    if record.IUPHAR_target_id != "N/A"
+                    else ""
+                ),
             }
         )
 
