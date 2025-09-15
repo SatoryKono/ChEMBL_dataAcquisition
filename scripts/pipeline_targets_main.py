@@ -1,4 +1,3 @@
-
 # ruff: noqa: E402
 
 """CLI entry point for the unified target data pipeline."""
@@ -39,7 +38,6 @@ from pipeline_targets import PipelineConfig, load_pipeline_config, run_pipeline
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the pipeline."""
 
-
     parser = argparse.ArgumentParser(description="Unified target data pipeline")
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
@@ -59,9 +57,7 @@ def parse_args() -> argparse.Namespace:
 def build_clients(
     cfg_path: str, pipeline_cfg: PipelineConfig
 ) -> tuple[UniProtClient, HGNCClient, GtoPClient]:
-
     """Initialise UniProt, HGNC, and GtoP clients."""
-
 
     with open(cfg_path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
@@ -77,7 +73,11 @@ def build_clients(
         rate_limit=UniRateConfig(rps=pipeline_cfg.rate_limit_rps),
     )
 
-    hcfg = load_hgnc_config(cfg_path)
+    # The HGNC configuration is nested under the top-level "hgnc" section
+    # in the YAML file. Explicitly select this section to avoid passing the
+    # entire configuration dictionary to ``HGNCServiceConfig``, which would
+    # otherwise raise ``TypeError`` due to unexpected keys.
+    hcfg = load_hgnc_config(cfg_path, section="hgnc")
     hcfg.network.timeout_sec = pipeline_cfg.timeout_sec
     hcfg.network.max_retries = pipeline_cfg.retries
     hcfg.rate_limit.rps = pipeline_cfg.rate_limit_rps
@@ -94,9 +94,7 @@ def build_clients(
 
 
 def main() -> None:
-
     """Run the unified pipeline on the provided input IDs."""
-
 
     args = parse_args()
     logging.basicConfig(level=args.log_level.upper())
