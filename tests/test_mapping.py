@@ -3,13 +3,19 @@ from __future__ import annotations
 from pathlib import Path
 import pandas as pd
 import pytest
+import requests
 
 from chembl2uniprot import map_chembl_to_uniprot
+from chembl2uniprot.mapping import RateLimiter, _poll_job
 
 DATA_DIR = Path(__file__).parent / "data"
-CONFIG = DATA_DIR / "config.yaml"
-SCHEMA = DATA_DIR / "config.schema.json"
-INPUT = DATA_DIR / "input.csv"
+CONFIG_DIR = DATA_DIR / "config"
+CSV_DIR = DATA_DIR / "csv"
+
+CONFIG = CONFIG_DIR / "valid.yaml"
+SCHEMA = CONFIG_DIR / "config.schema.json"
+INPUT = CSV_DIR / "input.csv"
+INPUT_SINGLE = CSV_DIR / "input_single.csv"
 
 
 @pytest.fixture
@@ -80,7 +86,7 @@ def test_multiple_mappings(requests_mock, tmp_path: Path, config_path: Path) -> 
         },
     )
     out = tmp_path / "out.csv"
-    map_chembl_to_uniprot(DATA_DIR / "input_single.csv", out, config_path)
+    map_chembl_to_uniprot(INPUT_SINGLE, out, config_path)
     assert read_output(out) == ["P1|P2"]
 
 
@@ -105,3 +111,48 @@ def test_config_validation_error(tmp_path: Path) -> None:
     cfg.write_text("io: {}")  # invalid
     with pytest.raises(ValueError):
         map_chembl_to_uniprot(INPUT, tmp_path / "out.csv", cfg)
+
+
+def test_poll_job_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = {
+        "base_url": "https://rest.uniprot.org",
+        "id_mapping": {"status_endpoint": "/idmapping/status"},
+        "polling": {"interval_sec": 0},
+    }
+
+    def raise_timeout(*_: object, **__: object) -> None:
+        raise requests.Timeout
+
+    monkeypatch.setattr("chembl2uniprot.mapping._request_with_retry", raise_timeout)
+
+    with pytest.raises(requests.Timeout):
+        _poll_job(
+            "1",
+            cfg,
+            RateLimiter(0),
+            timeout=0.1,
+            retry_cfg={"max_attempts": 1, "backoff_sec": 0},
+        )
+
+
+def test_deterministic_csv(requests_mock, tmp_path: Path, config_path: Path) -> None:
+    run_url = "https://rest.uniprot.org/idmapping/run"
+    status_url = "https://rest.uniprot.org/idmapping/status/1"
+    results_url = "https://rest.uniprot.org/idmapping/results/1"
+
+    requests_mock.post(run_url, json={"jobId": "1"})
+    requests_mock.get(status_url, json={"jobStatus": "FINISHED"})
+    requests_mock.get(
+        results_url,
+        [
+            {"json": {"results": [{"from": "CHEMBL1", "to": "P1"}]}},
+            {"json": {"results": [{"to": "P1", "from": "CHEMBL1"}]}},
+        ],
+    )
+
+    out1 = tmp_path / "out1.csv"
+    out2 = tmp_path / "out2.csv"
+    map_chembl_to_uniprot(INPUT_SINGLE, out1, config_path)
+    map_chembl_to_uniprot(INPUT_SINGLE, out2, config_path)
+
+    assert out1.read_bytes() == out2.read_bytes()
