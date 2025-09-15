@@ -21,18 +21,52 @@ pipeline:
   species_priority: ["Human", "Homo sapiens"]
   list_format: json
   include_sequence: false
-  iuphar:
-    affinity_parameter: pKi
-    approved_only: null
-    primary_target_only: true
-
-pipeline:
-  rate_limit_rps: 2
-  retries: 3
-  timeout_sec: 30
-  species_priority: ["Human", "Homo sapiens"]
-  list_format: json
-  include_sequence: false
+  columns:
+     - target_chembl_id
+     - uniprot_id_primary
+     - uniprot_ids_all
+     - hgnc_id
+     - gene_symbol
+     - protein_name_canonical
+     - protein_name_alt
+     - organism
+     - taxon_id
+     - lineage_superkingdom
+     - lineage_phylum
+     - lineage_class
+     - lineage_order
+     - lineage_family
+     - target_type
+     - protein_class_L1
+     - protein_class_L2
+     - protein_class_L3
+     - protein_class_L4
+     - protein_class_L5
+     - sequence_length
+     - features_signal_peptide
+     - features_transmembrane
+     - features_topology
+     - ptm_glycosylation
+     - ptm_lipidation
+     - ptm_disulfide_bond
+     - ptm_modified_residue
+     - pfam
+     - interpro
+     - xref_chembl
+     - xref_uniprot
+     - xref_ensembl
+     - xref_pdb
+     - xref_alphafold
+     - xref_iuphar
+     - gtop_target_id
+     - gtop_synonyms
+     - gtop_natural_ligands_n
+     - gtop_interactions_n
+     - gtop_function_text_short
+     - uniprot_last_update
+     - uniprot_version
+     - pipeline_version
+     - timestamp_utc
   iuphar:
     affinity_parameter: pKi
     approved_only: null

@@ -19,6 +19,55 @@ LOGGER = logging.getLogger(__name__)
 
 PIPELINE_VERSION = "0.1.0"
 
+# Default columns for final output files
+DEFAULT_COLUMNS = [
+    "target_chembl_id",
+    "uniprot_id_primary",
+    "uniprot_ids_all",
+    "hgnc_id",
+    "gene_symbol",
+    "protein_name_canonical",
+    "protein_name_alt",
+    "organism",
+    "taxon_id",
+    "lineage_superkingdom",
+    "lineage_phylum",
+    "lineage_class",
+    "lineage_order",
+    "lineage_family",
+    "target_type",
+    "protein_class_L1",
+    "protein_class_L2",
+    "protein_class_L3",
+    "protein_class_L4",
+    "protein_class_L5",
+    "sequence_length",
+    "features_signal_peptide",
+    "features_transmembrane",
+    "features_topology",
+    "ptm_glycosylation",
+    "ptm_lipidation",
+    "ptm_disulfide_bond",
+    "ptm_modified_residue",
+    "pfam",
+    "interpro",
+    "xref_chembl",
+    "xref_uniprot",
+    "xref_ensembl",
+    "xref_pdb",
+    "xref_alphafold",
+    "xref_iuphar",
+    "gtop_target_id",
+    "gtop_synonyms",
+    "gtop_natural_ligands_n",
+    "gtop_interactions_n",
+    "gtop_function_text_short",
+    "uniprot_last_update",
+    "uniprot_version",
+    "pipeline_version",
+    "timestamp_utc",
+]
+
 
 @dataclass
 class IupharConfig:
@@ -31,7 +80,28 @@ class IupharConfig:
 
 @dataclass
 class PipelineConfig:
-    """High level pipeline configuration."""
+    """High level pipeline configuration.
+
+    Attributes
+    ----------
+    rate_limit_rps:
+        Requests per second for external services.
+    retries:
+        Maximum number of network retries.
+    timeout_sec:
+        Timeout in seconds for network operations.
+    species_priority:
+        Ordered list of species names used to select the primary UniProt
+        record.
+    list_format:
+        Serialisation format for list-like fields (``"json"`` or ``"pipe"``).
+    include_sequence:
+        Whether to include protein sequences in the output.
+    columns:
+        Ordered list of columns written to the final output file.
+    iuphar:
+        Configuration for the IUPHAR/GtoP client.
+    """
 
     rate_limit_rps: float = 2.0
     retries: int = 3
@@ -41,6 +111,7 @@ class PipelineConfig:
     )
     list_format: str = "json"
     include_sequence: bool = False
+    columns: List[str] = field(default_factory=lambda: list(DEFAULT_COLUMNS))
     iuphar: IupharConfig = field(default_factory=IupharConfig)
 
 
@@ -64,6 +135,7 @@ def load_pipeline_config(path: str) -> PipelineConfig:
         species_priority=list(cfg.get("species_priority", ["Human", "Homo sapiens"])),
         list_format=cfg.get("list_format", "json"),
         include_sequence=cfg.get("include_sequence", False),
+        columns=list(cfg.get("columns", DEFAULT_COLUMNS)),
         iuphar=IupharConfig(
             affinity_parameter=iuphar.get("affinity_parameter", "pKi"),
             approved_only=iuphar.get("approved_only"),
@@ -306,54 +378,7 @@ def run_pipeline(
         }
         records.append(rec)
 
-    columns = [
-        "target_chembl_id",
-        "uniprot_id_primary",
-        "uniprot_ids_all",
-        "hgnc_id",
-        "gene_symbol",
-        "protein_name_canonical",
-        "protein_name_alt",
-        "organism",
-        "taxon_id",
-        "lineage_superkingdom",
-        "lineage_phylum",
-        "lineage_class",
-        "lineage_order",
-        "lineage_family",
-        "target_type",
-        "protein_class_L1",
-        "protein_class_L2",
-        "protein_class_L3",
-        "protein_class_L4",
-        "protein_class_L5",
-        "sequence_length",
-        "features_signal_peptide",
-        "features_transmembrane",
-        "features_topology",
-        "ptm_glycosylation",
-        "ptm_lipidation",
-        "ptm_disulfide_bond",
-        "ptm_modified_residue",
-        "pfam",
-        "interpro",
-        "xref_chembl",
-        "xref_uniprot",
-        "xref_ensembl",
-        "xref_pdb",
-        "xref_alphafold",
-        "xref_iuphar",
-        "gtop_target_id",
-        "gtop_synonyms",
-        "gtop_natural_ligands_n",
-        "gtop_interactions_n",
-        "gtop_function_text_short",
-        "uniprot_last_update",
-        "uniprot_version",
-        "pipeline_version",
-        "timestamp_utc",
-    ]
-    df = pd.DataFrame(records, columns=columns)
+    df = pd.DataFrame(records, columns=cfg.columns)
     return df
 
 
