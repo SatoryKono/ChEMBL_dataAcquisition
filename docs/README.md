@@ -122,6 +122,26 @@ python scripts/get_uniprot_target_data.py \
 The behaviour is configured via ``config.yaml``.  Lists are serialised either as
 JSON (default) or as ``|``-delimited strings depending on the configuration.
 
+### Isoforms
+
+When the ``--with-isoforms`` flag is supplied the script queries the UniProt
+REST API for the full set of isoforms for each accession.  A separate CSV file
+is written via ``--isoforms-output`` containing one row per isoform with the
+columns ``parent_uniprot_id``, ``isoform_uniprot_id``, ``isoform_name``,
+``isoform_synonyms`` and ``is_canonical``.  The main output gains the aggregated
+fields ``isoform_ids_all``, ``isoforms_json`` and ``isoforms_count``.
+
+```bash
+python scripts/get_uniprot_target_data.py \
+    --input ids.csv \
+    --output targets.csv \
+    --with-isoforms \
+    --isoforms-output isoforms.csv
+```
+
+Further details about alternative products are available in the
+[UniProt documentation](https://www.uniprot.org/help/alternative_products).
+
 ### Downloading target metadata
 
 Fetch basic information for targets listed in ``targets.csv`` and write the

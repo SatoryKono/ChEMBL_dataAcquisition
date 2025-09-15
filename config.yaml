@@ -3,59 +3,16 @@ gtop:
   base_url: "https://www.guidetopharmacology.org/services"
 
 uniprot:
-  base_url: https://rest.uniprot.org/uniprotkb
-  fields:
-    - accession
-    - reviewed
-    - protein_name
-    - gene_primary
-    - gene_names
-    - organism_name
-    - organism_id
-    - lineage
-    - protein_existence
-    - sequence
-    - length
-    - mass
-    - sequence_md5
-    - cc_subcellular_location
-    - cc_function
-    - cc_catalytic_activity
-    - cc_cofactor
-    - cc_pathway
-    - cc_tissue_specificity
-    - cc_expression
-    - ft_signal
-    - ft_transmem
-    - ft_topo_dom
-    - ft_glycosylation
-    - ft_lipidation
-    - ft_disulfid
-    - ft_mod_res
-    - cc_alternative_products
-    - xref_pfam
-    - xref_interpro
-    - xref_pdb
-    - xref_alphafold
-    - xref_chembl
-    - xref_hgnc
-    - xref_ensembl
-    - last_annotation_update
-    - version
-
-network:
+  base_url: "https://rest.uniprot.org/uniprotkb"
+  include_isoforms: true
+  use_fasta_stream_for_isoform_ids: true
   timeout_sec: 30
-  max_retries: 3
-
-rate_limit:
-
-  rps: 2
+  retries: 3
+  rps: 3
 
 output:
-  sep: ","
-  encoding: utf-8-sig
   list_format: json
-  include_sequence: false
+  encoding: "utf-8-sig"
 
 pipeline:
   rate_limit_rps: 2
