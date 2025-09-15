@@ -8,8 +8,8 @@ resources.  The client only performs network requests and leaves normalisation t
 Algorithm Notes
 ---------------
 1. All methods return Python data structures decoded from the JSON responses.
-2. HTTP 204 responses are interpreted as ``None``/empty collections rather than
-   raising errors.
+2. HTTP 204, 400 and 404 responses are interpreted as ``None``/empty collections
+   rather than raising errors.
 3. The :func:`resolve_target` function performs deterministic selection of the
    target record, preferring Human entries when multiple species are returned.
 """
@@ -67,6 +67,12 @@ class GtoPClient:
         LOGGER.debug("GET %s params=%s", url, params)
         resp = self.http.request("get", url, params=params)
         if resp.status_code in (204, 404):
+            return None
+        if resp.status_code == 400:
+            # The API occasionally returns HTTP 400 for queries that simply
+            # yield no results. Treat this as an empty payload so that the
+            # pipeline can continue processing other targets.
+            LOGGER.warning("HTTP 400 for %s params=%s", url, params)
             return None
         resp.raise_for_status()
         if not resp.content:

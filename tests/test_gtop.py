@@ -9,17 +9,6 @@ import requests_mock
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
-
-
-from library.gtop_client import GtoPClient, GtoPConfig, resolve_target  # noqa: E402
-from library.gtop_normalize import normalise_interactions, normalise_synonyms  # noqa: E402
-
-
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
 from library.gtop_client import GtoPClient, GtoPConfig, resolve_target  # noqa: E402
 from library.gtop_normalize import (  # noqa: E402
     normalise_interactions,
@@ -80,3 +69,11 @@ def test_interactions_filter_params(requests_mock: requests_mock.Mocker) -> None
         "affinity": ["7"],
         "approved": ["true"],
     }
+
+
+def test_400_response_returns_empty(requests_mock: requests_mock.Mocker) -> None:
+    client = _client()
+    url = "http://test/targets/1/interactions"
+    requests_mock.get(url, status_code=400)
+    data = client.fetch_target_endpoint(1, "interactions")
+    assert data == []
