@@ -1,0 +1,93 @@
+genus,taxon_id,type
+Lentivirus,11676,Viruses
+Homo,9606,Multicellular organism
+Sus,9823,Multicellular organism
+Cavia,10141,Multicellular organism
+Rattus,10116,Multicellular organism
+Mus,10090,Multicellular organism
+Bos,9913,Multicellular organism
+Glycine subgen. Soja,3847,Multicellular organism
+Oryctolagus,9986,Multicellular organism
+Plasmodium (Laverania),5833,Unicellular organism
+Clostridium,1502,Unicellular organism
+Mycobacterium tuberculosis complex,83332,Unicellular organism
+Staphylococcus,282458,Unicellular organism
+Toxoplasma,5811,Unicellular organism
+Schizotrypanum,5693,Unicellular organism
+Trypanosoma,31286,Unicellular organism
+Lacticaseibacillus,1582,Unicellular organism
+Pneumocystis,4754,Unicellular organism
+Mycobacterium avium complex (MAC),1764,Unicellular organism
+Escherichia,83333,Unicellular organism
+Candida,5476,Unicellular organism
+Neisseria,485,Unicellular organism
+Chlorocebus,9534,Multicellular organism
+Gallus,9031,Multicellular organism
+Methanosarcina,523844,Unicellular organism
+Flaveria,4224,Multicellular organism
+Tetronarce,7787,Multicellular organism
+Equus,9796,Multicellular organism
+Electrophorus,8005,Multicellular organism
+Zea,4577,Multicellular organism
+Schistosoma,6183,Multicellular organism
+,0,Unknown
+Influenza A virus,211044,Viruses
+Canis,9615,Multicellular organism
+Meleagris,9103,Multicellular organism
+Mesocricetus,10036,Multicellular organism
+Ovis,9940,Multicellular organism
+Bacillus,1427,Unicellular organism
+Enterobacter cloacae complex,550,Unicellular organism
+Hepacivirus,3052230,Viruses
+Apis,7460,Multicellular organism
+Klebsiella pneumoniae complex,573,Unicellular organism
+Macaca,9544,Multicellular organism
+Lymnaea,6523,Multicellular organism
+Aplysia,6500,Multicellular organism
+Eimeria,5802,Unicellular organism
+Carica,3649,Multicellular organism
+Bacillus cereus group,1392,Unicellular organism
+Solanum,4113,Multicellular organism
+Agaricus,5341,Multicellular organism
+Streptococcus,1313,Unicellular organism
+Callithrix,9483,Multicellular organism
+Aliivibrio,668,Unicellular organism
+Photinus,7054,Multicellular organism
+Yersinia,632,Unicellular organism
+Serratia,615,Unicellular organism
+Orthoflavivirus nilense,11082,Viruses
+Primate T-lymphotropic virus 1,11908,Viruses
+Agrobacterium tumefaciens complex,358,Unicellular organism
+Cryptosporidium,5807,Unicellular organism
+Sophophora,7227,Multicellular organism
+Onchocerca,6282,Multicellular organism
+Canavalia,3823,Multicellular organism
+Arabidopsis,3702,Multicellular organism
+Mycolicibacterium,1772,Unicellular organism
+Pseudomonas,287,Unicellular organism
+Magnetospirillum,55518,Unicellular organism
+Crithidia,5656,Unicellular organism
+Enterovirus,169066,Viruses
+Thermus,271,Unicellular organism
+Aquatica,7052,Multicellular organism
+Sarbecovirus,694009,Viruses
+Stenotrophomonas maltophilia group,40324,Unicellular organism
+Aeromonas,644,Unicellular organism
+Photuris,1710587,Multicellular organism
+Patiria,7594,Multicellular organism
+Alcaligenaceae,242601,Unicellular organism
+Plasmodium (Plasmodium),5855,Unicellular organism
+Vaccinia virus,10246,Viruses
+Chlamydomonas,3055,Unicellular organism
+Spinacia,3562,Multicellular organism
+Francisella,177416,Unicellular organism
+Hepacivirus hominis,31647,Viruses
+Dermatophagoides,6956,Multicellular organism
+Malassezia,425265,Unicellular organism
+Anopheles,7165,Multicellular organism
+Leishmania,5671,Unicellular organism
+Influenza B virus,343983,Viruses
+Clostridioides,1496,Unicellular organism
+Orthoflavivirus zikaense,64320,Viruses
+Ricinus,3988,Multicellular organism
+Severe acute respiratory syndrome coronavirus,2697049,Viruses
