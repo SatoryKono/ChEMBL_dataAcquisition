@@ -70,7 +70,7 @@ pipeline:
   iuphar:
     affinity_parameter: pKi
     approved_only: null
-    primary_target_only: true
+    primary_target_only: false
 
 
 chembl2uniprot:
@@ -124,7 +124,7 @@ hgnc:
 output:
   sep: ","
   encoding: utf-8-sig
-  list_format: json
+  list_format: pipe
   include_sequence: false
 
 orthologs:
