@@ -92,7 +92,8 @@ class HttpClient:
         )
         def _do_request() -> requests.Response:
             self.rate_limiter.wait()
-            resp = self.session.request(method, url, timeout=self.timeout, **kwargs)
+            timeout = kwargs.pop("timeout", self.timeout)
+            resp = self.session.request(method, url, timeout=timeout, **kwargs)
             if resp.status_code >= 500:
                 resp.raise_for_status()
             return resp

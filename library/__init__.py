@@ -14,4 +14,5 @@ __all__ = [
     "semantic_scholar_client",
     "openalex_client",
     "crossref_client",
+    "chembl_client",
 ]

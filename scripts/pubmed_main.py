@@ -28,6 +28,7 @@ from library.pubmed_client import classify_publication, fetch_pubmed_records
 from library.semantic_scholar_client import fetch_semantic_scholar_records
 from library.openalex_client import fetch_openalex_records
 from library.crossref_client import fetch_crossref_records
+from library.chembl_client import ApiCfg, ChemblClient, get_documents
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -61,6 +62,17 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=1.0,
         help="Maximum requests per second to Crossref",
     )
+    parser.add_argument(
+        "--from-chembl",
+        action="store_true",
+        help="Input column contains ChEMBL document IDs",
+    )
+    parser.add_argument(
+        "--chembl-chunk-size",
+        type=int,
+        default=5,
+        help="Number of ChEMBL IDs per request",
+    )
     parser.add_argument("--sep", default=",", help="CSV separator")
     parser.add_argument("--encoding", default="utf-8", help="CSV encoding")
     return parser
@@ -82,6 +94,8 @@ def run(
     sleep: float,
     openalex_rps: float,
     crossref_rps: float,
+    from_chembl: bool,
+    chembl_chunk_size: int,
     sep: str,
     encoding: str,
 ) -> None:
@@ -90,7 +104,18 @@ def run(
     df = pd.read_csv(input_path, sep=sep, encoding=encoding)
     if column not in df.columns:
         raise SystemExit(f"Column '{column}' not found in input")
-    pmids: Sequence[str] = df[column].astype(str).tolist()
+    ids: Sequence[str] = df[column].astype(str).tolist()
+    chembl_df = pd.DataFrame()
+    if from_chembl:
+        chem_http = HttpClient(timeout=10.0, max_retries=3, rps=1.0)
+        chem_client = ChemblClient(chem_http)
+        chembl_cfg = ApiCfg()
+        chembl_df = get_documents(ids, cfg=chembl_cfg, client=chem_client, chunk_size=chembl_chunk_size)
+        pmids: Sequence[str] = (
+            chembl_df["pubmed_id"].dropna().astype(int).astype(str).tolist()
+        )
+    else:
+        pmids = ids
 
     pubmed_client = HttpClient(
         timeout=10.0, max_retries=3, rps=1.0 / sleep if sleep > 0 else 0
@@ -139,6 +164,13 @@ def run(
         rows.append(data)
     out_df = pd.DataFrame(rows)
     out_df = out_df.sort_values("PubMed.PMID").reset_index(drop=True)
+    if from_chembl and not chembl_df.empty:
+        rename_map = {
+            col: (f"ChEMBL.{col}" if col != "pubmed_id" else "PubMed.PMID")
+            for col in chembl_df.columns
+        }
+        chembl_df = chembl_df.rename(columns=rename_map)
+        out_df = out_df.merge(chembl_df, on="PubMed.PMID", how="left")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     out_df.to_csv(output_path, sep=sep, index=False, encoding=encoding)
     LOGGER.info("Wrote %d rows to %s", len(out_df), output_path)
@@ -163,6 +195,8 @@ def main() -> None:
         sleep=args.sleep,
         openalex_rps=args.openalex_rps,
         crossref_rps=args.crossref_rps,
+        from_chembl=args.from_chembl,
+        chembl_chunk_size=args.chembl_chunk_size,
         sep=args.sep,
         encoding=args.encoding,
     )
