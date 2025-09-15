@@ -138,6 +138,13 @@ def _build_config(data: Dict[str, Any]) -> Config:
         Raw dictionary read from the YAML configuration file.  Assumes the
         structure matches the JSON schema.
     """
+    # Accept legacy configuration where ``target_chembl_id`` was used instead
+    # of the generic ``chembl_id`` key.  This keeps backwards compatibility
+    # with older configuration files while standardising on ``chembl_id``
+    # internally.
+    columns_cfg = dict(data["columns"])
+    if "chembl_id" not in columns_cfg and "target_chembl_id" in columns_cfg:
+        columns_cfg["chembl_id"] = columns_cfg.pop("target_chembl_id")
 
     io_cfg = IOConfig(
         input=EncodingConfig(**data["io"]["input"]),
@@ -153,7 +160,7 @@ def _build_config(data: Dict[str, Any]) -> Config:
     )
     return Config(
         io=io_cfg,
-        columns=ColumnsConfig(**data["columns"]),
+        columns=ColumnsConfig(**columns_cfg),
         uniprot=uniprot_cfg,
         network=NetworkConfig(**data["network"]),
         batch=BatchConfig(**data["batch"]),
