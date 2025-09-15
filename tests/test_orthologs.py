@@ -56,3 +56,19 @@ def test_ensembl_homology_client_parsing(monkeypatch: Any) -> None:
     assert orthologs[0].target_gene_symbol == "Braf"
     assert orthologs[0].perc_id == 84.3
     assert orthologs[0].dn == 0.1
+
+
+def test_ensembl_homology_client_handles_empty_payload(monkeypatch: Any) -> None:
+    client = EnsemblHomologyClient(
+        base_url="https://example.org",
+        network=NetworkConfig(timeout_sec=1, max_retries=1),
+        rate_limit=RateLimitConfig(rps=100),
+    )
+
+    def fake_request(url: str, params: Any) -> DummyResponse:
+        return DummyResponse({"data": []})
+
+    monkeypatch.setattr(client, "_request", fake_request)
+
+    orthologs = client.get_orthologs("ENSG00000144285", ["mouse", "rat"])
+    assert orthologs == []
