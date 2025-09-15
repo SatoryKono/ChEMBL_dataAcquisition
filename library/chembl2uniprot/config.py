@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, Literal, cast
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 LOGGER = logging.getLogger(__name__)
 
@@ -118,6 +118,8 @@ class LoggingConfig(BaseModel):
 class Config(BaseModel):
     """Validated application configuration."""
 
+    model_config = ConfigDict(extra="forbid")
+
     io: IOConfig
     columns: ColumnsConfig
     uniprot: UniprotConfig
@@ -200,4 +202,4 @@ def load_and_validate_config(
             "Configuration validation failed:\n%s",
             "\n".join(error_lines),
         )
-        raise ValueError(f"Configuration validation failed") from exc
+        raise ValueError("Configuration validation failed") from exc

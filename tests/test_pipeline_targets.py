@@ -76,9 +76,7 @@ class DummyGtoP:
         return self.endpoints.get((target_id, endpoint), [])
 
 
-def fake_resolve(
-    client: DummyGtoP, identifier: str, id_column: str
-) -> Dict[str, Any]:
+def fake_resolve(client: DummyGtoP, identifier: str, id_column: str) -> Dict[str, Any]:
     return {"targetId": 111, "name": "T", "species": "Human"}
 
 
@@ -108,9 +106,7 @@ def make_chembl_df(accessions: List[str]) -> pd.DataFrame:
 
 
 def test_pipeline_single_target(monkeypatch: pytest.MonkeyPatch) -> None:
-    def chembl_fetch(
-        ids: List[str], cfg: TargetConfig | None = None
-    ) -> pd.DataFrame:
+    def chembl_fetch(ids: List[str], cfg: TargetConfig | None = None) -> pd.DataFrame:
         return make_chembl_df(["P12345"])
 
     uni = DummyUniProt(
@@ -156,9 +152,7 @@ def test_pipeline_single_target(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_pipeline_selects_human_uniprot(monkeypatch: pytest.MonkeyPatch) -> None:
-    def chembl_fetch(
-        ids: List[str], cfg: TargetConfig | None = None
-    ) -> pd.DataFrame:
+    def chembl_fetch(ids: List[str], cfg: TargetConfig | None = None) -> pd.DataFrame:
         return make_chembl_df(["Q11111", "Q22222"])
 
     uni = DummyUniProt(
@@ -190,9 +184,7 @@ def test_pipeline_selects_human_uniprot(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_pipeline_missing_hgnc(monkeypatch: pytest.MonkeyPatch) -> None:
-    def chembl_fetch(
-        ids: List[str], cfg: TargetConfig | None = None
-    ) -> pd.DataFrame:
+    def chembl_fetch(ids: List[str], cfg: TargetConfig | None = None) -> pd.DataFrame:
         return make_chembl_df(["P12345"])
 
     uni = DummyUniProt(
@@ -219,12 +211,8 @@ def test_pipeline_missing_hgnc(monkeypatch: pytest.MonkeyPatch) -> None:
     assert row["gene_symbol"].startswith("GENE")
 
 
-def test_pipeline_reproducible(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def chembl_fetch(
-        ids: List[str], cfg: TargetConfig | None = None
-    ) -> pd.DataFrame:
+def test_pipeline_reproducible(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def chembl_fetch(ids: List[str], cfg: TargetConfig | None = None) -> pd.DataFrame:
         return make_chembl_df(["P12345"])
 
     uni = DummyUniProt(
@@ -264,9 +252,7 @@ def test_pipeline_reproducible(
 def test_pipeline_respects_config_columns(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pipeline uses column order defined in configuration."""
 
-    def chembl_fetch(
-        ids: List[str], cfg: TargetConfig | None = None
-    ) -> pd.DataFrame:
+    def chembl_fetch(ids: List[str], cfg: TargetConfig | None = None) -> pd.DataFrame:
         return make_chembl_df(["P12345"])
 
     uni = DummyUniProt(

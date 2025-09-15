@@ -20,3 +20,6 @@ dist/
 schemas/.Rhistory
 scripts/.Rhistory
 /dictionary/uniprot
+
+# Testing
+.hypothesis/

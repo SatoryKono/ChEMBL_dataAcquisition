@@ -28,8 +28,7 @@ def test_invalid_type(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         with pytest.raises(ValueError):
             load_and_validate_config(cfg)
     assert "uniprot.rate_limit.rps" in caplog.text
-    assert "'fast'" in caplog.text
-    assert "is not of type 'number'" in caplog.text
+    assert "Input should be a valid number" in caplog.text
 
 
 def test_unknown_key(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
@@ -39,8 +38,7 @@ def test_unknown_key(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         with pytest.raises(ValueError):
             load_and_validate_config(cfg)
     assert "unknown" in caplog.text
-    assert "42" in caplog.text
-    assert "Additional properties are not allowed" in caplog.text
+    assert "Extra inputs are not permitted" in caplog.text
 
 
 def test_invalid_value(tmp_path: Path) -> None:

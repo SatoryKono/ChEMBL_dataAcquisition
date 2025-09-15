@@ -36,7 +36,7 @@ def read_ids(path: Path, column: str, cfg: CsvConfig) -> List[str]:
 
 
 def _escape_pipe(value: str) -> str:
-    return value.replace("|", "\\|")
+    return value.replace("\\", "\\\\").replace("|", "\\|")
 
 
 def _serialise_list(values: Iterable[Any], list_format: str) -> str:

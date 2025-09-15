@@ -26,7 +26,7 @@ def test_fetch_targets_batches(requests_mock: requests_mock.Mocker) -> None:
                 },
             ]
         },
-        additional_matcher=lambda r: "CHEMBL1,CHEMBL2" in r.url,
+        additional_matcher=lambda r: "CHEMBL1%2CCHEMBL2" in r.url,
     )
     requests_mock.get(
         url,
