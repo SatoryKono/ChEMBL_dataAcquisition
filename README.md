@@ -52,22 +52,37 @@ mypy.ini             # Type checker configuration
 
 ## Usage
 
-1. Prepare a configuration file (see ``tests/data/config.yaml`` for an example).
+1. Prepare a configuration file (see ``tests/data/config/valid.yaml`` for an example).
 2. Run the mapper:
 
 ```bash
-python -m chembl2uniprot --input input.csv --output output.csv --config config.yaml
+python -m chembl2uniprot \
+    --input input.csv \
+    --output output.csv \
+    --config config.yaml \
+    --log-level INFO \
+    --sep , \
+    --encoding utf-8
 ```
 
-When ``--output`` is omitted the result is written next to ``input.csv`` with the
-suffix ``_with_uniprot.csv``.  The mapped UniProt identifiers are stored in a new
-column defined by the configuration file.
+Flags ``--log-level``, ``--sep`` and ``--encoding`` are optional and default to
+``INFO``, ``,``, and ``utf-8`` respectively.  When ``--output`` is omitted the
+result is written next to ``input.csv`` with the suffix ``_with_uniprot.csv``.
+The mapped UniProt identifiers are stored in a new column defined by the
+configuration file.
 
 The mapping function can also be used programmatically:
 
 ```python
 from chembl2uniprot import map_chembl_to_uniprot
-map_chembl_to_uniprot("input.csv", "output.csv", "config.yaml")
+map_chembl_to_uniprot(
+    "input.csv",
+    "output.csv",
+    "config.yaml",
+    log_level="DEBUG",
+    sep=";",
+    encoding="utf-8",
+)
 ```
 
 ## Testing and quality checks

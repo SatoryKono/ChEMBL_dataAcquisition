@@ -228,6 +228,10 @@ def map_chembl_to_uniprot(
     input_csv_path: str | Path,
     output_csv_path: str | Path | None = None,
     config_path: str | Path = "config.yaml",
+    *,
+    log_level: str | None = None,
+    sep: str | None = None,
+    encoding: str | None = None,
 ) -> Path:
     """Map ChEMBL identifiers in ``input_csv_path`` to UniProt IDs.
 
@@ -241,6 +245,14 @@ def map_chembl_to_uniprot(
     config_path:
         Path to the YAML configuration file which is validated against
         ``config.schema.json``.
+    log_level:
+        Logging verbosity (e.g. ``"INFO"`` or ``"DEBUG"``). When ``None`` the
+        value from the configuration file is used.
+    sep:
+        CSV field separator. Falls back to the configuration when ``None``.
+    encoding:
+        Character encoding for both reading and writing CSV files. Falls back to
+        the configuration when ``None``.
 
     Returns
     -------
@@ -251,7 +263,13 @@ def map_chembl_to_uniprot(
 
     cfg: Config = load_and_validate_config(config_path)
 
-    logging.basicConfig(level=getattr(logging, cfg.logging.level.upper()))
+    # Allow overriding the configuration with function arguments
+    log_level = log_level or cfg.logging.level
+    sep = sep or cfg.io.csv.separator
+    encoding_in = encoding or cfg.io.input.encoding
+    encoding_out = encoding or cfg.io.output.encoding
+
+    logging.basicConfig(level=getattr(logging, log_level.upper()))
 
     input_csv_path = Path(input_csv_path)
     if output_csv_path is None:
@@ -260,9 +278,6 @@ def map_chembl_to_uniprot(
         )
     output_csv_path = Path(output_csv_path)
 
-    sep = cfg.io.csv.separator
-    encoding_in = cfg.io.input.encoding
-    encoding_out = cfg.io.output.encoding
     chembl_col = cfg.columns.chembl_id
     out_col = cfg.columns.uniprot_out
     delimiter = cfg.io.csv.multivalue_delimiter

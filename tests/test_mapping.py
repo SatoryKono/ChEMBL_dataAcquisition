@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 import pandas as pd
 import pytest
 import requests
 
 from chembl2uniprot import map_chembl_to_uniprot
+from chembl2uniprot.config import (
+    IdMappingConfig,
+    PollingConfig,
+    RateLimitConfig,
+    RetryConfig,
+    UniprotConfig,
+)
 from chembl2uniprot.mapping import RateLimiter, _poll_job
 
 DATA_DIR = Path(__file__).parent / "data"
@@ -114,11 +122,15 @@ def test_config_validation_error(tmp_path: Path) -> None:
 
 
 def test_poll_job_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    cfg = {
-        "base_url": "https://rest.uniprot.org",
-        "id_mapping": {"status_endpoint": "/idmapping/status"},
-        "polling": {"interval_sec": 0},
-    }
+    cfg = UniprotConfig(
+        base_url="https://rest.uniprot.org",
+        id_mapping=IdMappingConfig(
+            endpoint="/idmapping/run", status_endpoint="/idmapping/status"
+        ),
+        polling=PollingConfig(interval_sec=0),
+        rate_limit=RateLimitConfig(rps=0),
+        retry=RetryConfig(max_attempts=1, backoff_sec=0),
+    )
 
     def raise_timeout(*_: object, **__: object) -> None:
         raise requests.Timeout
@@ -131,7 +143,7 @@ def test_poll_job_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
             cfg,
             RateLimiter(0),
             timeout=0.1,
-            retry_cfg={"max_attempts": 1, "backoff_sec": 0},
+            retry_cfg=cfg.retry,
         )
 
 
