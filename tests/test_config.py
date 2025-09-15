@@ -41,7 +41,6 @@ def test_target_chembl_id_alias() -> None:
     assert loaded.columns.chembl_id == "chembl_id"
 
 
-
 def test_chembl_id_with_legacy_schema(tmp_path: Path) -> None:
     """Config using ``chembl_id`` passes against a schema requiring ``target_chembl_id``."""
     cfg_path = tmp_path / "config.yaml"
@@ -55,4 +54,3 @@ def test_chembl_id_with_legacy_schema(tmp_path: Path) -> None:
     schema_path.write_text(json.dumps(legacy_schema))
     loaded = load_and_validate_config(cfg_path, schema_path)
     assert loaded.columns.chembl_id == "target_chembl_id"
-
