@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 import pandas as pd
 import pytest
 import requests
@@ -114,11 +115,11 @@ def test_config_validation_error(tmp_path: Path) -> None:
 
 
 def test_poll_job_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    cfg = {
-        "base_url": "https://rest.uniprot.org",
-        "id_mapping": {"status_endpoint": "/idmapping/status"},
-        "polling": {"interval_sec": 0},
-    }
+    cfg = SimpleNamespace(
+        base_url="https://rest.uniprot.org",
+        id_mapping=SimpleNamespace(status_endpoint="/idmapping/status"),
+        polling=SimpleNamespace(interval_sec=0),
+    )
 
     def raise_timeout(*_: object, **__: object) -> None:
         raise requests.Timeout
@@ -131,7 +132,7 @@ def test_poll_job_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
             cfg,
             RateLimiter(0),
             timeout=0.1,
-            retry_cfg={"max_attempts": 1, "backoff_sec": 0},
+            retry_cfg=SimpleNamespace(max_attempts=1, backoff_sec=0),
         )
 
 

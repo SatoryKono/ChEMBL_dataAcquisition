@@ -25,3 +25,6 @@ dev = [
     "ruff",
     "mypy",
 ]
+
+[tool.setuptools.packages.find]
+where = ["library"]

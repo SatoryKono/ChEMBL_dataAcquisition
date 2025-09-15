@@ -5,9 +5,9 @@ import pytest
 
 from chembl2uniprot.config import load_and_validate_config
 
-DATA_DIR = Path(__file__).parent / "data"
+DATA_DIR = Path(__file__).parent / "data" / "config"
 SCHEMA = DATA_DIR / "config.schema.json"
-CONFIG = DATA_DIR / "config.yaml"
+CONFIG = DATA_DIR / "valid.yaml"
 
 
 def _write_config(tmp_path: Path, text: str) -> Path:
