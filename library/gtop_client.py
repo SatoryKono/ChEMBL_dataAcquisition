@@ -20,6 +20,7 @@ from dataclasses import dataclass
 import logging
 from typing import Any, Dict, List, Optional
 
+import requests
 
 from http_client import HttpClient
 
@@ -102,8 +103,19 @@ class GtoPClient:
         self, target_id: int, endpoint: str, params: Dict[str, Any] | None = None
     ) -> List[Dict[str, Any]]:
         """Fetch a child endpoint for a specific ``target_id``."""
-
-        payload = self._get(f"/targets/{target_id}/{endpoint}", params=params) or []
+        try:
+            payload = self._get(f"/targets/{target_id}/{endpoint}", params=params) or []
+        except requests.HTTPError as exc:  # pragma: no cover - network fallback
+            if exc.response is not None and exc.response.status_code == 400:
+                LOGGER.warning(
+                    "GtoP request failed for %s/%s with params %s: %s",
+                    target_id,
+                    endpoint,
+                    params,
+                    exc.response.text,
+                )
+                return []
+            raise
         return payload
 
 

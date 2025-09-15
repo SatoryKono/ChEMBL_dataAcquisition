@@ -24,7 +24,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 import requests
 
-from uniprot_client import NetworkConfig, RateLimitConfig
+from .uniprot_client import NetworkConfig, RateLimitConfig
 
 LOGGER = logging.getLogger(__name__)
 
