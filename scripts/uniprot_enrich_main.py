@@ -3,7 +3,7 @@
 import argparse
 import logging
 
-from library.uniprot_enrich import enrich_uniprot
+from .library.uniprot_enrich import enrich
 
 
 def main() -> None:
