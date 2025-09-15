@@ -237,3 +237,31 @@ def test_pipeline_reproducible(tmp_path, monkeypatch):
     out1.to_csv(p1, index=False)
     out2.to_csv(p2, index=False)
     assert p1.read_bytes() == p2.read_bytes()
+
+
+def test_pipeline_respects_config_columns(monkeypatch):
+    """Pipeline uses column order defined in configuration."""
+
+    def chembl_fetch(ids, cfg=None):
+        return make_chembl_df(["P12345"])
+
+    uni = DummyUniProt(
+        {
+            "P12345": make_uniprot(
+                "P12345", "Homo sapiens", 9606, ["Eukaryota"], hgnc=None
+            )
+        }
+    )
+    hgnc = DummyHGNC({})
+    gtop = DummyGtoP({})
+    monkeypatch.setattr("pipeline_targets.resolve_target", fake_resolve)
+    cfg = PipelineConfig(columns=["target_chembl_id", "uniprot_id_primary"])
+    df = run_pipeline(
+        ["CHEMBL1"],
+        cfg,
+        chembl_fetcher=chembl_fetch,
+        uniprot_client=uni,
+        hgnc_client=hgnc,
+        gtop_client=gtop,
+    )
+    assert list(df.columns) == ["target_chembl_id", "uniprot_id_primary"]
