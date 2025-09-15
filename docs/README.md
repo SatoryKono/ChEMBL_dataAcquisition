@@ -122,6 +122,13 @@ python scripts/get_uniprot_target_data.py \
 The behaviour is configured via ``config.yaml``.  Lists are serialised either as
 JSON (default) or as ``|``-delimited strings depending on the configuration.
 
+
+### Including orthologs
+
+Orthologous genes can be fetched via the Ensembl REST API and attached to the
+output.  Enable this behaviour with ``--with-orthologs`` and optionally specify
+an explicit path for the normalised ortholog table using ``--orthologs-output``.
+
 ### Isoforms
 
 When the ``--with-isoforms`` flag is supplied the script queries the UniProt
@@ -131,16 +138,35 @@ columns ``parent_uniprot_id``, ``isoform_uniprot_id``, ``isoform_name``,
 ``isoform_synonyms`` and ``is_canonical``.  The main output gains the aggregated
 fields ``isoform_ids_all``, ``isoforms_json`` and ``isoforms_count``.
 
+
 ```bash
 python scripts/get_uniprot_target_data.py \
     --input ids.csv \
     --output targets.csv \
+
+    --with-orthologs \
+    --orthologs-output orthologs.csv
+```
+
+Two additional columns are written to the main CSV: ``orthologs_json`` contains
+an array of ortholog descriptors and ``orthologs_count`` records the number of
+matches.  The secondary CSV lists one row per source/target pair with the
+following columns:
+
+``source_uniprot_id, source_ensembl_gene_id, source_species, target_species,
+target_gene_symbol, target_ensembl_gene_id, target_uniprot_id, homology_type,
+perc_id, perc_pos, dn, ds, is_high_confidence, source_db``.
+
+Supported target species in the default configuration are ``human``, ``mouse``,
+``rat``, ``zebrafish``, ``dog`` and ``macaque``.
+
     --with-isoforms \
     --isoforms-output isoforms.csv
 ```
 
 Further details about alternative products are available in the
 [UniProt documentation](https://www.uniprot.org/help/alternative_products).
+
 
 ### Downloading target metadata
 
