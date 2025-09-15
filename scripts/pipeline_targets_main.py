@@ -1,13 +1,27 @@
+
+# ruff: noqa: E402
+
 """CLI entry point for the unified target data pipeline."""
 
 from __future__ import annotations
 
 import argparse
 import logging
+
+import sys
+from pathlib import Path
+
 from typing import List
 
 import pandas as pd
 import yaml  # type: ignore[import]
+
+
+ROOT = Path(__file__).resolve().parents[1]
+LIB_DIR = ROOT / "library"
+if str(LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(LIB_DIR))
+
 
 from chembl_targets import fetch_targets
 from gtop_client import GtoPClient, GtoPConfig
@@ -18,10 +32,14 @@ from uniprot_client import (
     UniProtClient,
 )
 
-from library.pipeline_targets import PipelineConfig, load_pipeline_config, run_pipeline
+
+from pipeline_targets import PipelineConfig, load_pipeline_config, run_pipeline
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for the pipeline."""
+
+
     parser = argparse.ArgumentParser(description="Unified target data pipeline")
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
@@ -41,6 +59,10 @@ def parse_args() -> argparse.Namespace:
 def build_clients(
     cfg_path: str, pipeline_cfg: PipelineConfig
 ) -> tuple[UniProtClient, HGNCClient, GtoPClient]:
+
+    """Initialise UniProt, HGNC, and GtoP clients."""
+
+
     with open(cfg_path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
     uni_cfg = data["uniprot"]
@@ -72,6 +94,10 @@ def build_clients(
 
 
 def main() -> None:
+
+    """Run the unified pipeline on the provided input IDs."""
+
+
     args = parse_args()
     logging.basicConfig(level=args.log_level.upper())
     pipeline_cfg = load_pipeline_config(args.config)
