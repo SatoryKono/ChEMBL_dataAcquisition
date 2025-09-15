@@ -1,10 +1,20 @@
 from __future__ import annotations
 
-import requests_mock
-
 
 import sys
 from pathlib import Path
+
+import requests_mock
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+
+
+from library.gtop_client import GtoPClient, GtoPConfig, resolve_target  # noqa: E402
+from library.gtop_normalize import normalise_interactions, normalise_synonyms  # noqa: E402
+
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:

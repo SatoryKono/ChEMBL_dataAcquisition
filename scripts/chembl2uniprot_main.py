@@ -35,6 +35,7 @@ from chembl2uniprot.mapping import map_chembl_to_uniprot  # noqa: E402
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_SEP = ","
 DEFAULT_ENCODING = "utf-8"
+DEFAULT_LOG_FORMAT = "human"
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -61,6 +62,12 @@ def main(argv: list[str] | None = None) -> None:
         help="Logging level (e.g. INFO, DEBUG)",
     )
     parser.add_argument(
+        "--log-format",
+        default=DEFAULT_LOG_FORMAT,
+        choices=["human", "json"],
+        help="Logging output format",
+    )
+    parser.add_argument(
         "--sep",
         default=DEFAULT_SEP,
         help="CSV field separator",
@@ -81,6 +88,7 @@ def main(argv: list[str] | None = None) -> None:
             output_csv_path=Path(args.output) if args.output else None,
             config_path=config_path,
             schema_path=schema_path,
+
         )
     else:
         cfg_path = ROOT / "config.yaml"

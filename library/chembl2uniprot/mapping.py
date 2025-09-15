@@ -35,6 +35,7 @@ from tenacity import (
 )
 
 from .config import Config, RetryConfig, UniprotConfig, load_and_validate_config
+from .logging_utils import configure_logging
 
 LOGGER = logging.getLogger(__name__)
 
@@ -266,6 +267,7 @@ def map_chembl_to_uniprot(
     *,
     config_section: str | None = None,
     log_level: str | None = None,
+    log_format: str | None = None,
     sep: str | None = None,
     encoding: str | None = None,
 ) -> Path:
@@ -290,6 +292,9 @@ def map_chembl_to_uniprot(
     log_level:
         Logging verbosity (e.g. ``"INFO"`` or ``"DEBUG"``). When ``None`` the
         value from the configuration file is used.
+    log_format:
+        Logging format, ``"human"`` or ``"json"``. Defaults to the configuration
+        value when ``None``.
     sep:
         CSV field separator. Falls back to the configuration when ``None``.
     encoding:
@@ -314,11 +319,12 @@ def map_chembl_to_uniprot(
 
     # Allow overriding the configuration with function arguments
     log_level = log_level or cfg.logging.level
+    log_format = log_format or cfg.logging.format
     sep = sep or cfg.io.csv.separator
     encoding_in = encoding or cfg.io.input.encoding
     encoding_out = encoding or cfg.io.output.encoding
 
-    logging.basicConfig(level=getattr(logging, log_level.upper()))
+    configure_logging(log_level, json_logs=log_format == "json")
     logging.getLogger("urllib3").setLevel(logging.INFO)  # Reduce HTTP verbosity
 
     input_csv_path = Path(input_csv_path)
