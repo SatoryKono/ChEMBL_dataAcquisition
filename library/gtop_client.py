@@ -26,9 +26,9 @@ import requests  # type: ignore[import-untyped]
 # ``gtop_client`` is imported both as a module within the package and directly in
 # tests. The conditional import below supports both patterns.
 try:  # pragma: no cover - support test environments
-    from .http_client import HttpClient
+    from .http_client import CacheConfig, HttpClient
 except ImportError:  # pragma: no cover
-    from http_client import HttpClient  # type: ignore[no-redef]
+    from http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
 
 
 LOGGER = logging.getLogger(__name__)
@@ -48,12 +48,15 @@ class GtoPConfig:
         Number of retry attempts for transient failures.
     rps:
         Maximum requests per second enforced via a token bucket.
+    cache:
+        Optional HTTP cache configuration shared by all requests.
     """
 
     base_url: str
     timeout_sec: float = 30.0
     max_retries: int = 3
     rps: float = 2.0
+    cache: CacheConfig | None = None
 
 
 class GtoPClient:
@@ -62,7 +65,10 @@ class GtoPClient:
     def __init__(self, cfg: GtoPConfig) -> None:
         self.cfg = cfg
         self.http = HttpClient(
-            timeout=cfg.timeout_sec, max_retries=cfg.max_retries, rps=cfg.rps
+            timeout=cfg.timeout_sec,
+            max_retries=cfg.max_retries,
+            rps=cfg.rps,
+            cache_config=cfg.cache,
         )
         self.base_url = cfg.base_url.rstrip("/")
 

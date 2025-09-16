@@ -27,9 +27,9 @@ import pandas as pd
 # as a standalone module during testing. We therefore try a relative import
 # first and fall back to the top-level module.
 try:  # pragma: no cover - fallback for test environments
-    from .http_client import HttpClient
+    from .http_client import CacheConfig, HttpClient
 except ImportError:  # pragma: no cover
-    from http_client import HttpClient  # type: ignore[no-redef]
+    from http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
 
 LOGGER = logging.getLogger(__name__)
 
@@ -52,6 +52,8 @@ class TargetConfig:
         Maximum number of retry attempts for failed requests.
     rps:
         Allowed requests per second against the API.
+    cache:
+        Optional HTTP cache configuration applied to outbound requests.
     output_encoding:
         Encoding used when writing CSV output.
     output_sep:
@@ -67,6 +69,7 @@ class TargetConfig:
     timeout_sec: float = 30.0
     max_retries: int = 3
     rps: float = 2.0
+    cache: CacheConfig | None = None
     output_encoding: str = "utf-8-sig"
     output_sep: str = ","
     list_format: str = "json"  # "json" or "pipe"
@@ -357,7 +360,10 @@ def fetch_targets(
 
     norm_ids = normalise_ids(ids)
     client = HttpClient(
-        timeout=cfg.timeout_sec, max_retries=cfg.max_retries, rps=cfg.rps
+        timeout=cfg.timeout_sec,
+        max_retries=cfg.max_retries,
+        rps=cfg.rps,
+        cache_config=cfg.cache,
     )
     records: List[Dict[str, Any]] = []
     base = cfg.base_url.rstrip("/")

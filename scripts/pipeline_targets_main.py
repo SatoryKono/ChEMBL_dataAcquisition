@@ -31,6 +31,7 @@ from library.uniprot_client import (
     UniProtClient,
 )
 from library.orthologs import EnsemblHomologyClient, OmaClient
+from library.http_client import CacheConfig
 from library.uniprot_enrich.enrich import (
     UniProtClient as UniProtEnrichClient,
     _collect_ec_numbers,
@@ -547,7 +548,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_clients(
-    cfg_path: str, pipeline_cfg: PipelineConfig, *, with_orthologs: bool = False
+    cfg_path: str,
+    pipeline_cfg: PipelineConfig,
+    *,
+    with_orthologs: bool = False,
+    default_cache: CacheConfig | None = None,
 ) -> tuple[
     UniProtClient,
     HGNCClient,
@@ -556,12 +561,27 @@ def build_clients(
     OmaClient | None,
     list[str],
 ]:
-    """Initialise service clients used by the pipeline."""
+    """Initialise service clients used by the pipeline.
+
+    Parameters
+    ----------
+    cfg_path:
+        Path to the YAML configuration file.
+    pipeline_cfg:
+        High-level pipeline configuration controlling retries and rate limits.
+    with_orthologs:
+        When ``True`` return ortholog clients in addition to the core clients.
+    default_cache:
+        Optional fallback cache configuration applied when a section does not
+        specify its own cache settings.
+    """
 
     with open(cfg_path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
+    global_cache = default_cache or CacheConfig.from_dict(data.get("http_cache"))
     uni_cfg = data["uniprot"]
     fields = ",".join(uni_cfg.get("fields", []))
+    uni_cache = CacheConfig.from_dict(uni_cfg.get("cache")) or global_cache
     uni = UniProtClient(
         base_url=uni_cfg["base_url"],
         fields=fields,
@@ -570,6 +590,7 @@ def build_clients(
             max_retries=pipeline_cfg.retries,
         ),
         rate_limit=UniRateConfig(rps=pipeline_cfg.rate_limit_rps),
+        cache=uni_cache,
     )
 
     # The HGNC configuration is nested under the top-level "hgnc" section
@@ -580,6 +601,11 @@ def build_clients(
     hcfg.network.timeout_sec = pipeline_cfg.timeout_sec
     hcfg.network.max_retries = pipeline_cfg.retries
     hcfg.rate_limit.rps = pipeline_cfg.rate_limit_rps
+    hcfg.cache = (
+        hcfg.cache
+        or CacheConfig.from_dict(data.get("hgnc", {}).get("cache"))
+        or global_cache
+    )
     hgnc = HGNCClient(hcfg)
 
     gcfg = GtoPConfig(
@@ -587,6 +613,7 @@ def build_clients(
         timeout_sec=pipeline_cfg.timeout_sec,
         max_retries=pipeline_cfg.retries,
         rps=pipeline_cfg.rate_limit_rps,
+        cache=CacheConfig.from_dict(data.get("gtop", {}).get("cache")) or global_cache,
     )
     gtop = GtoPClient(gcfg)
 
@@ -595,6 +622,7 @@ def build_clients(
     target_species: list[str] = []
     if with_orthologs:
         orth_cfg = data.get("orthologs", {})
+        orth_cache = CacheConfig.from_dict(orth_cfg.get("cache")) or global_cache
         ens_client = EnsemblHomologyClient(
             base_url="https://rest.ensembl.org",
             network=UniNetworkConfig(
@@ -602,6 +630,7 @@ def build_clients(
                 max_retries=pipeline_cfg.retries,
             ),
             rate_limit=UniRateConfig(rps=pipeline_cfg.rate_limit_rps),
+            cache=orth_cache,
         )
         oma_client = OmaClient(
             base_url="https://omabrowser.org/api",
@@ -610,6 +639,7 @@ def build_clients(
                 max_retries=pipeline_cfg.retries,
             ),
             rate_limit=UniRateConfig(rps=pipeline_cfg.rate_limit_rps),
+            cache=orth_cache,
         )
         target_species = list(orth_cfg.get("target_species", []))
     return uni, hgnc, gtop, ens_client, oma_client, target_species
@@ -674,6 +704,7 @@ def main() -> None:
     # Load optional ChEMBL column configuration and ensure required fields
     with open(args.config, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
+    global_cache = CacheConfig.from_dict(data.get("http_cache"))
     chembl_cols = list(data.get("chembl", {}).get("columns", []))
     required_cols = [
         "target_chembl_id",
@@ -695,8 +726,11 @@ def main() -> None:
     for col in required_cols:
         if col not in columns:
             columns.append(col)
+    chembl_cache = CacheConfig.from_dict(data.get("chembl", {}).get("cache"))
     chembl_cfg: TargetConfig = TargetConfig(
-        list_format=pipeline_cfg.list_format, columns=columns
+        list_format=pipeline_cfg.list_format,
+        columns=columns,
+        cache=chembl_cache or global_cache,
     )
 
     # Merge additional column requirements from other data sources so that the
@@ -716,7 +750,12 @@ def main() -> None:
         ens_client,
         oma_client,
         target_species,
-    ) = build_clients(args.config, pipeline_cfg, with_orthologs=args.with_orthologs)
+    ) = build_clients(
+        args.config,
+        pipeline_cfg,
+        with_orthologs=args.with_orthologs,
+        default_cache=global_cache,
+    )
 
     df = pd.read_csv(args.input, sep=args.sep, encoding=args.encoding)
     if args.id_column not in df.columns:
