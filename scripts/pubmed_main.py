@@ -1,205 +1,432 @@
-"""Command line entry point for fetching PubMed metadata.
-
-This script reads a CSV file containing a column of PMIDs, downloads metadata
-using :mod:`library.pubmed_client` and writes a deterministic CSV with the
-results.  Only a minimal subset of fields is retrieved to keep the example
-lightweight.
-"""
+"""Command line entry point for collecting bibliographic metadata."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Dict, List, Mapping, MutableMapping, Sequence
 
 import pandas as pd
+import yaml
 
-# When executed as ``python scripts/pubmed_main.py`` the repository root is not
-# automatically on ``sys.path``.  Appending the parent directory ensures imports
-# such as ``library.http_client`` resolve correctly on Windows and Linux.
+# Ensure imports resolve when the script is executed directly.
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from library.chembl_client import ApiCfg, ChemblClient, get_documents
+from library.document_pipeline import (
+    CH_EMBL_COLUMNS,
+    DOCUMENT_SCHEMA_COLUMNS,
+    DocumentsSchema,
+    build_dataframe,
+    compute_file_hash,
+    dataframe_to_strings,
+    merge_metadata,
+    merge_with_chembl,
+    quality_report,
+    save_quality_report,
+)
 from library.http_client import HttpClient
-from library.pubmed_client import classify_publication, fetch_pubmed_records
+from library.pubmed_client import fetch_pubmed_records
 from library.semantic_scholar_client import fetch_semantic_scholar_records
 from library.openalex_client import fetch_openalex_records
 from library.crossref_client import fetch_crossref_records
-from library.chembl_client import ApiCfg, ChemblClient, get_documents
+
+LOGGER = logging.getLogger("pubmed_main")
+
+DEFAULT_CONFIG: Dict[str, Any] = {
+    "io": {"sep": ",", "encoding": "utf-8"},
+    "pubmed": {
+        "batch_size": 100,
+        "sleep": 0.34,
+        "timeout_connect": 5.0,
+        "timeout_read": 30.0,
+        "max_retries": 5,
+    },
+    "semantic_scholar": {
+        "chunk_size": 100,
+        "timeout": 30.0,
+        "max_retries": 3,
+        "rps": 3.0,
+    },
+    "openalex": {
+        "rps": 1.0,
+        "timeout": 30.0,
+        "max_retries": 3,
+    },
+    "crossref": {
+        "rps": 1.0,
+        "timeout": 30.0,
+        "max_retries": 3,
+    },
+    "chembl": {
+        "chunk_size": 10,
+        "timeout": 30.0,
+        "max_retries": 3,
+        "rps": 1.0,
+    },
+    "pipeline": {
+        "workers": 1,
+        "column_pubmed": "PMID",
+        "column_chembl": "document_chembl_id",
+        "status_forcelist": [404, 408, 409, 429, 500, 502, 503, 504],
+    },
+}
 
 
-def _build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Fetch PubMed metadata")
-    parser.add_argument("--input", default="input.csv", help="Input CSV path")
-    parser.add_argument(
-        "--output",
-        default=None,
-        help="Output CSV path; defaults to derived name",
-    )
-    parser.add_argument(
-        "--column", default="PMID", help="Name of the column with PubMed IDs"
-    )
-    parser.add_argument("--log-level", default="INFO", help="Python logging level")
-    parser.add_argument("--batch-size", type=int, default=100)
-    parser.add_argument(
-        "--sleep",
-        type=float,
-        default=0.34,
-        help="Delay between PubMed requests in seconds (approximate)",
-    )
-    parser.add_argument(
-        "--openalex-rps",
-        type=float,
-        default=1.0,
-        help="Maximum requests per second to OpenAlex",
-    )
-    parser.add_argument(
-        "--crossref-rps",
-        type=float,
-        default=1.0,
-        help="Maximum requests per second to Crossref",
-    )
-    parser.add_argument(
-        "--from-chembl",
-        action="store_true",
-        help="Input column contains ChEMBL document IDs",
-    )
-    parser.add_argument(
-        "--chembl-chunk-size",
-        type=int,
-        default=5,
-        help="Number of ChEMBL IDs per request",
-    )
-    parser.add_argument("--sep", default=",", help="CSV separator")
-    parser.add_argument("--encoding", default="utf-8", help="CSV encoding")
-    return parser
+def _deep_update(base: MutableMapping[str, Any], updates: Mapping[str, Any]) -> MutableMapping[str, Any]:
+    for key, value in updates.items():
+        if key in base and isinstance(base[key], MutableMapping) and isinstance(value, Mapping):
+            _deep_update(base[key], value)
+        else:
+            base[key] = value
+    return base
 
 
-def _determine_output_path(input_path: Path, output: str | None) -> Path:
+def load_config(path: str | None) -> Dict[str, Any]:
+    config = deepcopy(DEFAULT_CONFIG)
+    if path:
+        config_path = Path(path)
+        if config_path.exists():
+            with config_path.open("r", encoding="utf-8") as handle:
+                file_cfg = yaml.safe_load(handle) or {}
+            if not isinstance(file_cfg, Mapping):
+                msg = f"Configuration in {path} is not a mapping"
+                raise ValueError(msg)
+            _deep_update(config, file_cfg)  # type: ignore[arg-type]
+        else:
+            LOGGER.warning("Config file %s not found; using defaults", path)
+    return config
+
+
+def _create_http_client(cfg: Mapping[str, Any], *, override_rps: float | None = None) -> HttpClient:
+    timeout = cfg.get("timeout")
+    timeout_connect = float(cfg.get("timeout_connect", timeout if timeout is not None else 5.0))
+    timeout_read = float(cfg.get("timeout_read", timeout if timeout is not None else 30.0))
+    max_retries = int(cfg.get("max_retries", 3))
+    rps = float(override_rps if override_rps is not None else cfg.get("rps", 0.0))
+    status_forcelist = cfg.get("status_forcelist") or DEFAULT_CONFIG["pipeline"]["status_forcelist"]
+    return HttpClient(
+        timeout=(timeout_connect, timeout_read),
+        max_retries=max_retries,
+        rps=rps,
+        status_forcelist=status_forcelist,
+    )
+
+
+def _determine_output_path(input_path: Path, output: str | None, command: str) -> Path:
     if output:
         return Path(output)
     stem = input_path.stem
     date = datetime.utcnow().strftime("%Y%m%d")
-    return Path(f"output_{stem}_{date}.csv")
+    return input_path.parent / f"output_{command}_{stem}_{date}.csv"
 
 
-def run(
-    input_path: Path,
+def _read_identifier_column(path: Path, column: str, *, sep: str, encoding: str) -> List[str]:
+    df = pd.read_csv(path, sep=sep, encoding=encoding, dtype=str)
+    if column not in df.columns:
+        msg = f"Column '{column}' not found in input"
+        raise SystemExit(msg)
+    values = [str(value).strip() for value in df[column].fillna("")]
+    return [value for value in values if value]
+
+
+def _gather_pubmed_sources(
+    pmids: Sequence[str],
+    *,
+    cfg: Dict[str, Any],
+) -> tuple[List[Any], List[Any], List[Any], List[Any]]:
+    if not pmids:
+        return [], [], [], []
+
+    pubmed_cfg = cfg["pubmed"]
+    sleep = float(pubmed_cfg.get("sleep", 0.0))
+    rps = 0.0 if sleep <= 0 else 1.0 / sleep
+    pubmed_client = _create_http_client(pubmed_cfg, override_rps=rps)
+    pubmed_records = fetch_pubmed_records(
+        pmids,
+        client=pubmed_client,
+        batch_size=int(pubmed_cfg.get("batch_size", 100)),
+    )
+
+    scholar_cfg = cfg["semantic_scholar"]
+    scholar_client = _create_http_client(scholar_cfg)
+    scholar_records = fetch_semantic_scholar_records(
+        pmids,
+        client=scholar_client,
+        chunk_size=int(scholar_cfg.get("chunk_size", 100)),
+    )
+
+    openalex_cfg = cfg["openalex"]
+    openalex_client = _create_http_client(openalex_cfg)
+    openalex_records = fetch_openalex_records(pmids, client=openalex_client)
+
+    dois: List[str] = []
+    for pubmed_record in pubmed_records:
+        if pubmed_record.doi:
+            dois.append(pubmed_record.doi)
+    for scholar_record in scholar_records:
+        if scholar_record.doi:
+            dois.append(scholar_record.doi)
+    for openalex_record in openalex_records:
+        if openalex_record.doi:
+            dois.append(openalex_record.doi)
+    unique_dois = sorted({doi for doi in dois if doi})
+
+    crossref_cfg = cfg["crossref"]
+    crossref_client = _create_http_client(crossref_cfg)
+    crossref_records = fetch_crossref_records(unique_dois, client=crossref_client)
+
+    return pubmed_records, scholar_records, openalex_records, crossref_records
+
+
+def _write_output(
+    df: pd.DataFrame,
+    *,
     output_path: Path,
-    column: str,
-    batch_size: int,
-    sleep: float,
-    openalex_rps: float,
-    crossref_rps: float,
-    from_chembl: bool,
-    chembl_chunk_size: int,
     sep: str,
     encoding: str,
-) -> None:
-    """Orchestrate downloads and write the final CSV."""
-
-    df = pd.read_csv(input_path, sep=sep, encoding=encoding)
-    if column not in df.columns:
-        raise SystemExit(f"Column '{column}' not found in input")
-    ids: Sequence[str] = df[column].astype(str).tolist()
-    chembl_df = pd.DataFrame()
-    if from_chembl:
-        chem_http = HttpClient(timeout=10.0, max_retries=3, rps=1.0)
-        chem_client = ChemblClient(chem_http)
-        chembl_cfg = ApiCfg()
-        chembl_df = get_documents(ids, cfg=chembl_cfg, client=chem_client, chunk_size=chembl_chunk_size)
-        pmids: Sequence[str] = (
-            chembl_df["pubmed_id"].dropna().astype(int).astype(str).tolist()
-        )
-    else:
-        pmids = ids
-
-    pubmed_client = HttpClient(
-        timeout=10.0, max_retries=3, rps=1.0 / sleep if sleep > 0 else 0
-    )
-    scholar_records = fetch_semantic_scholar_records(pmids, client=pubmed_client)
-    pubmed_records = fetch_pubmed_records(
-        pmids, client=pubmed_client, batch_size=batch_size
-    )
-    openalex_client = HttpClient(timeout=10.0, max_retries=3, rps=openalex_rps)
-    openalex_records = fetch_openalex_records(pmids, client=openalex_client)
-    # Gather DOIs from all sources for Crossref
-    dois = (
-        [r.doi for r in pubmed_records if r.doi]
-        + [r.doi for r in scholar_records if r.doi]
-        + [r.doi for r in openalex_records if r.doi]
-    )
-    unique_dois = sorted(set(dois))
-    crossref_client = HttpClient(timeout=10.0, max_retries=3, rps=crossref_rps)
-    crossref_records = fetch_crossref_records(unique_dois, client=crossref_client)
-    scholar_map = {r.pmid: r for r in scholar_records}
-    openalex_map = {r.pmid: r for r in openalex_records}
-    crossref_map = {r.doi: r for r in crossref_records}
-
-    rows = []
-    for rec in pubmed_records:
-        data = rec.to_dict()
-        pub_types = list(rec.publication_types)
-        scholar = scholar_map.get(rec.pmid)
-        if scholar:
-            data.update(scholar.to_dict())
-            pub_types.extend(scholar.publication_types)
-        openalex = openalex_map.get(rec.pmid)
-        if openalex:
-            data.update(openalex.to_dict())
-            pub_types.extend(openalex.publication_types)
-        doi = (
-            data.get("PubMed.DOI")
-            or data.get("scholar.DOI")
-            or data.get("OpenAlex.DOI")
-        )
-        if isinstance(doi, str):
-            cross = crossref_map.get(doi)
-            if cross:
-                data.update(cross.to_dict())
-        data["publication_class"] = classify_publication(pub_types)
-        rows.append(data)
-    out_df = pd.DataFrame(rows)
-    out_df = out_df.sort_values("PubMed.PMID").reset_index(drop=True)
-    if from_chembl and not chembl_df.empty:
-        rename_map = {
-            col: (f"ChEMBL.{col}" if col != "pubmed_id" else "PubMed.PMID")
-            for col in chembl_df.columns
-        }
-        chembl_df = chembl_df.rename(columns=rename_map)
-        out_df = out_df.merge(chembl_df, on="PubMed.PMID", how="left")
+) -> Dict[str, Any]:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    out_df.to_csv(output_path, sep=sep, index=False, encoding=encoding)
-    LOGGER.info("Wrote %d rows to %s", len(out_df), output_path)
+    df.to_csv(output_path, sep=sep, index=False, encoding=encoding)
+    checksum = compute_file_hash(output_path)
+    report = quality_report(df)
+    report["file_sha256"] = checksum
+    report["output"] = str(output_path)
+    meta_path = output_path.with_suffix(output_path.suffix + ".meta.json")
+    save_quality_report(meta_path, report)
+    LOGGER.info("Wrote %d rows to %s", len(df), output_path)
+    LOGGER.info("Metadata report saved to %s", meta_path)
+    return report
 
 
-LOGGER = logging.getLogger("pubmed_main")
+def run_pubmed_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    io_cfg = config["io"]
+    column = args.column or config["pipeline"].get("column_pubmed", "PMID")
+    ids = _read_identifier_column(args.input, column, sep=io_cfg["sep"], encoding=io_cfg["encoding"])
+    LOGGER.info("Loaded %d unique PMIDs", len(ids))
+    workers = int(args.workers or config["pipeline"].get("workers", 1))
+    (
+        pubmed_records,
+        scholar_records,
+        openalex_records,
+        crossref_records,
+    ) = _gather_pubmed_sources(ids, cfg=config)
+    rows = merge_metadata(
+        pubmed_records,
+        scholar_records,
+        openalex_records,
+        crossref_records,
+        max_workers=workers,
+    )
+    df = build_dataframe(rows)
+    schema = DocumentsSchema(DOCUMENT_SCHEMA_COLUMNS)
+    errors = schema.validate(df)
+    if errors:
+        error_path = Path(str(args.output) + ".schema_errors.json")
+        error_path.parent.mkdir(parents=True, exist_ok=True)
+        error_path.write_text(json.dumps({"errors": errors}, indent=2), encoding="utf-8")
+        raise SystemExit("Schema validation failed; see error report")
+    df = dataframe_to_strings(df)
+    df = df.sort_values("PubMed.PMID", na_position="last").reset_index(drop=True)
+    _write_output(df, output_path=args.output, sep=io_cfg["sep"], encoding=io_cfg["encoding"])
+
+
+def run_chembl_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    io_cfg = config["io"]
+    column = args.column or config["pipeline"].get("column_chembl", "document_chembl_id")
+    ids = _read_identifier_column(args.input, column, sep=io_cfg["sep"], encoding=io_cfg["encoding"])
+    LOGGER.info("Loaded %d ChEMBL document IDs", len(ids))
+    chem_cfg = config["chembl"]
+    chem_client = ChemblClient(
+        _create_http_client(
+            chem_cfg,
+            override_rps=float(chem_cfg.get("rps", 1.0)),
+        )
+    )
+    cfg_obj = ApiCfg(timeout_read=float(chem_cfg.get("timeout", 30.0)))
+    chem_df = get_documents(
+        ids,
+        cfg=cfg_obj,
+        client=chem_client,
+        chunk_size=int(chem_cfg.get("chunk_size", 10)),
+        timeout=float(chem_cfg.get("timeout", 30.0)),
+    )
+    if chem_df.empty:
+        df = pd.DataFrame(columns=CH_EMBL_COLUMNS)
+    else:
+        df = chem_df.rename(
+            columns={
+                "document_chembl_id": "ChEMBL.document_chembl_id",
+                "title": "ChEMBL.title",
+                "abstract": "ChEMBL.abstract",
+                "doi": "ChEMBL.doi",
+                "year": "ChEMBL.year",
+                "journal": "ChEMBL.journal",
+                "journal_abbrev": "ChEMBL.journal_abbrev",
+                "volume": "ChEMBL.volume",
+                "issue": "ChEMBL.issue",
+                "first_page": "ChEMBL.first_page",
+                "last_page": "ChEMBL.last_page",
+                "pubmed_id": "ChEMBL.pubmed_id",
+                "authors": "ChEMBL.authors",
+                "source": "ChEMBL.source",
+            }
+        )
+        for column in CH_EMBL_COLUMNS:
+            if column not in df.columns:
+                df[column] = pd.NA
+        df = df.reindex(columns=CH_EMBL_COLUMNS)
+    df = dataframe_to_strings(df)
+    df = df.sort_values("ChEMBL.document_chembl_id").reset_index(drop=True)
+    _write_output(df, output_path=args.output, sep=io_cfg["sep"], encoding=io_cfg["encoding"])
+
+
+def run_all_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    io_cfg = config["io"]
+    column = args.column or config["pipeline"].get("column_chembl", "document_chembl_id")
+    ids = _read_identifier_column(args.input, column, sep=io_cfg["sep"], encoding=io_cfg["encoding"])
+    LOGGER.info("Loaded %d ChEMBL document IDs", len(ids))
+    chem_cfg = config["chembl"]
+    chem_client = ChemblClient(_create_http_client(chem_cfg, override_rps=float(chem_cfg.get("rps", 1.0))))
+    cfg_obj = ApiCfg(timeout_read=float(chem_cfg.get("timeout", 30.0)))
+    chem_df = get_documents(
+        ids,
+        cfg=cfg_obj,
+        client=chem_client,
+        chunk_size=int(chem_cfg.get("chunk_size", 10)),
+        timeout=float(chem_cfg.get("timeout", 30.0)),
+    )
+    pmids = [
+        str(value).strip()
+        for value in chem_df.get("pubmed_id", pd.Series(dtype="string")).fillna("")
+        if str(value).strip()
+    ]
+    pmids = sorted({pmid for pmid in pmids if pmid})
+    LOGGER.info("Collected %d unique PubMed IDs from ChEMBL", len(pmids))
+    workers = int(args.workers or config["pipeline"].get("workers", 1))
+    (
+        pubmed_records,
+        scholar_records,
+        openalex_records,
+        crossref_records,
+    ) = _gather_pubmed_sources(pmids, cfg=config)
+    rows = merge_metadata(
+        pubmed_records,
+        scholar_records,
+        openalex_records,
+        crossref_records,
+        max_workers=workers,
+    )
+    df_metadata = build_dataframe(rows)
+    df_metadata = dataframe_to_strings(df_metadata)
+    df_metadata = df_metadata.sort_values("PubMed.PMID", na_position="last").reset_index(drop=True)
+    df = merge_with_chembl(df_metadata, chem_df)
+    df = dataframe_to_strings(df)
+    df = df.sort_values(
+        ["ChEMBL.document_chembl_id", "PubMed.PMID"],
+        na_position="last",
+    ).reset_index(drop=True)
+    _write_output(df, output_path=args.output, sep=io_cfg["sep"], encoding=io_cfg["encoding"])
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Collect bibliographic metadata")
+    default_config = Path(__file__).resolve().parent.parent / "config" / "documents.yaml"
+    parser.add_argument(
+        "--config",
+        help="Path to YAML configuration file",
+        default=str(default_config),
+    )
+    parser.add_argument("--input", help="Input CSV path", default="input.csv", type=Path)
+    parser.add_argument("--output", help="Output CSV path", default=None)
+    parser.add_argument("--column", help="Name of the identifier column", default=None)
+    parser.add_argument("--sep", help="CSV separator", default=None)
+    parser.add_argument("--encoding", help="CSV encoding", default=None)
+    parser.add_argument("--log-level", default="INFO")
+    parser.add_argument(
+        "--print-config",
+        action="store_true",
+        help="Print effective configuration and exit",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    pubmed_parser = subparsers.add_parser("pubmed", help="Fetch PubMed and partner metadata")
+    pubmed_parser.add_argument("--batch-size", type=int, default=None)
+    pubmed_parser.add_argument("--sleep", type=float, default=None)
+    pubmed_parser.add_argument("--workers", type=int, default=None)
+    pubmed_parser.add_argument("--openalex-rps", type=float, default=None)
+    pubmed_parser.add_argument("--crossref-rps", type=float, default=None)
+
+    chembl_parser = subparsers.add_parser("chembl", help="Download ChEMBL document metadata")
+    chembl_parser.add_argument("--chunk-size", type=int, default=None)
+    chembl_parser.add_argument("--timeout", type=float, default=None)
+
+    all_parser = subparsers.add_parser(
+        "all", help="Fetch ChEMBL documents and enrich with PubMed ecosystems"
+    )
+    all_parser.add_argument("--batch-size", type=int, default=None)
+    all_parser.add_argument("--sleep", type=float, default=None)
+    all_parser.add_argument("--workers", type=int, default=None)
+    all_parser.add_argument("--openalex-rps", type=float, default=None)
+    all_parser.add_argument("--crossref-rps", type=float, default=None)
+    all_parser.add_argument("--chunk-size", type=int, default=None)
+    all_parser.add_argument("--timeout", type=float, default=None)
+
+    return parser
+
+
+def apply_cli_overrides(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    if args.sep:
+        config["io"]["sep"] = args.sep
+    if args.encoding:
+        config["io"]["encoding"] = args.encoding
+    if args.command in {"pubmed", "all"}:
+        if args.batch_size is not None:
+            config["pubmed"]["batch_size"] = args.batch_size
+        if args.sleep is not None:
+            config["pubmed"]["sleep"] = args.sleep
+        if args.openalex_rps is not None:
+            config["openalex"]["rps"] = args.openalex_rps
+        if args.crossref_rps is not None:
+            config["crossref"]["rps"] = args.crossref_rps
+        if args.workers is not None:
+            config["pipeline"]["workers"] = args.workers
+    if args.command in {"chembl", "all"}:
+        if args.chunk_size is not None:
+            config["chembl"]["chunk_size"] = args.chunk_size
+        if args.timeout is not None:
+            config["chembl"]["timeout"] = args.timeout
 
 
 def main() -> None:
-    """Console script entry point."""
-
-    parser = _build_arg_parser()
+    parser = build_parser()
     args = parser.parse_args()
-    logging.basicConfig(level=getattr(logging, args.log_level.upper()))
-    input_path = Path(args.input)
-    output_path = _determine_output_path(input_path, args.output)
-    run(
-        input_path=input_path,
-        output_path=output_path,
-        column=args.column,
-        batch_size=args.batch_size,
-        sleep=args.sleep,
-        openalex_rps=args.openalex_rps,
-        crossref_rps=args.crossref_rps,
-        from_chembl=args.from_chembl,
-        chembl_chunk_size=args.chembl_chunk_size,
-        sep=args.sep,
-        encoding=args.encoding,
-    )
+    logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
+    config = load_config(args.config)
+    apply_cli_overrides(args, config)
+
+    if args.print_config:
+        print(json.dumps(config, indent=2, sort_keys=True))
+        return
+
+    input_path: Path = args.input
+    output_path = _determine_output_path(input_path, args.output, args.command)
+    args.output = output_path
+
+    if args.command == "pubmed":
+        run_pubmed_command(args, config)
+    elif args.command == "chembl":
+        run_chembl_command(args, config)
+    elif args.command == "all":
+        run_all_command(args, config)
+    else:  # pragma: no cover - safeguarded by argparse
+        raise SystemExit(f"Unknown command: {args.command}")
 
 
 if __name__ == "__main__":

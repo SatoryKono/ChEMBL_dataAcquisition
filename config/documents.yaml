@@ -1,0 +1,37 @@
+io:
+  sep: ","
+  encoding: "utf-8"
+
+pubmed:
+  batch_size: 75
+  sleep: 0.4
+  timeout_connect: 5
+  timeout_read: 40
+  max_retries: 4
+
+semantic_scholar:
+  chunk_size: 50
+  timeout: 30
+  max_retries: 3
+  rps: 2.0
+
+openalex:
+  rps: 1.0
+  timeout: 30
+  max_retries: 3
+
+crossref:
+  rps: 1.0
+  timeout: 30
+  max_retries: 3
+
+chembl:
+  chunk_size: 10
+  timeout: 30
+  max_retries: 3
+  rps: 1.0
+
+pipeline:
+  workers: 1
+  column_pubmed: "PMID"
+  column_chembl: "document_chembl_id"

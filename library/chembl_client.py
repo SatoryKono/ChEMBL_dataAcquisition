@@ -28,7 +28,7 @@ class ChemblClient:
     def request_json(self, url: str, *, cfg: ApiCfg, timeout: float) -> Dict[str, Any]:
         """Return JSON payload for ``url`` using ``http``."""
 
-        resp = self.http.request("get", url)
+        resp = self.http.request("get", url, timeout=(timeout, timeout))
         resp.raise_for_status()
         return resp.json()
 

@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 import time
-from typing import Any
+from typing import Any, Iterable, Tuple
 
 import requests
 from tenacity import (
@@ -63,13 +63,46 @@ class RateLimiter:
 
 
 class HttpClient:
-    """Wrapper around :mod:`requests` with retry and rate limiting."""
+    """Wrapper around :mod:`requests` with retry and rate limiting.
 
-    def __init__(self, *, timeout: float, max_retries: int, rps: float) -> None:
-        self.timeout = timeout
+    Parameters
+    ----------
+    timeout:
+        Default timeout for requests. Either a single float applied to both the
+        connect and read phases or a ``(connect, read)`` tuple.
+    max_retries:
+        Maximum number of attempts for transient failures.
+    rps:
+        Target requests per second enforced via a lightweight token bucket.
+    status_forcelist:
+        HTTP status codes that should trigger a retry. The default covers the
+        most common transient responses from the supported public APIs.
+    backoff_multiplier:
+        Base multiplier used for exponential backoff between retries.
+    session:
+        Optional :class:`requests.Session` allowing callers to supply a
+        pre-configured session (for example with caching or custom headers).
+    """
+
+    def __init__(
+        self,
+        *,
+        timeout: float | Tuple[float, float],
+        max_retries: int,
+        rps: float,
+        status_forcelist: Iterable[int] | None = None,
+        backoff_multiplier: float = 1.0,
+        session: requests.Session | None = None,
+    ) -> None:
+        if isinstance(timeout, tuple):
+            self.timeout = timeout
+        else:
+            self.timeout = (timeout, timeout)
         self.max_retries = max_retries
         self.rate_limiter = RateLimiter(rps)
-        self.session = requests.Session()
+        self.session = session or requests.Session()
+        self.status_forcelist = set(status_forcelist or {404, 408, 409, 429, 500, 502, 503, 504})
+        self.backoff_multiplier = backoff_multiplier
 
     def request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
         """Perform an HTTP request honouring retry and rate limits.
@@ -82,24 +115,34 @@ class HttpClient:
             Absolute URL to request.
         **kwargs:
             Additional arguments passed to :func:`requests.request`.
+
+        Returns
+        -------
+        :class:`requests.Response`
+            Raw HTTP response. Callers are responsible for decoding JSON/XML
+            payloads and interpreting non-2xx statuses that do not trigger a
+            retry.
         """
 
         @retry(
             reraise=True,
             retry=retry_if_exception_type(requests.RequestException),
             stop=stop_after_attempt(self.max_retries),
-            wait=wait_exponential(multiplier=1),
+            wait=wait_exponential(multiplier=self.backoff_multiplier),
         )
         def _do_request() -> requests.Response:
             self.rate_limiter.wait()
             timeout = kwargs.pop("timeout", self.timeout)
+            LOGGER.debug("HTTP %s %s (timeout=%s)", method.upper(), url, timeout)
             resp = self.session.request(method, url, timeout=timeout, **kwargs)
-            if resp.status_code >= 500:
+            if resp.status_code in self.status_forcelist:
+                LOGGER.warning(
+                    "Transient HTTP %s for %s %s", resp.status_code, method.upper(), url
+                )
                 resp.raise_for_status()
             return resp
 
-        resp = _do_request()
-        return resp
+        return _do_request()
 
 
 __all__ = ["HttpClient", "RateLimiter"]

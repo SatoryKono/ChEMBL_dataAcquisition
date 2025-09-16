@@ -15,4 +15,5 @@ __all__ = [
     "openalex_client",
     "crossref_client",
     "chembl_client",
+    "document_pipeline",
 ]

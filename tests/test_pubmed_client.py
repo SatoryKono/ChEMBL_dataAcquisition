@@ -72,3 +72,8 @@ def test_fetch_pubmed_records_parses_fields():
     assert records[0].title == "Title 1"
     assert pc.classify_publication(records[0].publication_types) == "experimental"
     assert pc.classify_publication(records[1].publication_types) == "review"
+    review_score, experimental_score, normalised = pc.score_publication_types(
+        ["Review", "Meta Analysis"], source="pubmed"
+    )
+    assert review_score > experimental_score
+    assert "review" in normalised

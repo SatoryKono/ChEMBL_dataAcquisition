@@ -1,10 +1,12 @@
-"""Tests for the pubmed_main CLI."""
+"""Tests for the pubmed_main CLI helpers."""
 
 from __future__ import annotations
 
+import argparse
 import sys
+from copy import deepcopy
 from pathlib import Path
-from typing import Any, Sequence, List
+from typing import Any, Sequence
 
 import pandas as pd
 import pytest
@@ -15,133 +17,162 @@ if str(ROOT) not in sys.path:
 
 import scripts.pubmed_main as pm  # type: ignore  # noqa: E402
 from library.pubmed_client import PubMedRecord  # type: ignore  # noqa: E402
+from library.semantic_scholar_client import SemanticScholarRecord  # type: ignore  # noqa: E402
+from library.openalex_client import OpenAlexRecord  # type: ignore  # noqa: E402
+from library.crossref_client import CrossrefRecord  # type: ignore  # noqa: E402
 
 
-def test_run_creates_output_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """run() should create missing parent directories for the output file."""
+def _make_args(command: str, *, input_path: Path, output_path: Path, column: str) -> argparse.Namespace:
+    return argparse.Namespace(
+        command=command,
+        input=input_path,
+        output=output_path,
+        column=column,
+        workers=1,
+    )
+
+
+def test_run_pubmed_creates_output_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """run_pubmed_command should create the parent directory for the output file."""
 
     input_csv = tmp_path / "input.csv"
     pd.DataFrame({"PMID": ["1"]}).to_csv(input_csv, index=False)
 
-    def fake_fetch_pubmed_records(
-        pmids: Sequence[str], *, client: Any, batch_size: int
-    ) -> List[PubMedRecord]:
-        return [
-            PubMedRecord(
-                pmid="1",
-                doi=None,
-                title=None,
-                abstract=None,
-                journal=None,
-                publication_types=["Journal Article"],
-            )
-        ]
+    pubmed_record = PubMedRecord(
+        pmid="1",
+        doi="10.1/doi1",
+        title="Title",
+        abstract="Abstract",
+        journal="Journal",
+        journal_abbrev="J",
+        volume="1",
+        issue="1",
+        start_page="1",
+        end_page="2",
+        issn="1234-5678",
+        publication_types=["Journal Article"],
+        mesh_descriptors=["Descriptor"],
+        mesh_qualifiers=["Qualifier"],
+        chemical_list=["Chem"],
+        year_completed="2020",
+        month_completed="01",
+        day_completed="01",
+        year_revised=None,
+        month_revised=None,
+        day_revised=None,
+        error=None,
+    )
+    scholar_record = SemanticScholarRecord(
+        pmid="1",
+        doi="10.1/doi1",
+        publication_types=["Journal Article"],
+        venue="Venue",
+        paper_id="S1",
+        external_ids={"PMID": "1", "DOI": "10.1/doi1"},
+        error=None,
+    )
+    openalex_record = OpenAlexRecord(
+        pmid="1",
+        doi="10.1/doi1",
+        publication_types=["journal-article"],
+        type_crossref="journal-article",
+        genre="journal-article",
+        venue="Venue",
+        mesh_descriptors=[],
+        mesh_qualifiers=[],
+        work_id="W1",
+        error=None,
+    )
+    crossref_record = CrossrefRecord(
+        doi="10.1/doi1",
+        type="journal-article",
+        subtype=None,
+        title="Title",
+        subtitle=None,
+        subject=["Biology"],
+        error=None,
+    )
 
-    def fake_fetch_semantic_scholar_records(
-        pmids: Sequence[str], *, client: Any
-    ) -> List[Any]:
-        return []
+    def fake_gather(pmids: Sequence[str], *, cfg: dict[str, Any]) -> tuple[list[Any], list[Any], list[Any], list[Any]]:
+        return [pubmed_record], [scholar_record], [openalex_record], [crossref_record]
 
-    def fake_fetch_openalex_records(
-        pmids: Sequence[str], *, client: Any
-    ) -> List[Any]:
-        return []
-
-    def fake_fetch_crossref_records(
-        dois: Sequence[str], *, client: Any
-    ) -> List[Any]:
-        return []
-
-    monkeypatch.setattr(pm, "fetch_pubmed_records", fake_fetch_pubmed_records)
-    monkeypatch.setattr(pm, "fetch_semantic_scholar_records", fake_fetch_semantic_scholar_records)
-    monkeypatch.setattr(pm, "fetch_openalex_records", fake_fetch_openalex_records)
-    monkeypatch.setattr(pm, "fetch_crossref_records", fake_fetch_crossref_records)
+    monkeypatch.setattr(pm, "_gather_pubmed_sources", fake_gather)
 
     output_path = tmp_path / "out" / "result.csv"
+    args = _make_args("pubmed", input_path=input_csv, output_path=output_path, column="PMID")
+    config = deepcopy(pm.DEFAULT_CONFIG)
 
-    pm.run(
-        input_path=input_csv,
-        output_path=output_path,
-        column="PMID",
-        batch_size=1,
-        sleep=0.0,
-        openalex_rps=0.0,
-        crossref_rps=0.0,
-        from_chembl=False,
-        chembl_chunk_size=5,
-        sep=",",
-        encoding="utf-8",
-    )
+    pm.run_pubmed_command(args, config)
 
     assert output_path.exists()
 
 
-def test_run_with_chembl_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """run() should merge ChEMBL document metadata when ``from_chembl`` is set."""
+def test_run_all_merges_chembl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """run_all_command should merge ChEMBL data into the output."""
 
     input_csv = tmp_path / "input.csv"
     pd.DataFrame({"chembl_id": ["DOC1"]}).to_csv(input_csv, index=False)
 
-    def fake_get_documents(ids: Sequence[str], *, cfg: Any, client: Any, chunk_size: int, timeout: Any | None = None) -> pd.DataFrame:  # noqa: D401
-        return pd.DataFrame(
-            {
-                "document_chembl_id": ["DOC1"],
-                "title": ["T"],
-                "abstract": ["A"],
-                "doi": ["10.1/doi1"],
-                "year": [2020],
-                "journal": ["J"],
-                "journal_abbrev": ["J"],
-                "volume": ["1"],
-                "issue": ["1"],
-                "first_page": ["1"],
-                "last_page": ["2"],
-                "pubmed_id": ["1"],
-                "authors": ["A"],
-                "source": ["ChEMBL"],
-            }
-        )
+    chembl_df = pd.DataFrame(
+        {
+            "document_chembl_id": ["DOC1"],
+            "title": ["T"],
+            "abstract": ["A"],
+            "doi": ["10.1/doi1"],
+            "year": [2020],
+            "journal": ["J"],
+            "journal_abbrev": ["J"],
+            "volume": ["1"],
+            "issue": ["1"],
+            "first_page": ["1"],
+            "last_page": ["2"],
+            "pubmed_id": ["1"],
+            "authors": ["Authors"],
+            "source": ["ChEMBL"],
+        }
+    )
 
-    def fake_fetch_pubmed_records(pmids: Sequence[str], *, client: Any, batch_size: int) -> List[PubMedRecord]:
-        return [
-            PubMedRecord(
-                pmid="1",
-                doi=None,
-                title=None,
-                abstract=None,
-                journal=None,
-                publication_types=["Journal Article"],
-            )
-        ]
+    pubmed_record = PubMedRecord(
+        pmid="1",
+        doi="10.1/doi1",
+        title="Title",
+        abstract="Abstract",
+        journal="Journal",
+        journal_abbrev="J",
+        volume="1",
+        issue="1",
+        start_page="1",
+        end_page="2",
+        issn="1234-5678",
+        publication_types=["Journal Article"],
+        mesh_descriptors=[],
+        mesh_qualifiers=[],
+        chemical_list=[],
+        year_completed=None,
+        month_completed=None,
+        day_completed=None,
+        year_revised=None,
+        month_revised=None,
+        day_revised=None,
+        error=None,
+    )
 
-    def fake_fetch_semantic_scholar_records(pmids: Sequence[str], *, client: Any) -> List[Any]:
-        return []
+    def fake_get_documents(ids: Sequence[str], *, cfg: Any, client: Any, chunk_size: int, timeout: float) -> pd.DataFrame:  # type: ignore[override]
+        return chembl_df
 
-    def fake_fetch_openalex_records(pmids: Sequence[str], *, client: Any) -> List[Any]:
-        return []
-
-    def fake_fetch_crossref_records(dois: Sequence[str], *, client: Any) -> List[Any]:
-        return []
+    def fake_gather(pmids: Sequence[str], *, cfg: dict[str, Any]) -> tuple[list[Any], list[Any], list[Any], list[Any]]:
+        return [pubmed_record], [], [], []
 
     monkeypatch.setattr(pm, "get_documents", fake_get_documents)
-    monkeypatch.setattr(pm, "fetch_pubmed_records", fake_fetch_pubmed_records)
-    monkeypatch.setattr(pm, "fetch_semantic_scholar_records", fake_fetch_semantic_scholar_records)
-    monkeypatch.setattr(pm, "fetch_openalex_records", fake_fetch_openalex_records)
-    monkeypatch.setattr(pm, "fetch_crossref_records", fake_fetch_crossref_records)
+    monkeypatch.setattr(pm, "_gather_pubmed_sources", fake_gather)
 
-    output_path = tmp_path / "out.csv"
-    pm.run(
-        input_path=input_csv,
-        output_path=output_path,
-        column="chembl_id",
-        batch_size=1,
-        sleep=0.0,
-        openalex_rps=0.0,
-        crossref_rps=0.0,
-        from_chembl=True,
-        chembl_chunk_size=5,
-        sep=",",
-        encoding="utf-8",
-    )
+    output_path = tmp_path / "output.csv"
+    args = _make_args("all", input_path=input_csv, output_path=output_path, column="chembl_id")
+    args.workers = 1
+    config = deepcopy(pm.DEFAULT_CONFIG)
+
+    pm.run_all_command(args, config)
+
     df = pd.read_csv(output_path)
     assert "ChEMBL.document_chembl_id" in df.columns
+    assert df.loc[0, "ChEMBL.document_chembl_id"] == "DOC1"

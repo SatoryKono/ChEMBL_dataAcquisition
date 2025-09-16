@@ -49,6 +49,14 @@ def test_semantic_scholar_parses_fields():
     assert recs[1].publication_types == ["Review"]
 
 
+def test_semantic_scholar_handles_string_error():
+    with requests_mock.Mocker() as m:
+        m.post(SS_URL, json="Bad request")
+        client = HttpClient(timeout=1.0, max_retries=1, rps=0)
+        recs = fetch_semantic_scholar_records(["1"], client=client)
+    assert recs[0].error is not None
+
+
 def test_openalex_parses_fields():
     with requests_mock.Mocker() as m:
         m.get(
