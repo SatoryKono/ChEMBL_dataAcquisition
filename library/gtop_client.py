@@ -19,16 +19,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 
-import requests  # type: ignore[import-untyped]
+import requests
 
 # ``gtop_client`` is imported both as a module within the package and directly in
 # tests. The conditional import below supports both patterns.
-try:  # pragma: no cover - support test environments
+if TYPE_CHECKING:  # pragma: no cover - static typing helpers
     from .http_client import CacheConfig, HttpClient
-except ImportError:  # pragma: no cover
-    from http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
+else:  # pragma: no cover - runtime fallback for tests
+    try:
+        from .http_client import CacheConfig, HttpClient
+    except ImportError:  # pragma: no cover
+        from http_client import CacheConfig, HttpClient
 
 
 LOGGER = logging.getLogger(__name__)
@@ -152,8 +155,8 @@ class GtoPClient:
             params["geneSymbol"] = gene_symbol
         if name:
             params["name"] = name
-        payload = self._get("/targets", params=params) or []
-        return payload
+        payload_raw = self._get("/targets", params=params) or []
+        return cast(List[Dict[str, Any]], payload_raw)
 
     def fetch_target_endpoint(
         self, target_id: int, endpoint: str, params: Dict[str, Any] | None = None
@@ -181,7 +184,9 @@ class GtoPClient:
             returned so that downstream processing can continue.
         """
         try:
-            payload = self._get(f"/targets/{target_id}/{endpoint}", params=params) or []
+            payload_raw = self._get(
+                f"/targets/{target_id}/{endpoint}", params=params
+            ) or []
         except requests.HTTPError as exc:  # pragma: no cover - network fallback
             status_code: int | None = None
             if exc.response is not None:
@@ -205,7 +210,7 @@ class GtoPClient:
                 )
                 return []
             raise
-        return payload
+        return cast(List[Dict[str, Any]], payload_raw)
 
 
 # ---------------------------------------------------------------------------

@@ -51,7 +51,7 @@ def _normalise_string(value: Any) -> str | None:
     if isinstance(value, str):
         text = value.strip()
         return text or None
-    if pd.isna(value):  # type: ignore[arg-type]
+    if pd.isna(value):
         return None
     text = str(value).strip()
     return text or None

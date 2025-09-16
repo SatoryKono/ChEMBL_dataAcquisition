@@ -4,18 +4,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections.abc import Iterable, Sequence
-from typing import Any, Callable, Dict, List
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, cast
 
 import pandas as pd
-import requests  # type: ignore[import-untyped]
+import requests
 
-try:  # pragma: no cover - поддержка импорта без контекста пакета
+if TYPE_CHECKING:  # pragma: no cover - static typing helpers
     from .http_client import CacheConfig, HttpClient
-except ImportError:  # pragma: no cover
-    from http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
+else:  # pragma: no cover - runtime fallback when executed as script
+    try:
+        from .http_client import CacheConfig, HttpClient
+    except ImportError:  # pragma: no cover
+        from http_client import CacheConfig, HttpClient
 
 import logging
-from dataclasses import dataclass
 
 LOGGER = logging.getLogger(__name__)
 
@@ -73,7 +75,7 @@ class ChemblClient:
             )
             raise
 
-        payload: Dict[str, Any] = response.json()
+        payload = cast(Dict[str, Any], response.json())
         payload.setdefault(id_field, identifier)
         return payload
 
@@ -116,7 +118,7 @@ class ChemblClient:
 
         resp = self._http.request("get", url, timeout=(timeout, timeout))
         resp.raise_for_status()
-        return resp.json()
+        return cast(Dict[str, Any], resp.json())
 
 
 def _chunked(seq: Sequence[str], size: int) -> Iterable[List[str]]:

@@ -14,7 +14,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, cast
 import logging
 import time
 
@@ -27,10 +27,20 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     from .data_profiling import analyze_table_quality
 
-try:  # pragma: no cover - support package and script imports
-    from .http_client import CacheConfig, create_http_session
-except ImportError:  # pragma: no cover
-    from http_client import CacheConfig, create_http_session  # type: ignore[no-redef]
+if TYPE_CHECKING:  # pragma: no cover - static typing helpers
+    from .http_client import CacheConfig
+    from .http_client import create_http_session as _create_http_session
+else:  # pragma: no cover - runtime fallback
+    try:
+        from .http_client import CacheConfig, create_http_session as _create_http_session
+    except ImportError:  # pragma: no cover
+        from http_client import CacheConfig, create_http_session as _create_http_session
+
+
+def create_http_session(cache: "CacheConfig | None") -> requests.Session:
+    """Return an HTTP session configured with ``cache`` settings."""
+
+    return _create_http_session(cache)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -231,15 +241,13 @@ class HGNCClient:
         if resp.status_code != 200:
             return ""
         try:
-            data = resp.json()
+            data = cast(Dict[str, Any], resp.json())
         except ValueError:
             return ""
-        return (
-            data.get("proteinDescription", {})
-            .get("recommendedName", {})
-            .get("fullName", {})
-            .get("value", "")
-        )
+        protein_desc = cast(Mapping[str, Any], data.get("proteinDescription", {}))
+        recommended = cast(Mapping[str, Any], protein_desc.get("recommendedName", {}))
+        full_name = cast(Mapping[str, Any], recommended.get("fullName", {}))
+        return str(full_name.get("value", ""))
 
     def fetch(self, uniprot_id: str) -> HGNCRecord:
         """Fetch HGNC mapping data for a single UniProt accession.

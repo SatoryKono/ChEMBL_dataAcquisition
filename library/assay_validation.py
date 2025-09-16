@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Iterable, List, Mapping
+from typing import Any, Iterable, List, Mapping, SupportsInt
 
 import numpy as np
 import pandas as pd
@@ -52,7 +52,16 @@ class AssaysSchema(BaseModel):
     def _ensure_positive(cls, value: Any) -> int:
         if value is None:
             raise ValueError("assay_with_same_target is required")
-        int_value = int(value)
+        try:
+            if isinstance(value, str):
+                int_value = int(value)
+            elif isinstance(value, (int, np.integer, float, np.floating)):
+                int_value = int(value)
+            else:
+                int_value = int(str(value))
+        except (TypeError, ValueError) as exc:
+            msg = "assay_with_same_target must be convertible to int"
+            raise ValueError(msg) from exc
         if int_value < 0:
             raise ValueError("assay_with_same_target must be non-negative")
         return int_value
@@ -107,7 +116,7 @@ def _coerce_value(value: Any) -> Any:
 def _coerce_record(row: pd.Series) -> dict[str, Any]:
     clean: dict[str, Any] = {}
     for key, value in row.items():
-        clean[key] = _coerce_value(value)
+        clean[str(key)] = _coerce_value(value)
     return clean
 
 
@@ -133,8 +142,11 @@ def validate_assays(
         for entry in details:
             clean_entry = dict(entry)
             ctx = clean_entry.get("ctx")
-            if isinstance(ctx, dict):
-                clean_entry["ctx"] = {key: str(value) for key, value in ctx.items()}
+            if isinstance(ctx, Mapping):
+                clean_ctx: dict[str, str] = {}
+                for key, value in ctx.items():
+                    clean_ctx[str(key)] = str(value)
+                clean_entry["ctx"] = clean_ctx
             normalised.append(clean_entry)
         return normalised
 
@@ -144,9 +156,13 @@ def validate_assays(
             record = schema(**payload)
         except ValidationError as exc:
             LOGGER.warning("Validation error for row %s: %s", index, exc)
+            if isinstance(index, (int, np.integer, float, np.floating)):
+                row_index = int(index)
+            else:
+                row_index = int(str(index))
             errors.append(
                 {
-                    "index": int(index),
+                    "index": row_index,
                     "errors": _normalise_error_details(exc.errors()),
                     "row": payload,
                 }

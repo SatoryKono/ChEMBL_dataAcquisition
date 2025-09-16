@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 LOGGER = logging.getLogger(__name__)
 

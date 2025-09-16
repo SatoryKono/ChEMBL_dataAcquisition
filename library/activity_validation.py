@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Iterable, List, Mapping, Type
+from typing import Any, Callable, Iterable, List, Mapping, Type
 
 import numpy as np
 import pandas as pd
@@ -101,7 +101,7 @@ def _coerce_value(value: Any) -> Any:
 def _coerce_record(row: pd.Series) -> dict[str, Any]:
     clean: dict[str, Any] = {}
     for key, value in row.items():
-        clean[key] = _coerce_value(value)
+        clean[str(key)] = _coerce_value(value)
     return clean
 
 
@@ -117,10 +117,14 @@ def validate_activities(
         LOGGER.info("Validation skipped because the DataFrame is empty")
         return df
 
+    def _is_required(field: Any) -> bool:
+        method: Callable[[], bool] | None = getattr(field, "is_required", None)
+        if method is None:
+            return False
+        return method()
+
     required_fields = [
-        name
-        for name, field in schema.model_fields.items()
-        if field.is_required()  # type: ignore[attr-defined]
+        name for name, field in schema.model_fields.items() if _is_required(field)
     ]
     missing_required = [field for field in required_fields if field not in df.columns]
     if missing_required:
@@ -139,8 +143,11 @@ def validate_activities(
         for entry in details:
             clean_entry = dict(entry)
             ctx = clean_entry.get("ctx")
-            if isinstance(ctx, dict):
-                clean_entry["ctx"] = {key: str(value) for key, value in ctx.items()}
+            if isinstance(ctx, Mapping):
+                clean_ctx: dict[str, str] = {}
+                for key, value in ctx.items():
+                    clean_ctx[str(key)] = str(value)
+                clean_entry["ctx"] = clean_ctx
             normalised.append(clean_entry)
         return normalised
 
@@ -150,9 +157,13 @@ def validate_activities(
             record = schema(**payload)
         except ValidationError as exc:
             LOGGER.warning("Validation error for row %s: %s", index, exc)
+            if isinstance(index, (int, np.integer, float, np.floating)):
+                row_index = int(index)
+            else:
+                row_index = int(str(index))
             errors.append(
                 {
-                    "index": int(index),
+                    "index": row_index,
                     "errors": _normalise_error_details(exc.errors()),
                     "row": payload,
                 }

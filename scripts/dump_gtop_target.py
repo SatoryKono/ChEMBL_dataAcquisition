@@ -6,7 +6,7 @@ import argparse
 import csv
 import logging
 from pathlib import Path
-from typing import List, cast
+from typing import Any, Dict, List, cast
 
 import pandas as pd
 import yaml
@@ -29,10 +29,14 @@ from library.gtop_normalize import (  # noqa: E402
 LOGGER = logging.getLogger("dump_gtop_target")
 
 
-def _load_config(path: Path) -> dict:
+def _load_config(path: Path) -> Dict[str, Any]:
     """Load a YAML configuration file."""
     with path.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
+        data = yaml.safe_load(fh)
+    if not isinstance(data, dict):
+        msg = f"Configuration file {path} does not contain a mapping"
+        raise ValueError(msg)
+    return cast(Dict[str, Any], data)
 
 
 def parse_args() -> argparse.Namespace:
@@ -94,8 +98,10 @@ def main() -> None:
     args = parse_args()
     configure_logging(args.log_level)
     cfg_dict = _load_config(Path(args.config))
-    gcfg = cfg_dict.get("gtop", {})
-    global_cache = CacheConfig.from_dict(cfg_dict.get("http_cache"))
+    gcfg = cast(Dict[str, Any], cfg_dict.get("gtop", {}))
+    global_cache = CacheConfig.from_dict(
+        cast(Dict[str, Any] | None, cfg_dict.get("http_cache"))
+    )
     client = GtoPClient(
         GtoPConfig(
             base_url=gcfg.get(
@@ -104,14 +110,15 @@ def main() -> None:
             timeout_sec=cfg_dict.get("network", {}).get("timeout_sec", 30),
             max_retries=cfg_dict.get("network", {}).get("max_retries", 3),
             rps=cfg_dict.get("rate_limit", {}).get("rps", 2),
-            cache=CacheConfig.from_dict(gcfg.get("cache")) or global_cache,
+            cache=CacheConfig.from_dict(cast(Dict[str, Any] | None, gcfg.get("cache")))
+            or global_cache,
         )
     )
 
     ids = read_ids(Path(args.input), args.id_column)
-    targets = []
-    syn_rows = []
-    int_rows = []
+    targets: List[Dict[str, Any]] = []
+    syn_rows: List[pd.DataFrame] = []
+    int_rows: List[pd.DataFrame] = []
     for raw in ids:
         target = resolve_target(client, raw, args.id_column)
         if not target:

@@ -483,10 +483,7 @@ def map_chembl_to_uniprot(
     encoding_in = encoding or cfg.io.input.encoding
     encoding_out = encoding or cfg.io.output.encoding
 
-    configure_logging(
-        log_level,
-        log_format=cast(Literal["human", "json"], resolved_format),
-    )
+    configure_logging(log_level, log_format=resolved_format)
     logging.getLogger("urllib3").setLevel(logging.INFO)  # Reduce HTTP verbosity
 
     input_csv_path = Path(input_csv_path)

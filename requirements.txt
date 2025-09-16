@@ -14,3 +14,7 @@ black>=23.0
 ruff>=0.1
 mypy>=1.4
 pydantic>=2.0
+types-requests>=2.32
+types-PyYAML>=6.0
+types-jsonschema>=4.25
+pandas-stubs>=2.3

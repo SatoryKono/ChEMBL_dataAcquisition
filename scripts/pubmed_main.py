@@ -105,7 +105,7 @@ def load_config(path: str | None) -> Dict[str, Any]:
             if not isinstance(file_cfg, Mapping):
                 msg = f"Configuration in {path} is not a mapping"
                 raise ValueError(msg)
-            _deep_update(config, file_cfg)  # type: ignore[arg-type]
+            _deep_update(config, file_cfg)
         else:
             LOGGER.warning("Config file %s not found; using defaults", path)
     return config
