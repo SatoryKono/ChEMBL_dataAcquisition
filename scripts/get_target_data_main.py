@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 import argparse
-import logging
 import sys
 from pathlib import Path
 from typing import Sequence
 
 ROOT = Path(__file__).resolve().parents[1]
 LIB_DIR = ROOT / "library"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 if str(LIB_DIR) not in sys.path:
     sys.path.insert(0, str(LIB_DIR))
 
 from chembl_targets import TargetConfig, fetch_targets  # noqa: E402
 from data_profiling import analyze_table_quality  # noqa: E402
+from library.logging_utils import configure_logging  # noqa: E402
 
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_SEP = ","
@@ -41,7 +43,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--encoding", default=DEFAULT_ENCODING)
     args = parser.parse_args(argv)
 
-    logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
+    configure_logging(args.log_level)
 
     import pandas as pd
 
