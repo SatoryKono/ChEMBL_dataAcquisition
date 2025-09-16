@@ -2,15 +2,16 @@
 
 The :func:`load_and_validate_config` function reads a YAML configuration file,
 validates it against a JSON schema located next to the config file and builds a
-:class:`Config` object with strong type checks.  Environment variables prefixed
-with ``CHEMBL_`` override values from the YAML file (e.g.
-``CHEMBL_BATCH__SIZE=5``).
+:class:`Config` object with strong type checks. Environment variables prefixed
+with ``CHEMBL_DA__`` or the legacy ``CHEMBL_`` override values from the YAML
+file (e.g. ``CHEMBL_DA__CHEMBL2UNIPROT__BATCH__SIZE=5``).
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict, Literal, cast
@@ -18,7 +19,6 @@ from typing import Any, Dict, Literal, cast
 import yaml
 from jsonschema import Draft202012Validator
 from pydantic import BaseModel, Field, ValidationError
-import os
 
 LOGGER = logging.getLogger(__name__)
 
@@ -234,18 +234,26 @@ def _read_json(path: Path) -> Dict[str, Any]:
     return cast(Dict[str, Any], data)
 
 
-def _apply_env_overrides(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Update ``data`` with ``CHEMBL_`` environment variable overrides.
+def _apply_env_overrides(
+    data: Dict[str, Any], *, section: str | None = None
+) -> Dict[str, Any]:
+    """Update ``data`` with environment variable overrides.
 
-    This function scans environment variables for names starting with "CHEMBL_".
-    The remainder of the variable name is treated as a path to a configuration
-    key, with "__" acting as a separator. For example, `CHEMBL_BATCH__SIZE=10`
-    will override the `size` key within the `batch` section of the config.
+    Both the project-scoped ``CHEMBL_DA__`` prefix and the legacy ``CHEMBL_``
+    prefix are recognised. The remainder of the variable name is interpreted as
+    a configuration path where components are separated by double underscores.
+    For example, ``CHEMBL_DA__CHEMBL2UNIPROT__BATCH__SIZE=10`` overrides the
+    ``batch.size`` key when the ``chembl2uniprot`` section is loaded.
 
     Parameters
     ----------
     data:
         The configuration dictionary to update.
+    section:
+        Optional name of the configuration section that is currently being
+        processed. When provided the section prefix in the environment variable
+        is ignored, allowing users to target keys via
+        ``CHEMBL_DA__<SECTION>__...``.
 
     Returns
     -------
@@ -253,14 +261,35 @@ def _apply_env_overrides(data: Dict[str, Any]) -> Dict[str, Any]:
         The updated configuration dictionary.
     """
 
-    prefix = "CHEMBL_"
-    for key, value in os.environ.items():
-        if not key.startswith(prefix):
+    prefixes = ("CHEMBL_DA__", "CHEMBL_")
+    section_lower = section.lower() if section else None
+    for raw_key, value in os.environ.items():
+        existing_keys = {str(key).lower() for key in data}
+        matched_prefix = next((p for p in prefixes if raw_key.startswith(p)), None)
+        if matched_prefix is None:
             continue
-        path = key[len(prefix) :].lower().split("__")
-        ref = data
+        tail = raw_key[len(matched_prefix) :]
+        if not tail:
+            continue
+        path = [part.lower() for part in tail.split("__") if part]
+        if not path:
+            continue
+        if matched_prefix == "CHEMBL_DA__":
+            if section_lower and path[0] == section_lower:
+                path = path[1:]
+            elif not section_lower and path[0] not in existing_keys and len(path) > 1:
+                path = path[1:]
+        if not path:
+            continue
+        ref: Dict[str, Any] | Any = data
+        valid_path = True
         for part in path[:-1]:
+            if not isinstance(ref, dict):
+                valid_path = False
+                break
             ref = ref.setdefault(part, {})
+        if not valid_path or not isinstance(ref, dict):
+            continue
         ref[path[-1]] = value
     return data
 
@@ -339,7 +368,7 @@ def load_and_validate_config(
             messages.append(f"{path}: {err.message}")
         raise ValueError("Configuration validation error(s): " + "; ".join(messages))
 
-    _apply_env_overrides(config_dict)
+    _apply_env_overrides(config_dict, section=section)
     LOGGER.debug("Loaded configuration from %s", config_path)
     try:
         return Config(**config_dict)

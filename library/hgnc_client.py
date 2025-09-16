@@ -27,6 +27,11 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     from .data_profiling import analyze_table_quality
 
+try:  # pragma: no cover - support package and script imports
+    from .http_client import CacheConfig, create_http_session
+except ImportError:  # pragma: no cover
+    from http_client import CacheConfig, create_http_session  # type: ignore[no-redef]
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -66,12 +71,27 @@ class OutputConfig:
 
 @dataclass
 class Config:
-    """Aggregated application configuration."""
+    """Aggregated application configuration.
+
+    Attributes
+    ----------
+    hgnc:
+        Endpoint configuration for the HGNC REST API.
+    network:
+        Network behaviour settings (timeout and retries).
+    rate_limit:
+        Rate limiting parameters applied to outbound requests.
+    output:
+        CSV output options controlling encoding and separator.
+    cache:
+        Optional HTTP cache configuration shared by network requests.
+    """
 
     hgnc: HGNCServiceConfig
     network: NetworkConfig
     rate_limit: RateLimitConfig
     output: OutputConfig
+    cache: CacheConfig | None = None
 
 
 def load_config(path: str | Path, *, section: str | None = None) -> Config:
@@ -97,6 +117,7 @@ def load_config(path: str | Path, *, section: str | None = None) -> Config:
         network=NetworkConfig(**data["network"]),
         rate_limit=RateLimitConfig(**data["rate_limit"]),
         output=OutputConfig(**data["output"]),
+        cache=CacheConfig.from_dict(data.get("cache")),
     )
 
 
@@ -145,6 +166,7 @@ class HGNCClient:
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
         self.rate_limiter = RateLimiter(cfg.rate_limit.rps)
+        self.session = create_http_session(cfg.cache)
 
     def _request(self, url: str) -> requests.Response:
         """Perform a GET request with retry and rate limiting.
@@ -169,7 +191,7 @@ class HGNCClient:
         for attempt in range(self.cfg.network.max_retries):
             self.rate_limiter.wait()
             try:
-                resp = requests.get(
+                resp = self.session.get(
                     url,
                     timeout=self.cfg.network.timeout_sec,
                     headers={"Accept": "application/json"},

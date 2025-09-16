@@ -11,4 +11,13 @@ __all__ = [
     "protein_classifier",
     "iuphar",
     "data_profiling",
+    "chembl_client",
+    "chembl_library",
+    "assay_postprocessing",
+    "normalize_assays",
+    "assay_validation",
+    "normalize_activities",
+    "activity_validation",
+    "metadata",
+    "io",
 ]

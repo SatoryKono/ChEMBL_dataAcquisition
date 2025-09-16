@@ -46,6 +46,12 @@ The primary goal of this project is to provide a deterministic and configurable 
     pip install -e .[dev]
     ```
 
+3.  Install the pre-commit hooks to ensure consistent formatting, linting, type
+    checking, and tests before each commit:
+    ```bash
+    pre-commit install
+    ```
+
 ## Project Structure
 
 The repository is organized as follows:
@@ -73,6 +79,25 @@ The pipeline is primarily driven by the scripts in the `scripts/` directory. Eac
 
 The pipeline's behavior is controlled by the `config.yaml` file. This file contains settings for API endpoints, network parameters, data processing options, and output formats. A JSON schema for this file is provided in `schemas/config.schema.json`.
 
+#### Environment variable overrides
+
+Configuration values can be overridden at runtime via environment variables. The recommended pattern prefixes variables with `CHEMBL_DA__` followed by the uppercase configuration path where nested keys are separated by double underscores. For example, to increase the retry budget for the bundled `chembl2uniprot` configuration section you can run:
+
+```bash
+export CHEMBL_DA__CHEMBL2UNIPROT__RETRY__MAX_ATTEMPTS=8
+export CHEMBL_DA__CHEMBL2UNIPROT__RETRY__BACKOFF_SEC=2
+python scripts/chembl2uniprot_main.py --input data/input/targets.csv
+```
+
+The loader is case-insensitive and coerces primitive values automatically, so the strings above are parsed as integers and floats. When working with standalone configuration files that only contain the mapping schema (for example copies of `tests/data/config/valid.yaml`), the legacy `CHEMBL_` prefix remains supported:
+
+```bash
+export CHEMBL_BATCH__SIZE=10  # Equivalent to CHEMBL_DA__BATCH__SIZE
+python scripts/chembl2uniprot_main.py --config my_config.yaml
+```
+
+Always define the environment variables in the shell session before launching the CLI so that the overrides are visible to the Python process.
+
 ### Running the Pipeline
 
 The main entry point for the unified pipeline is `scripts/pipeline_targets_main.py`. This script orchestrates the entire data acquisition and normalization process.
@@ -99,6 +124,8 @@ The `scripts/` directory contains several other scripts for performing specific 
 *   `dump_gtop_target.py`: Download comprehensive GtoPdb target information.
 *   `protein_classify_main.py`: Classify proteins based on UniProt data.
 *   `uniprot_enrich_main.py`: Enrich a CSV file with additional UniProt annotations.
+*   `chembl_assays_main.py`: Retrieve, validate, and export ChEMBL assay metadata with quality reports.
+*   `chembl_activities_main.py`: Stream activity identifiers, fetch ChEMBL activity records, normalise/validate them, and emit quality reports.
 
 For detailed usage information for each script, run it with the `--help` flag.
 
@@ -143,3 +170,31 @@ mypy .
 ## License
 
 This project is licensed under the MIT License. See the `LICENSE` file for details.
+#### ChEMBL activities extraction
+
+The `chembl_activities_main.py` script orchestrates the end-to-end retrieval and
+validation of ChEMBL activity records. Key features include streaming input ID
+reading, optional limits for sampling large files, resilient API access with a
+configurable User-Agent, deterministic normalisation, schema-based validation
+with JSON sidecar reports, and automatic quality profiling alongside metadata
+sidecars.
+
+Example commands:
+
+```bash
+# Inspect the input file without making API calls or writing outputs
+python scripts/chembl_activities_main.py --input activities.csv --dry-run
+
+# Download, normalise, and validate activities with explicit limits and output paths
+python scripts/chembl_activities_main.py \
+    --input activities.csv \
+    --output output_activities.csv \
+    --column activity_chembl_id \
+    --limit 1000 \
+    --chunk-size 10 \
+    --log-level DEBUG
+```
+
+Validation errors are persisted to `<output>.errors.json` while dataset metadata
+is written to `<output>.meta.yaml`. Quality and correlation reports are produced
+alongside the main CSV file.

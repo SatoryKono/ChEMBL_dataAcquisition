@@ -105,6 +105,41 @@ class RateLimiter:
         self.last_call = time.monotonic()
 
 
+def get_ids_from_dataframe(df: pd.DataFrame, column: str) -> List[str]:
+    """Return normalised, unique identifiers from ``column``.
+
+    Parameters
+    ----------
+    df:
+        The input :class:`pandas.DataFrame` containing the identifier column.
+    column:
+        Name of the column that stores the ChEMBL identifiers.
+
+    Returns
+    -------
+    List[str]
+        A list of unique identifier strings in their original order.
+
+    Notes
+    -----
+    Missing values are dropped prior to casting values to strings to avoid
+    stringified ``"nan"`` entries. Literal ``"nan"`` values (case-insensitive)
+    and empty strings are removed from the result as well.
+    """
+
+    ids = df[column].dropna()
+    if ids.empty:
+        return []
+
+    normalised = ids.astype(str).str.strip()
+    mask = (normalised != "") & (normalised.str.lower() != "nan")
+    filtered = normalised[mask]
+    if filtered.empty:
+        return []
+
+    return list(filtered.drop_duplicates())
+
+
 def _request_with_retry(
     method: str,
     url: str,
@@ -475,9 +510,7 @@ def map_chembl_to_uniprot(
         raise ValueError(f"Missing required column '{chembl_col}' in input CSV")
 
     # Normalise and deduplicate identifiers
-    ids_series = df[chembl_col].astype(str).map(lambda s: s.strip())
-    ids_series = ids_series.replace({"": pd.NA}).dropna()
-    unique_ids = list(ids_series.drop_duplicates())
+    unique_ids = get_ids_from_dataframe(df, chembl_col)
 
     LOGGER.info("Processing %d unique ChEMBL IDs", len(unique_ids))
 

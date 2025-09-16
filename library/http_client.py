@@ -21,9 +21,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 import time
-from typing import Any
+from pathlib import Path
+from typing import Any, Mapping, Optional
+
 
 import requests  # type: ignore[import-untyped]
+import requests_cache  # type: ignore[import-untyped]
+
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -32,6 +36,97 @@ from tenacity import (
 )
 
 LOGGER = logging.getLogger(__name__)
+
+
+@dataclass
+class CacheConfig:
+    """Configuration for persistent HTTP caching.
+
+    Parameters
+    ----------
+    enabled:
+        Whether the cache layer should be activated.  When ``False`` a regular
+        :class:`requests.Session` instance is created.
+    path:
+        Filesystem path passed to :class:`requests_cache.CachedSession`.  The
+        parent directory is created automatically when caching is enabled.
+    ttl_seconds:
+        Time-to-live for cached responses in seconds.  ``0`` disables
+        persistence.
+    """
+
+    enabled: bool = False
+    path: str | None = None
+    ttl_seconds: float = 0.0
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any] | None) -> "CacheConfig" | None:
+        """Build a :class:`CacheConfig` from a configuration mapping.
+
+        Parameters
+        ----------
+        data:
+            Mapping holding configuration keys such as ``enabled``, ``path`` and
+            ``ttl``/``ttl_sec``/``ttl_seconds``.
+
+        Returns
+        -------
+        CacheConfig | None
+            Parsed configuration or ``None`` when the mapping is empty.
+        """
+
+        if not data:
+            return None
+        ttl = (
+            data.get("ttl")
+            or data.get("ttl_sec")
+            or data.get("ttl_seconds")
+            or data.get("expire_after")
+        )
+        ttl_value = float(ttl) if ttl is not None else 0.0
+        path = data.get("path")
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            path=str(path) if path is not None else None,
+            ttl_seconds=ttl_value,
+        )
+
+    def is_active(self) -> bool:
+        """Return ``True`` when caching should be enabled."""
+
+        return (
+            self.enabled
+            and self.path is not None
+            and isinstance(self.ttl_seconds, (int, float))
+            and self.ttl_seconds > 0
+        )
+
+
+def create_http_session(cache_config: CacheConfig | None = None) -> requests.Session:
+    """Return a :class:`requests.Session` honouring ``cache_config``.
+
+    When caching is disabled or misconfigured, a plain session is returned.
+    Otherwise, :class:`requests_cache.CachedSession` is instantiated with the
+    provided settings.
+    """
+
+    if cache_config is None or not cache_config.is_active():
+        return requests.Session()
+    assert cache_config.path is not None
+    cache_path = Path(cache_config.path).expanduser()
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    LOGGER.debug(
+        "HTTP cache enabled at %s with TTL %.0f s",
+        cache_path,
+        cache_config.ttl_seconds,
+    )
+    session = requests_cache.CachedSession(
+        cache_name=str(cache_path),
+        backend="sqlite",
+        expire_after=int(cache_config.ttl_seconds),
+        allowable_methods=("GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"),
+    )
+    return session
 
 
 @dataclass
@@ -63,13 +158,21 @@ class RateLimiter:
 
 
 class HttpClient:
-    """Wrapper around :mod:`requests` with retry and rate limiting."""
+    """Wrapper around :mod:`requests` with retry, caching and rate limiting."""
 
-    def __init__(self, *, timeout: float, max_retries: int, rps: float) -> None:
+    def __init__(
+        self,
+        *,
+        timeout: float,
+        max_retries: int,
+        rps: float,
+        cache_config: CacheConfig | None = None,
+        session: Optional[requests.Session] = None,
+    ) -> None:
         self.timeout = timeout
         self.max_retries = max_retries
         self.rate_limiter = RateLimiter(rps)
-        self.session = requests.Session()
+        self.session = session or create_http_session(cache_config)
 
     def request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
         """Perform an HTTP request honouring retry and rate limits.
@@ -101,4 +204,4 @@ class HttpClient:
         return resp
 
 
-__all__ = ["HttpClient", "RateLimiter"]
+__all__ = ["CacheConfig", "HttpClient", "RateLimiter", "create_http_session"]
