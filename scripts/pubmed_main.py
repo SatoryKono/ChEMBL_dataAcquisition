@@ -52,8 +52,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "semantic_scholar": {
         "chunk_size": 100,
         "timeout": 30.0,
-        "max_retries": 3,
-        "rps": 3.0,
+        "max_retries": 6,
+        "rps": 0.3,
+        "backoff_multiplier": 5.0,
+        "retry_penalty_seconds": 30.0,
     },
     "openalex": {
         "rps": 1.0,
@@ -126,11 +128,15 @@ def _create_http_client(
     status_forcelist = (
         cfg.get("status_forcelist") or DEFAULT_CONFIG["pipeline"]["status_forcelist"]
     )
+    backoff_multiplier = float(cfg.get("backoff_multiplier", 1.0))
+    retry_penalty_seconds = float(cfg.get("retry_penalty_seconds", 0.0))
     return HttpClient(
         timeout=(timeout_connect, timeout_read),
         max_retries=max_retries,
         rps=rps,
         status_forcelist=status_forcelist,
+        backoff_multiplier=backoff_multiplier,
+        retry_penalty_seconds=retry_penalty_seconds,
     )
 
 

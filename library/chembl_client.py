@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List
 
 import pandas as pd
@@ -14,7 +15,9 @@ try:  # pragma: no cover - поддержка импорта без контек
 except ImportError:  # pragma: no cover
     from http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
 
+
 import logging
+
 
 LOGGER = logging.getLogger(__name__)
 
