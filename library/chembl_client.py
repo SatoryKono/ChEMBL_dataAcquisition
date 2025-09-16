@@ -15,7 +15,6 @@ except ImportError:  # pragma: no cover
     from http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
 
 import logging
-from dataclasses import dataclass
 
 LOGGER = logging.getLogger(__name__)
 

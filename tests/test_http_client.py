@@ -110,3 +110,16 @@ def test_http_client_falls_back_when_retry_after_invalid(
     assert response.json() == {"status": "ok"}
     assert sleeps
     assert pytest.approx(0.5, rel=1e-3) == sleeps[0]
+
+
+def test_http_client_returns_404_without_retry(requests_mock) -> None:
+    """Non-retriable 404 responses are returned as-is without extra attempts."""
+
+    url = "https://example.org/missing"
+    requests_mock.get(url, status_code=404, json={"detail": "not found"})
+    client = HttpClient(timeout=1, max_retries=3, rps=0)
+
+    response = client.request("get", url)
+
+    assert response.status_code == 404
+    assert requests_mock.call_count == 1
