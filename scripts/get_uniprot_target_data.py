@@ -39,7 +39,6 @@ from library.http_client import CacheConfig  # noqa: E402
 from library.logging_utils import configure_logging  # noqa: E402
 
 
-
 DEFAULT_INPUT = "input.csv"
 DEFAULT_OUTPUT = "output_input_{date}.csv"
 DEFAULT_COLUMN = "uniprot_id"
