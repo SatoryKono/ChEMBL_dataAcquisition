@@ -7,7 +7,9 @@ import logging
 from pathlib import Path
 from typing import Any, Iterable, List, Mapping
 
+import numpy as np
 import pandas as pd
+from pandas.api.types import is_scalar
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 LOGGER = logging.getLogger(__name__)
@@ -62,13 +64,50 @@ class AssaysSchema(BaseModel):
         return list(cls.model_fields.keys())
 
 
+def _is_missing_scalar(value: Any) -> bool:
+    """Return ``True`` when ``value`` represents a missing scalar."""
+
+    try:
+        result = pd.isna(value)
+    except (TypeError, ValueError):
+        return False
+    if isinstance(result, (bool, np.bool_)):
+        return bool(result)
+    return False
+
+
+def _coerce_value(value: Any) -> Any:
+    """Normalise ``value`` so it is JSON-serialisable and handles nulls."""
+
+    if value is None:
+        return None
+
+    if isinstance(value, np.ndarray):
+        dtype_kind = value.dtype.kind
+        if dtype_kind in {"O", "U", "S"}:
+            if value.size == 0:
+                return []
+            return [_coerce_value(item) for item in value.tolist()]
+        if value.size == 0:
+            return None
+        if value.size == 1:
+            return _coerce_value(value.item())
+        return [_coerce_value(item) for item in value.tolist()]
+
+    if isinstance(value, np.generic):
+        scalar_value = value.item()
+        return None if _is_missing_scalar(scalar_value) else scalar_value
+
+    if is_scalar(value):
+        return None if _is_missing_scalar(value) else value
+
+    return value
+
+
 def _coerce_record(row: pd.Series) -> dict[str, Any]:
     clean: dict[str, Any] = {}
     for key, value in row.items():
-        if pd.isna(value):
-            clean[key] = None
-        else:
-            clean[key] = value
+        clean[key] = _coerce_value(value)
     return clean
 
 
