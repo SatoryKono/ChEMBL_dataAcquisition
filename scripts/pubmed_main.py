@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Mapping, MutableMapping, Sequence
 
 import pandas as pd
 import yaml
+from tqdm.auto import tqdm
 
 # Ensure imports resolve when the script is executed directly.
 if __package__ in {None, ""}:
@@ -235,13 +236,24 @@ def run_pubmed_command(args: argparse.Namespace, config: Dict[str, Any]) -> None
         openalex_records,
         crossref_records,
     ) = _gather_pubmed_sources(ids, cfg=config)
-    rows = merge_metadata(
-        pubmed_records,
-        scholar_records,
-        openalex_records,
-        crossref_records,
-        max_workers=workers,
-    )
+    if pubmed_records:
+        with tqdm(total=len(pubmed_records), desc="merge metadata") as pbar:
+            rows = merge_metadata(
+                pubmed_records,
+                scholar_records,
+                openalex_records,
+                crossref_records,
+                max_workers=workers,
+                progress_callback=pbar.update,
+            )
+    else:
+        rows = merge_metadata(
+            pubmed_records,
+            scholar_records,
+            openalex_records,
+            crossref_records,
+            max_workers=workers,
+        )
     df = build_dataframe(rows)
     schema = DocumentsSchema(DOCUMENT_SCHEMA_COLUMNS)
     errors = schema.validate(df)
@@ -350,13 +362,24 @@ def run_all_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
         openalex_records,
         crossref_records,
     ) = _gather_pubmed_sources(pmids, cfg=config)
-    rows = merge_metadata(
-        pubmed_records,
-        scholar_records,
-        openalex_records,
-        crossref_records,
-        max_workers=workers,
-    )
+    if pubmed_records:
+        with tqdm(total=len(pubmed_records), desc="merge metadata") as pbar:
+            rows = merge_metadata(
+                pubmed_records,
+                scholar_records,
+                openalex_records,
+                crossref_records,
+                max_workers=workers,
+                progress_callback=pbar.update,
+            )
+    else:
+        rows = merge_metadata(
+            pubmed_records,
+            scholar_records,
+            openalex_records,
+            crossref_records,
+            max_workers=workers,
+        )
     df_metadata = build_dataframe(rows)
     df_metadata = dataframe_to_strings(df_metadata)
     df_metadata = df_metadata.sort_values(
