@@ -21,7 +21,7 @@ from dataclasses import dataclass
 import logging
 from typing import Any, Dict, List, Optional
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 # ``gtop_client`` is imported both as a module within the package and directly in
 # tests. The conditional import below supports both patterns.
@@ -176,17 +176,32 @@ class GtoPClient:
         -------
         List[Dict[str, Any]]
             A list of dictionaries from the endpoint's response.
+            If the GtoP service responds with a 4xx (400) or 5xx
+            status code the issue is logged and an empty list is
+            returned so that downstream processing can continue.
         """
         try:
             payload = self._get(f"/targets/{target_id}/{endpoint}", params=params) or []
         except requests.HTTPError as exc:  # pragma: no cover - network fallback
-            if exc.response is not None and exc.response.status_code == 400:
+            status_code: int | None = None
+            if exc.response is not None:
+                status_code = exc.response.status_code
+            if status_code == 400:
                 LOGGER.warning(
                     "GtoP request failed for %s/%s with params %s: %s",
                     target_id,
                     endpoint,
                     params,
                     exc.response.text,
+                )
+                return []
+            if status_code is not None and 500 <= status_code < 600:
+                LOGGER.error(
+                    "GtoP server error for %s/%s with params %s: %s",
+                    target_id,
+                    endpoint,
+                    params,
+                    exc.response.text if exc.response is not None else str(exc),
                 )
                 return []
             raise

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Callable, Dict, List, Sequence
 
 import pandas as pd
@@ -141,6 +141,10 @@ class PipelineConfig:
         Ordered list of columns written to the final output file.
     iuphar:
         Configuration for the IUPHAR/GtoP client.
+    timestamp_utc:
+        ISO 8601 timestamp recorded for the pipeline run. Defaults to the
+        creation time of the configuration instance so repeated executions
+        with the same configuration remain reproducible.
     """
 
     rate_limit_rps: float = 2.0
@@ -154,6 +158,9 @@ class PipelineConfig:
     include_isoforms: bool = False
     columns: List[str] = field(default_factory=lambda: list(DEFAULT_COLUMNS))
     iuphar: IupharConfig = field(default_factory=IupharConfig)
+    timestamp_utc: str = field(
+        default_factory=lambda: datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -169,21 +176,27 @@ def load_pipeline_config(path: str) -> PipelineConfig:
         data = yaml.safe_load(fh) or {}
     cfg = data.get("pipeline", {})
     iuphar = cfg.get("iuphar", {})
-    return PipelineConfig(
-        rate_limit_rps=cfg.get("rate_limit_rps", 2.0),
-        retries=cfg.get("retries", 3),
-        timeout_sec=cfg.get("timeout_sec", 30.0),
-        species_priority=list(cfg.get("species_priority", ["Human", "Homo sapiens"])),
-        list_format=cfg.get("list_format", "json"),
-        include_sequence=cfg.get("include_sequence", False),
-        include_isoforms=cfg.get("include_isoforms", False),
-        columns=list(cfg.get("columns", DEFAULT_COLUMNS)),
-        iuphar=IupharConfig(
+    cfg_kwargs: Dict[str, Any] = {
+        "rate_limit_rps": cfg.get("rate_limit_rps", 2.0),
+        "retries": cfg.get("retries", 3),
+        "timeout_sec": cfg.get("timeout_sec", 30.0),
+        "species_priority": list(
+            cfg.get("species_priority", ["Human", "Homo sapiens"])
+        ),
+        "list_format": cfg.get("list_format", "json"),
+        "include_sequence": cfg.get("include_sequence", False),
+        "include_isoforms": cfg.get("include_isoforms", False),
+        "columns": list(cfg.get("columns", DEFAULT_COLUMNS)),
+        "iuphar": IupharConfig(
             affinity_parameter=iuphar.get("affinity_parameter", "pKi"),
             approved_only=iuphar.get("approved_only"),
             primary_target_only=iuphar.get("primary_target_only", True),
         ),
-    )
+    }
+    timestamp_cfg = cfg.get("timestamp_utc")
+    if isinstance(timestamp_cfg, str):
+        cfg_kwargs["timestamp_utc"] = timestamp_cfg
+    return PipelineConfig(**cfg_kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -570,7 +583,7 @@ def run_pipeline(
             ),
             "uniprot_version": primary.get("entry_version", "") if primary else "",
             "pipeline_version": PIPELINE_VERSION,
-            "timestamp_utc": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "timestamp_utc": cfg.timestamp_utc,
         }
         records.append(rec)
         if progress_callback:

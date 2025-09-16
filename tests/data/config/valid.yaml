@@ -30,3 +30,4 @@ batch:
   size: 2
 logging:
   level: "DEBUG"
+  format: "human"

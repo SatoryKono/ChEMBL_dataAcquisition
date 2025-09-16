@@ -36,6 +36,7 @@ from library.uniprot_enrich.enrich import (
     UniProtClient as UniProtEnrichClient,
     _collect_ec_numbers,
 )
+from library.logging_utils import configure_logging
 
 
 from library.protein_classifier import classify_protein
@@ -686,7 +687,7 @@ def main() -> None:
     """Main entry point for the unified target data pipeline."""
 
     args = parse_args()
-    logging.basicConfig(level=args.log_level.upper())
+    configure_logging(args.log_level)
     pipeline_cfg = load_pipeline_config(args.config)
     pipeline_cfg.list_format = args.list_format
     pipeline_cfg.species_priority = [args.species]

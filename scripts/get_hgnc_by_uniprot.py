@@ -8,10 +8,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LIB_DIR = ROOT / "library"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 if str(LIB_DIR) not in sys.path:
     sys.path.insert(0, str(LIB_DIR))
 
 from hgnc_client import map_uniprot_to_hgnc  # noqa: E402
+from library.logging_utils import configure_logging  # noqa: E402
 
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_SEP = ","
@@ -42,6 +45,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--sep", default=DEFAULT_SEP, help="CSV field separator")
     parser.add_argument("--encoding", default=DEFAULT_ENCODING, help="File encoding")
     args = parser.parse_args(argv)
+
+    configure_logging(args.log_level)
 
     if args.config:
         config_path = Path(args.config)

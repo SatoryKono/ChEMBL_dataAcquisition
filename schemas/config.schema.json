@@ -105,6 +105,11 @@
         "level": {
           "type": "string",
           "enum": ["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
+        },
+        "format": {
+          "type": "string",
+          "enum": ["human", "json"],
+          "description": "Output format for application logs"
         }
       }
     }

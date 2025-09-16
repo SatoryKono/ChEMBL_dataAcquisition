@@ -20,7 +20,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from library.protein_classifier import classify_protein
-from library.chembl2uniprot.logging_utils import configure_logging
+from library.logging_utils import configure_logging
 from library.data_profiling import analyze_table_quality
 
 DEFAULT_LOG_LEVEL = "INFO"

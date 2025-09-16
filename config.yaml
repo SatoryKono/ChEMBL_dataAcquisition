@@ -52,12 +52,6 @@ chembl:
     - cross_references
     - gene_symbol_list
     - protein_synonym_list
-
-output:
-  list_format: json
-  encoding: "utf-8-sig"
-
-
 pipeline:
   rate_limit_rps: 2
   retries: 3
@@ -141,6 +135,7 @@ chembl2uniprot:
     size: 100
   logging:
     level: "DEBUG"
+    format: "human"
 
 hgnc:
   columns:
@@ -168,7 +163,6 @@ output:
   # Serialisation format for list-like fields: "json" or "pipe"
   list_format: pipe
   # Include protein sequence column by default
-
   include_sequence: false
 
 orthologs:

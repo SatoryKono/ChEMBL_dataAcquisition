@@ -6,7 +6,7 @@ from typing import Dict, Iterable, List, Optional
 from pathlib import Path
 
 import pandas as pd
-import requests
+import requests  # type: ignore[import-untyped]
 
 try:
     from data_profiling import analyze_table_quality
