@@ -46,6 +46,12 @@ The primary goal of this project is to provide a deterministic and configurable 
     pip install -e .[dev]
     ```
 
+3.  Install the pre-commit hooks to ensure consistent formatting, linting, type
+    checking, and tests before each commit:
+    ```bash
+    pre-commit install
+    ```
+
 ## Project Structure
 
 The repository is organized as follows:
