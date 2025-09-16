@@ -79,9 +79,15 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 }
 
 
-def _deep_update(base: MutableMapping[str, Any], updates: Mapping[str, Any]) -> MutableMapping[str, Any]:
+def _deep_update(
+    base: MutableMapping[str, Any], updates: Mapping[str, Any]
+) -> MutableMapping[str, Any]:
     for key, value in updates.items():
-        if key in base and isinstance(base[key], MutableMapping) and isinstance(value, Mapping):
+        if (
+            key in base
+            and isinstance(base[key], MutableMapping)
+            and isinstance(value, Mapping)
+        ):
             _deep_update(base[key], value)
         else:
             base[key] = value
@@ -104,13 +110,21 @@ def load_config(path: str | None) -> Dict[str, Any]:
     return config
 
 
-def _create_http_client(cfg: Mapping[str, Any], *, override_rps: float | None = None) -> HttpClient:
+def _create_http_client(
+    cfg: Mapping[str, Any], *, override_rps: float | None = None
+) -> HttpClient:
     timeout = cfg.get("timeout")
-    timeout_connect = float(cfg.get("timeout_connect", timeout if timeout is not None else 5.0))
-    timeout_read = float(cfg.get("timeout_read", timeout if timeout is not None else 30.0))
+    timeout_connect = float(
+        cfg.get("timeout_connect", timeout if timeout is not None else 5.0)
+    )
+    timeout_read = float(
+        cfg.get("timeout_read", timeout if timeout is not None else 30.0)
+    )
     max_retries = int(cfg.get("max_retries", 3))
     rps = float(override_rps if override_rps is not None else cfg.get("rps", 0.0))
-    status_forcelist = cfg.get("status_forcelist") or DEFAULT_CONFIG["pipeline"]["status_forcelist"]
+    status_forcelist = (
+        cfg.get("status_forcelist") or DEFAULT_CONFIG["pipeline"]["status_forcelist"]
+    )
     return HttpClient(
         timeout=(timeout_connect, timeout_read),
         max_retries=max_retries,
@@ -127,7 +141,9 @@ def _determine_output_path(input_path: Path, output: str | None, command: str) -
     return input_path.parent / f"output_{command}_{stem}_{date}.csv"
 
 
-def _read_identifier_column(path: Path, column: str, *, sep: str, encoding: str) -> List[str]:
+def _read_identifier_column(
+    path: Path, column: str, *, sep: str, encoding: str
+) -> List[str]:
     df = pd.read_csv(path, sep=sep, encoding=encoding, dtype=str)
     if column not in df.columns:
         msg = f"Column '{column}' not found in input"
@@ -208,7 +224,9 @@ def _write_output(
 def run_pubmed_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     io_cfg = config["io"]
     column = args.column or config["pipeline"].get("column_pubmed", "PMID")
-    ids = _read_identifier_column(args.input, column, sep=io_cfg["sep"], encoding=io_cfg["encoding"])
+    ids = _read_identifier_column(
+        args.input, column, sep=io_cfg["sep"], encoding=io_cfg["encoding"]
+    )
     LOGGER.info("Loaded %d unique PMIDs", len(ids))
     workers = int(args.workers or config["pipeline"].get("workers", 1))
     (
@@ -230,17 +248,25 @@ def run_pubmed_command(args: argparse.Namespace, config: Dict[str, Any]) -> None
     if errors:
         error_path = Path(str(args.output) + ".schema_errors.json")
         error_path.parent.mkdir(parents=True, exist_ok=True)
-        error_path.write_text(json.dumps({"errors": errors}, indent=2), encoding="utf-8")
+        error_path.write_text(
+            json.dumps({"errors": errors}, indent=2), encoding="utf-8"
+        )
         raise SystemExit("Schema validation failed; see error report")
     df = dataframe_to_strings(df)
     df = df.sort_values("PubMed.PMID", na_position="last").reset_index(drop=True)
-    _write_output(df, output_path=args.output, sep=io_cfg["sep"], encoding=io_cfg["encoding"])
+    _write_output(
+        df, output_path=args.output, sep=io_cfg["sep"], encoding=io_cfg["encoding"]
+    )
 
 
 def run_chembl_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     io_cfg = config["io"]
-    column = args.column or config["pipeline"].get("column_chembl", "document_chembl_id")
-    ids = _read_identifier_column(args.input, column, sep=io_cfg["sep"], encoding=io_cfg["encoding"])
+    column = args.column or config["pipeline"].get(
+        "column_chembl", "document_chembl_id"
+    )
+    ids = _read_identifier_column(
+        args.input, column, sep=io_cfg["sep"], encoding=io_cfg["encoding"]
+    )
     LOGGER.info("Loaded %d ChEMBL document IDs", len(ids))
     chem_cfg = config["chembl"]
     chem_client = ChemblClient(
@@ -284,16 +310,24 @@ def run_chembl_command(args: argparse.Namespace, config: Dict[str, Any]) -> None
         df = df.reindex(columns=CH_EMBL_COLUMNS)
     df = dataframe_to_strings(df)
     df = df.sort_values("ChEMBL.document_chembl_id").reset_index(drop=True)
-    _write_output(df, output_path=args.output, sep=io_cfg["sep"], encoding=io_cfg["encoding"])
+    _write_output(
+        df, output_path=args.output, sep=io_cfg["sep"], encoding=io_cfg["encoding"]
+    )
 
 
 def run_all_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     io_cfg = config["io"]
-    column = args.column or config["pipeline"].get("column_chembl", "document_chembl_id")
-    ids = _read_identifier_column(args.input, column, sep=io_cfg["sep"], encoding=io_cfg["encoding"])
+    column = args.column or config["pipeline"].get(
+        "column_chembl", "document_chembl_id"
+    )
+    ids = _read_identifier_column(
+        args.input, column, sep=io_cfg["sep"], encoding=io_cfg["encoding"]
+    )
     LOGGER.info("Loaded %d ChEMBL document IDs", len(ids))
     chem_cfg = config["chembl"]
-    chem_client = ChemblClient(_create_http_client(chem_cfg, override_rps=float(chem_cfg.get("rps", 1.0))))
+    chem_client = ChemblClient(
+        _create_http_client(chem_cfg, override_rps=float(chem_cfg.get("rps", 1.0)))
+    )
     cfg_obj = ApiCfg(timeout_read=float(chem_cfg.get("timeout", 30.0)))
     chem_df = get_documents(
         ids,
@@ -325,30 +359,87 @@ def run_all_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     )
     df_metadata = build_dataframe(rows)
     df_metadata = dataframe_to_strings(df_metadata)
-    df_metadata = df_metadata.sort_values("PubMed.PMID", na_position="last").reset_index(drop=True)
+    df_metadata = df_metadata.sort_values(
+        "PubMed.PMID", na_position="last"
+    ).reset_index(drop=True)
     df = merge_with_chembl(df_metadata, chem_df)
     df = dataframe_to_strings(df)
     df = df.sort_values(
         ["ChEMBL.document_chembl_id", "PubMed.PMID"],
         na_position="last",
     ).reset_index(drop=True)
-    _write_output(df, output_path=args.output, sep=io_cfg["sep"], encoding=io_cfg["encoding"])
+    _write_output(
+        df, output_path=args.output, sep=io_cfg["sep"], encoding=io_cfg["encoding"]
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Collect bibliographic metadata")
-    default_config = Path(__file__).resolve().parent.parent / "config" / "documents.yaml"
+    default_config = (
+        Path(__file__).resolve().parent.parent / "config" / "documents.yaml"
+    )
     parser.add_argument(
         "--config",
         help="Path to YAML configuration file",
         default=str(default_config),
     )
-    parser.add_argument("--input", help="Input CSV path", default="input.csv", type=Path)
+    parser.add_argument(
+        "--input", help="Input CSV path", default="input.csv", type=Path
+    )
     parser.add_argument("--output", help="Output CSV path", default=None)
     parser.add_argument("--column", help="Name of the identifier column", default=None)
     parser.add_argument("--sep", help="CSV separator", default=None)
     parser.add_argument("--encoding", help="CSV encoding", default=None)
     parser.add_argument("--log-level", default="INFO")
+    parser.add_argument(
+        "--batch-size",
+        dest="global_batch_size",
+        type=int,
+        default=None,
+        help="Override the batch size for PubMed-related commands",
+    )
+    parser.add_argument(
+        "--sleep",
+        dest="global_sleep",
+        type=float,
+        default=None,
+        help="Override sleep interval between PubMed requests",
+    )
+    parser.add_argument(
+        "--workers",
+        dest="global_workers",
+        type=int,
+        default=None,
+        help="Override the worker count for metadata merging",
+    )
+    parser.add_argument(
+        "--openalex-rps",
+        dest="global_openalex_rps",
+        type=float,
+        default=None,
+        help="Override the OpenAlex requests-per-second limit",
+    )
+    parser.add_argument(
+        "--crossref-rps",
+        dest="global_crossref_rps",
+        type=float,
+        default=None,
+        help="Override the Crossref requests-per-second limit",
+    )
+    parser.add_argument(
+        "--chunk-size",
+        dest="global_chunk_size",
+        type=int,
+        default=None,
+        help="Override the chunk size for ChEMBL document downloads",
+    )
+    parser.add_argument(
+        "--timeout",
+        dest="global_timeout",
+        type=float,
+        default=None,
+        help="Override the timeout for ChEMBL document downloads",
+    )
     parser.add_argument(
         "--print-config",
         action="store_true",
@@ -356,14 +447,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    pubmed_parser = subparsers.add_parser("pubmed", help="Fetch PubMed and partner metadata")
+    pubmed_parser = subparsers.add_parser(
+        "pubmed", help="Fetch PubMed and partner metadata"
+    )
     pubmed_parser.add_argument("--batch-size", type=int, default=None)
     pubmed_parser.add_argument("--sleep", type=float, default=None)
     pubmed_parser.add_argument("--workers", type=int, default=None)
     pubmed_parser.add_argument("--openalex-rps", type=float, default=None)
     pubmed_parser.add_argument("--crossref-rps", type=float, default=None)
 
-    chembl_parser = subparsers.add_parser("chembl", help="Download ChEMBL document metadata")
+    chembl_parser = subparsers.add_parser(
+        "chembl", help="Download ChEMBL document metadata"
+    )
     chembl_parser.add_argument("--chunk-size", type=int, default=None)
     chembl_parser.add_argument("--timeout", type=float, default=None)
 
@@ -381,27 +476,45 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _cli_option(args: argparse.Namespace, *names: str) -> Any | None:
+    """Return the first configured CLI option from the provided attribute names."""
+
+    for name in names:
+        if hasattr(args, name):
+            value = getattr(args, name)
+            if value is not None:
+                return value
+    return None
+
+
 def apply_cli_overrides(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     if args.sep:
         config["io"]["sep"] = args.sep
     if args.encoding:
         config["io"]["encoding"] = args.encoding
     if args.command in {"pubmed", "all"}:
-        if args.batch_size is not None:
-            config["pubmed"]["batch_size"] = args.batch_size
-        if args.sleep is not None:
-            config["pubmed"]["sleep"] = args.sleep
-        if args.openalex_rps is not None:
-            config["openalex"]["rps"] = args.openalex_rps
-        if args.crossref_rps is not None:
-            config["crossref"]["rps"] = args.crossref_rps
-        if args.workers is not None:
-            config["pipeline"]["workers"] = args.workers
+        batch_size = _cli_option(args, "batch_size", "global_batch_size")
+        if batch_size is not None:
+            config["pubmed"]["batch_size"] = int(batch_size)
+        sleep = _cli_option(args, "sleep", "global_sleep")
+        if sleep is not None:
+            config["pubmed"]["sleep"] = float(sleep)
+        openalex_rps = _cli_option(args, "openalex_rps", "global_openalex_rps")
+        if openalex_rps is not None:
+            config["openalex"]["rps"] = float(openalex_rps)
+        crossref_rps = _cli_option(args, "crossref_rps", "global_crossref_rps")
+        if crossref_rps is not None:
+            config["crossref"]["rps"] = float(crossref_rps)
+        workers = _cli_option(args, "workers", "global_workers")
+        if workers is not None:
+            config["pipeline"]["workers"] = int(workers)
     if args.command in {"chembl", "all"}:
-        if args.chunk_size is not None:
-            config["chembl"]["chunk_size"] = args.chunk_size
-        if args.timeout is not None:
-            config["chembl"]["timeout"] = args.timeout
+        chunk_size = _cli_option(args, "chunk_size", "global_chunk_size")
+        if chunk_size is not None:
+            config["chembl"]["chunk_size"] = int(chunk_size)
+        timeout = _cli_option(args, "timeout", "global_timeout")
+        if timeout is not None:
+            config["chembl"]["timeout"] = float(timeout)
 
 
 def main() -> None:
