@@ -20,10 +20,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import logging
-from typing import Any, Dict, Iterable, List, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, cast
 
-import requests  # type: ignore[import-untyped]
-from typing import TYPE_CHECKING
+import requests
 
 if TYPE_CHECKING:  # pragma: no cover - for static type checking only
     from .uniprot_client import NetworkConfig, RateLimitConfig
@@ -33,10 +32,13 @@ else:  # pragma: no cover - allow package or top-level imports
     except ImportError:  # pragma: no cover
         from uniprot_client import NetworkConfig, RateLimitConfig
 
-try:  # pragma: no cover - optional import paths for tests
+if TYPE_CHECKING:  # pragma: no cover - static typing helpers
     from .http_client import CacheConfig, create_http_session
-except ImportError:  # pragma: no cover
-    from http_client import CacheConfig, create_http_session  # type: ignore[no-redef]
+else:  # pragma: no cover - runtime fallback for tests
+    try:
+        from .http_client import CacheConfig, create_http_session
+    except ImportError:  # pragma: no cover
+        from http_client import CacheConfig, create_http_session
 
 LOGGER = logging.getLogger(__name__)
 
@@ -157,7 +159,7 @@ class EnsemblHomologyClient:
 
         if self.session is None:  # pragma: no cover - defensive
             raise RuntimeError("HTTP session is not initialised")
-        return cast(requests.Session, self.session)
+        return self.session
 
     def _wait_rate_limit(self) -> None:
         """Sleep if necessary to enforce the configured rate limit."""
@@ -379,7 +381,7 @@ class OmaClient:
 
         if self.session is None:  # pragma: no cover - defensive
             raise RuntimeError("HTTP session is not initialised")
-        return cast(requests.Session, self.session)
+        return self.session
 
     def get_orthologs_by_uniprot(self, uniprot_id: str) -> List[Ortholog]:
         """Return orthologs for ``uniprot_id``.

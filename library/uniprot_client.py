@@ -19,7 +19,7 @@ from dataclasses import dataclass
 import json
 import logging
 import time
-from typing import Any, Dict, Iterable, List, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, cast
 
 import requests
 from tenacity import (
@@ -32,10 +32,20 @@ from tenacity import (
 LOGGER = logging.getLogger(__name__)
 
 
-try:  # pragma: no cover - optional import paths for tests
-    from .http_client import CacheConfig, create_http_session
-except ImportError:  # pragma: no cover
-    from http_client import CacheConfig, create_http_session  # type: ignore[no-redef]
+if TYPE_CHECKING:  # pragma: no cover - import for static typing only
+    from .http_client import CacheConfig
+    from .http_client import create_http_session as _create_http_session
+else:  # pragma: no cover - allow package or top-level imports
+    try:
+        from .http_client import CacheConfig, create_http_session as _create_http_session
+    except ImportError:  # pragma: no cover
+        from http_client import CacheConfig, create_http_session as _create_http_session
+
+
+def create_http_session(cache: "CacheConfig | None") -> requests.Session:
+    """Return a :class:`requests.Session` configured with ``cache``."""
+
+    return _create_http_session(cache)
 
 
 @dataclass
@@ -103,7 +113,7 @@ class UniProtClient:
 
         if self.session is None:  # pragma: no cover - defensive
             raise RuntimeError("HTTP session is not initialised")
-        return cast(requests.Session, self.session)
+        return self.session
 
     # ------------------------------------------------------------------
     def _wait_rate_limit(self) -> None:
@@ -186,11 +196,11 @@ class UniProtClient:
         if not resp:
             return None
         try:
-            data = resp.json()
+            data = cast(Dict[str, Any], resp.json())
         except json.JSONDecodeError:  # pragma: no cover - API guarantees JSON
             LOGGER.warning("Invalid JSON for %s", accession)
             return None
-        results = data.get("results", [])
+        results = cast(List[Dict[str, Any]], data.get("results", []))
         if not results:
             return None
         return results[0]
@@ -215,7 +225,7 @@ class UniProtClient:
         if not resp:
             return None
         try:
-            return resp.json()
+            return cast(Dict[str, Any], resp.json())
         except json.JSONDecodeError:  # pragma: no cover - API guarantees JSON
             LOGGER.warning("Invalid JSON for %s", accession)
             return None
@@ -250,11 +260,11 @@ class UniProtClient:
             if not resp:
                 continue
             try:
-                data = resp.json()
+                data = cast(Dict[str, Any], resp.json())
             except json.JSONDecodeError:  # pragma: no cover - API guarantees JSON
                 LOGGER.warning("Invalid JSON for %s", ",".join(chunk))
                 continue
-            for entry in data.get("results", []) or []:
+            for entry in cast(List[Dict[str, Any]], data.get("results", []) or []):
                 acc = entry.get("primaryAccession")
                 if acc:
                     entries[acc] = entry

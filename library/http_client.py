@@ -27,10 +27,10 @@ from pathlib import Path
 from types import ModuleType
 import time
 
-from typing import Any, Iterable, Mapping, Tuple, cast
+from typing import Any, Callable, Iterable, Mapping, Tuple, cast
 
 
-import requests  # type: ignore[import-untyped]
+import requests
 
 from tenacity import (
     RetryCallState,
@@ -210,7 +210,10 @@ def create_http_session(cache_config: CacheConfig | None = None) -> requests.Ses
         cache_path,
         cache_config.ttl_seconds,
     )
-    cached_session_factory = cast(Any, requests_cache_module).CachedSession
+    cached_session_factory = cast(
+        Callable[..., requests.Session],
+        getattr(requests_cache_module, "CachedSession"),
+    )
     session = cached_session_factory(
         cache_name=str(cache_path),
         backend="sqlite",

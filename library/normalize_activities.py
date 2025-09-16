@@ -54,7 +54,7 @@ def _normalise_string(value: Any) -> str | None:
     if isinstance(value, str):
         text = value.strip()
         return text or None
-    if pd.isna(value):  # type: ignore[arg-type]
+    if pd.isna(value):
         return None
     text = str(value).strip()
     return text or None
@@ -81,7 +81,7 @@ def _normalise_boolean(value: Any) -> bool | None:
         return None
     if isinstance(value, bool):
         return value
-    if isinstance(value, (int, float)) and not pd.isna(value):  # type: ignore[arg-type]
+    if isinstance(value, (int, float)) and not pd.isna(value):
         return bool(int(value))
     text = str(value).strip().lower()
     if text in {"true", "t", "1", "yes"}:

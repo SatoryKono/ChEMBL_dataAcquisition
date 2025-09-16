@@ -105,7 +105,7 @@ def load_config(path: str | None) -> Dict[str, Any]:
             if not isinstance(file_cfg, Mapping):
                 msg = f"Configuration in {path} is not a mapping"
                 raise ValueError(msg)
-            _deep_update(config, file_cfg)  # type: ignore[arg-type]
+            _deep_update(config, file_cfg)
         else:
             LOGGER.warning("Config file %s not found; using defaults", path)
     return config
@@ -282,7 +282,7 @@ def run_chembl_command(args: argparse.Namespace, config: Dict[str, Any]) -> None
     LOGGER.info("Loaded %d ChEMBL document IDs", len(ids))
     chem_cfg = config["chembl"]
     chem_client = ChemblClient(
-        _create_http_client(
+        http_client=_create_http_client(
             chem_cfg,
             override_rps=float(chem_cfg.get("rps", 1.0)),
         )
@@ -338,7 +338,9 @@ def run_all_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     LOGGER.info("Loaded %d ChEMBL document IDs", len(ids))
     chem_cfg = config["chembl"]
     chem_client = ChemblClient(
-        _create_http_client(chem_cfg, override_rps=float(chem_cfg.get("rps", 1.0)))
+        http_client=_create_http_client(
+            chem_cfg, override_rps=float(chem_cfg.get("rps", 1.0))
+        )
     )
     cfg_obj = ApiCfg(timeout_read=float(chem_cfg.get("timeout", 30.0)))
     chem_df = get_documents(
