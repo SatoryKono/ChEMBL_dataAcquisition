@@ -142,6 +142,42 @@ def _determine_output_path(input_path: Path, output: str | None, command: str) -
     return input_path.parent / f"output_{command}_{stem}_{date}.csv"
 
 
+def _build_global_parser(default_config: Path) -> argparse.ArgumentParser:
+    """Create a parser with arguments shared across commands.
+
+    Parameters
+    ----------
+    default_config:
+        Path to the default configuration file bundled with the project.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        Parser instance containing global CLI arguments.
+    """
+
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "--config",
+        help="Path to YAML configuration file",
+        default=str(default_config),
+    )
+    parser.add_argument(
+        "--input", help="Input CSV path", default="input.csv", type=Path
+    )
+    parser.add_argument("--output", help="Output CSV path", default=None)
+    parser.add_argument("--column", help="Name of the identifier column", default=None)
+    parser.add_argument("--sep", help="CSV separator", default=None)
+    parser.add_argument("--encoding", help="CSV encoding", default=None)
+    parser.add_argument("--log-level", default="INFO")
+    parser.add_argument(
+        "--print-config",
+        action="store_true",
+        help="Print effective configuration and exit",
+    )
+    return parser
+
+
 def _read_identifier_column(
     path: Path, column: str, *, sep: str, encoding: str
 ) -> List[str]:
@@ -397,23 +433,13 @@ def run_all_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Collect bibliographic metadata")
     default_config = (
         Path(__file__).resolve().parent.parent / "config" / "documents.yaml"
     )
-    parser.add_argument(
-        "--config",
-        help="Path to YAML configuration file",
-        default=str(default_config),
+    common_parser = _build_global_parser(default_config)
+    parser = argparse.ArgumentParser(
+        description="Collect bibliographic metadata", parents=[common_parser]
     )
-    parser.add_argument(
-        "--input", help="Input CSV path", default="input.csv", type=Path
-    )
-    parser.add_argument("--output", help="Output CSV path", default=None)
-    parser.add_argument("--column", help="Name of the identifier column", default=None)
-    parser.add_argument("--sep", help="CSV separator", default=None)
-    parser.add_argument("--encoding", help="CSV encoding", default=None)
-    parser.add_argument("--log-level", default="INFO")
     parser.add_argument(
         "--batch-size",
         dest="global_batch_size",
@@ -463,15 +489,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override the timeout for ChEMBL document downloads",
     )
-    parser.add_argument(
-        "--print-config",
-        action="store_true",
-        help="Print effective configuration and exit",
-    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     pubmed_parser = subparsers.add_parser(
-        "pubmed", help="Fetch PubMed and partner metadata"
+        "pubmed",
+        help="Fetch PubMed and partner metadata",
+        parents=[common_parser],
     )
     pubmed_parser.add_argument("--batch-size", type=int, default=None)
     pubmed_parser.add_argument("--sleep", type=float, default=None)
@@ -480,13 +503,17 @@ def build_parser() -> argparse.ArgumentParser:
     pubmed_parser.add_argument("--crossref-rps", type=float, default=None)
 
     chembl_parser = subparsers.add_parser(
-        "chembl", help="Download ChEMBL document metadata"
+        "chembl",
+        help="Download ChEMBL document metadata",
+        parents=[common_parser],
     )
     chembl_parser.add_argument("--chunk-size", type=int, default=None)
     chembl_parser.add_argument("--timeout", type=float, default=None)
 
     all_parser = subparsers.add_parser(
-        "all", help="Fetch ChEMBL documents and enrich with PubMed ecosystems"
+        "all",
+        help="Fetch ChEMBL documents and enrich with PubMed ecosystems",
+        parents=[common_parser],
     )
     all_parser.add_argument("--batch-size", type=int, default=None)
     all_parser.add_argument("--sleep", type=float, default=None)

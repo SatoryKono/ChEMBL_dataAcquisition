@@ -212,3 +212,13 @@ def test_chembl_global_cli_overrides() -> None:
     pm.apply_cli_overrides(args, config)
 
     assert config["chembl"]["chunk_size"] == 8
+
+
+def test_output_argument_after_command() -> None:
+    """The shared --output flag should be accepted after the command name."""
+
+    parser = pm.build_parser()
+    args = parser.parse_args(["all", "--output", "results.csv"])
+
+    assert args.command == "all"
+    assert args.output == "results.csv"
