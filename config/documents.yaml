@@ -26,7 +26,7 @@ crossref:
   max_retries: 3
 
 chembl:
-  chunk_size: 10
+  chunk_size: 100
   timeout: 30
   max_retries: 3
   rps: 1.0
