@@ -1,0 +1,43 @@
+pipeline:
+  rate_limit_rps: 4.0
+  retries: 5
+  timeout_sec: 45
+  species_priority:
+    - Mouse
+    - Human
+  list_format: pipe
+  include_sequence: true
+  include_isoforms: true
+  columns:
+    - a
+    - b
+  iuphar:
+    affinity_parameter: pIC50
+    approved_only: true
+    primary_target_only: false
+hgnc:
+  columns:
+    - hgnc_id
+    - gene_symbol
+  hgnc:
+    base_url: "https://rest.genenames.org/fetch/uniprot_ids"
+  network:
+    timeout_sec: 20
+    max_retries: 2
+  rate_limit:
+    rps: 5
+  output:
+    sep: ";"
+    encoding: latin-1
+orthologs:
+  enabled: false
+  primary_source: oma
+  target_species:
+    - human
+    - mouse
+  species_priority:
+    - Homo sapiens
+  rate_limit_rps: 1.5
+  timeout_sec: 50
+  retries: 5
+  backoff_base_sec: 2.0

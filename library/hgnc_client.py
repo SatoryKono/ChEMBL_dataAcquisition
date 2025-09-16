@@ -19,12 +19,16 @@ import time
 
 import pandas as pd
 import requests
-import yaml
 
 try:
     from data_profiling import analyze_table_quality
 except ModuleNotFoundError:  # pragma: no cover
     from .data_profiling import analyze_table_quality
+
+try:  # pragma: no cover - import fallbacks for CLI usage
+    from .pipeline_config import load_hgnc_settings
+except ImportError:  # pragma: no cover - support direct script execution
+    from pipeline_config import load_hgnc_settings
 
 LOGGER = logging.getLogger(__name__)
 
@@ -84,18 +88,12 @@ def load_config(path: str | Path, *, section: str | None = None) -> Config:
         Optional top-level key selecting a subsection of the configuration.
     """
 
-    with Path(path).open("r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh) or {}
-    if section:
-        try:
-            data = data[section]
-        except KeyError as exc:  # pragma: no cover - defensive
-            raise KeyError(f"Section '{section}' not found in {path}") from exc
+    settings = load_hgnc_settings(path, section=section)
     return Config(
-        hgnc=HGNCServiceConfig(**data["hgnc"]),
-        network=NetworkConfig(**data["network"]),
-        rate_limit=RateLimitConfig(**data["rate_limit"]),
-        output=OutputConfig(**data["output"]),
+        hgnc=HGNCServiceConfig(**settings.hgnc.model_dump()),
+        network=NetworkConfig(**settings.network.model_dump()),
+        rate_limit=RateLimitConfig(**settings.rate_limit.model_dump()),
+        output=OutputConfig(**settings.output.model_dump()),
     )
 
 

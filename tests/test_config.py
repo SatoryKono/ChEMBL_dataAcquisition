@@ -6,11 +6,17 @@ import logging
 import pytest
 
 from chembl2uniprot.config import load_and_validate_config
+from library.pipeline_config import (
+    load_hgnc_settings,
+    load_orthologs_settings,
+    load_pipeline_settings,
+)
 
 DATA_DIR = Path(__file__).parent / "data"
 CONFIG_DIR = DATA_DIR / "config"
 SCHEMA = CONFIG_DIR / "config.schema.json"
 CONFIG = CONFIG_DIR / "valid.yaml"
+PIPELINE_CONFIG = CONFIG_DIR / "pipeline_sections.yaml"
 
 
 def _write_config(tmp_path: Path, text: str) -> Path:
@@ -77,3 +83,46 @@ def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CHEMBL_BATCH__SIZE", "5")
     loaded = load_and_validate_config(CONFIG)
     assert loaded.batch.size == 5
+
+
+def test_load_pipeline_settings() -> None:
+    """Pipeline section is parsed into a strongly typed model."""
+
+    settings = load_pipeline_settings(PIPELINE_CONFIG)
+    assert settings.rate_limit_rps == 4.0
+    assert settings.include_isoforms is True
+    assert settings.iuphar.affinity_parameter == "pIC50"
+    assert settings.columns == ["a", "b"]
+
+
+def test_load_pipeline_settings_defaults(tmp_path: Path) -> None:
+    """Missing pipeline section falls back to default values."""
+
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text("{}")
+    settings = load_pipeline_settings(cfg_path)
+    assert settings.rate_limit_rps == 2.0
+    assert settings.columns == []
+
+
+def test_load_hgnc_settings(tmp_path: Path) -> None:
+    """HGNC configuration requires the section to be present."""
+
+    settings = load_hgnc_settings(PIPELINE_CONFIG)
+    assert settings.hgnc.base_url.endswith("fetch/uniprot_ids")
+    assert settings.output.sep == ";"
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text("pipeline: {}\n")
+    with pytest.raises(KeyError):
+        load_hgnc_settings(cfg_path, section="hgnc")
+
+
+def test_load_orthologs_settings() -> None:
+    """Orthologs section falls back to defaults when absent."""
+
+    settings = load_orthologs_settings(PIPELINE_CONFIG)
+    assert settings.enabled is False
+    assert settings.primary_source == "oma"
+    defaults = load_orthologs_settings(CONFIG)
+    assert defaults.enabled is True
+    assert defaults.target_species == []

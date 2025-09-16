@@ -25,6 +25,7 @@ if str(ROOT) not in sys.path:
 from library.chembl_targets import TargetConfig, fetch_targets
 from library.gtop_client import GtoPClient, GtoPConfig
 from library.hgnc_client import HGNCClient, load_config as load_hgnc_config
+from library.pipeline_config import load_orthologs_settings
 from library.uniprot_client import (
     NetworkConfig as UniNetworkConfig,
     RateLimitConfig as UniRateConfig,
@@ -593,24 +594,25 @@ def build_clients(
     oma_client: OmaClient | None = None
     target_species: list[str] = []
     if with_orthologs:
-        orth_cfg = data.get("orthologs", {})
-        ens_client = EnsemblHomologyClient(
-            base_url="https://rest.ensembl.org",
-            network=UniNetworkConfig(
-                timeout_sec=pipeline_cfg.timeout_sec,
-                max_retries=pipeline_cfg.retries,
-            ),
-            rate_limit=UniRateConfig(rps=pipeline_cfg.rate_limit_rps),
-        )
-        oma_client = OmaClient(
-            base_url="https://omabrowser.org/api",
-            network=UniNetworkConfig(
-                timeout_sec=pipeline_cfg.timeout_sec,
-                max_retries=pipeline_cfg.retries,
-            ),
-            rate_limit=UniRateConfig(rps=pipeline_cfg.rate_limit_rps),
-        )
-        target_species = list(orth_cfg.get("target_species", []))
+        orth_cfg = load_orthologs_settings(cfg_path)
+        if orth_cfg.enabled:
+            ens_client = EnsemblHomologyClient(
+                base_url="https://rest.ensembl.org",
+                network=UniNetworkConfig(
+                    timeout_sec=orth_cfg.timeout_sec,
+                    max_retries=orth_cfg.retries,
+                ),
+                rate_limit=UniRateConfig(rps=orth_cfg.rate_limit_rps),
+            )
+            oma_client = OmaClient(
+                base_url="https://omabrowser.org/api",
+                network=UniNetworkConfig(
+                    timeout_sec=orth_cfg.timeout_sec,
+                    max_retries=orth_cfg.retries,
+                ),
+                rate_limit=UniRateConfig(rps=orth_cfg.rate_limit_rps),
+            )
+            target_species = list(orth_cfg.target_species)
     return uni, hgnc, gtop, ens_client, oma_client, target_species
 
 

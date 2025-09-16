@@ -107,6 +107,96 @@
           "enum": ["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
         }
       }
+    },
+    "pipeline": {
+      "type": "object",
+      "properties": {
+        "rate_limit_rps": { "type": "number", "exclusiveMinimum": 0 },
+        "retries": { "type": "integer", "minimum": 0 },
+        "timeout_sec": { "type": "number", "exclusiveMinimum": 0 },
+        "species_priority": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "list_format": { "type": "string", "enum": ["json", "pipe"] },
+        "include_sequence": { "type": "boolean" },
+        "include_isoforms": { "type": "boolean" },
+        "columns": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "iuphar": {
+          "type": "object",
+          "properties": {
+            "affinity_parameter": { "type": "string" },
+            "approved_only": { "type": ["boolean", "null"] },
+            "primary_target_only": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "hgnc": {
+      "type": "object",
+      "required": ["hgnc", "network", "rate_limit", "output"],
+      "properties": {
+        "columns": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "hgnc": {
+          "type": "object",
+          "required": ["base_url"],
+          "properties": { "base_url": { "type": "string", "minLength": 1 } },
+          "additionalProperties": false
+        },
+        "network": {
+          "type": "object",
+          "required": ["timeout_sec", "max_retries"],
+          "properties": {
+            "timeout_sec": { "type": "number", "exclusiveMinimum": 0 },
+            "max_retries": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        },
+        "rate_limit": {
+          "type": "object",
+          "required": ["rps"],
+          "properties": { "rps": { "type": "number", "exclusiveMinimum": 0 } },
+          "additionalProperties": false
+        },
+        "output": {
+          "type": "object",
+          "required": ["sep", "encoding"],
+          "properties": {
+            "sep": { "type": "string", "minLength": 1 },
+            "encoding": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "orthologs": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "primary_source": { "type": "string" },
+        "target_species": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "species_priority": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "rate_limit_rps": { "type": "number", "exclusiveMinimum": 0 },
+        "timeout_sec": { "type": "number", "exclusiveMinimum": 0 },
+        "retries": { "type": "integer", "minimum": 0 },
+        "backoff_base_sec": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

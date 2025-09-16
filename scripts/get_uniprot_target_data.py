@@ -35,6 +35,7 @@ from library.uniprot_normalize import (  # noqa: E402
     output_columns,
 )
 from library.orthologs import EnsemblHomologyClient, OmaClient  # noqa: E402
+from library.pipeline_config import load_orthologs_settings  # noqa: E402
 
 
 DEFAULT_INPUT = "input.csv"
@@ -99,7 +100,7 @@ def main(argv: List[str] | None = None) -> None:
     config = yaml.safe_load((ROOT / "config.yaml").read_text())
     uniprot_cfg = config.get("uniprot", {})
     output_cfg = config.get("output", {})
-    orth_cfg = config.get("orthologs", {})
+    orth_cfg = load_orthologs_settings(ROOT / "config.yaml")
 
     list_format = output_cfg.get("list_format", "json")
     include_seq = args.include_sequence or output_cfg.get("include_sequence", False)
@@ -151,26 +152,26 @@ def main(argv: List[str] | None = None) -> None:
     orth_cols: List[str] = []
     orth_rows: List[Dict[str, Any]] = []
 
-    if args.with_orthologs and orth_cfg.get("enabled", True):
+    if args.with_orthologs and orth_cfg.enabled:
         ensembl_client = EnsemblHomologyClient(
             base_url="https://rest.ensembl.org",
             network=NetworkConfig(
-                timeout_sec=orth_cfg.get("timeout_sec", 30),
-                max_retries=orth_cfg.get("retries", 3),
-                backoff_sec=orth_cfg.get("backoff_base_sec", 1.0),
+                timeout_sec=orth_cfg.timeout_sec,
+                max_retries=orth_cfg.retries,
+                backoff_sec=orth_cfg.backoff_base_sec,
             ),
-            rate_limit=RateLimitConfig(rps=orth_cfg.get("rate_limit_rps", 2)),
+            rate_limit=RateLimitConfig(rps=orth_cfg.rate_limit_rps),
         )
         oma_client = OmaClient(
             base_url="https://omabrowser.org/api",
             network=NetworkConfig(
-                timeout_sec=orth_cfg.get("timeout_sec", 30),
-                max_retries=orth_cfg.get("retries", 3),
-                backoff_sec=orth_cfg.get("backoff_base_sec", 1.0),
+                timeout_sec=orth_cfg.timeout_sec,
+                max_retries=orth_cfg.retries,
+                backoff_sec=orth_cfg.backoff_base_sec,
             ),
-            rate_limit=RateLimitConfig(rps=orth_cfg.get("rate_limit_rps", 2)),
+            rate_limit=RateLimitConfig(rps=orth_cfg.rate_limit_rps),
         )
-        target_species = orth_cfg.get("target_species", [])
+        target_species = list(orth_cfg.target_species)
         orth_cols = [
             "source_uniprot_id",
             "source_ensembl_gene_id",

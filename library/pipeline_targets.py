@@ -9,6 +9,11 @@ from typing import Any, Callable, Dict, List, Sequence
 import pandas as pd
 from typing import TYPE_CHECKING
 
+try:  # pragma: no cover - import fallback for direct execution
+    from .pipeline_config import DEFAULT_PIPELINE_COLUMNS, load_pipeline_settings
+except ImportError:  # pragma: no cover
+    from pipeline_config import DEFAULT_PIPELINE_COLUMNS, load_pipeline_settings
+
 if TYPE_CHECKING:  # pragma: no cover - for static type checking only
     from .chembl_targets import TargetConfig, fetch_targets
     from .gtop_client import GtoPClient, resolve_target
@@ -52,61 +57,7 @@ LOGGER = logging.getLogger(__name__)
 PIPELINE_VERSION = "0.1.0"
 
 # Default columns for final output files
-DEFAULT_COLUMNS = [
-    "target_chembl_id",
-    "uniprot_id_primary",
-    "uniprot_ids_all",
-    "isoform_ids",
-    "isoform_names",
-    "isoform_synonyms",
-    "hgnc_id",
-    "gene_symbol",
-    "protein_name_canonical",
-    "protein_name_alt",
-    "names_all",
-    "synonyms_all",
-    "organism",
-    "taxon_id",
-    "lineage_superkingdom",
-    "lineage_phylum",
-    "lineage_class",
-    "lineage_order",
-    "lineage_family",
-    "target_type",
-    "protein_class_L1",
-    "protein_class_L2",
-    "protein_class_L3",
-    "protein_class_L4",
-    "protein_class_L5",
-    "sequence_length",
-    "features_signal_peptide",
-    "features_transmembrane",
-    "features_topology",
-    "ptm_glycosylation",
-    "ptm_lipidation",
-    "ptm_disulfide_bond",
-    "ptm_modified_residue",
-    "pfam",
-    "interpro",
-    "xref_chembl",
-    "xref_uniprot",
-    "xref_ensembl",
-    "xref_pdb",
-    "xref_alphafold",
-    "xref_iuphar",
-    "gtop_target_id",
-    "gtop_synonyms",
-    "ortholog_uniprot_ids",
-    "orthologs_json",
-    "orthologs_count",
-    "gtop_natural_ligands_n",
-    "gtop_interactions_n",
-    "gtop_function_text_short",
-    "uniprot_last_update",
-    "uniprot_version",
-    "pipeline_version",
-    "timestamp_utc",
-]
+DEFAULT_COLUMNS = list(DEFAULT_PIPELINE_COLUMNS)
 
 
 @dataclass
@@ -161,27 +112,29 @@ class PipelineConfig:
 
 
 def load_pipeline_config(path: str) -> PipelineConfig:
-    """Load ``PipelineConfig`` from a YAML file."""
+    """Load :class:`PipelineConfig` from ``path``.
 
-    import yaml  # type: ignore[import]
+    The function delegates YAML parsing and validation to the
+    :mod:`library.pipeline_config` utilities.  Using the shared Pydantic models
+    ensures consistent validation between the CLI helpers and the orchestration
+    code.
+    """
 
-    with open(path, "r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh) or {}
-    cfg = data.get("pipeline", {})
-    iuphar = cfg.get("iuphar", {})
+    settings = load_pipeline_settings(path)
+    columns = list(settings.columns) or list(DEFAULT_COLUMNS)
     return PipelineConfig(
-        rate_limit_rps=cfg.get("rate_limit_rps", 2.0),
-        retries=cfg.get("retries", 3),
-        timeout_sec=cfg.get("timeout_sec", 30.0),
-        species_priority=list(cfg.get("species_priority", ["Human", "Homo sapiens"])),
-        list_format=cfg.get("list_format", "json"),
-        include_sequence=cfg.get("include_sequence", False),
-        include_isoforms=cfg.get("include_isoforms", False),
-        columns=list(cfg.get("columns", DEFAULT_COLUMNS)),
+        rate_limit_rps=settings.rate_limit_rps,
+        retries=settings.retries,
+        timeout_sec=settings.timeout_sec,
+        species_priority=list(settings.species_priority),
+        list_format=settings.list_format,
+        include_sequence=settings.include_sequence,
+        include_isoforms=settings.include_isoforms,
+        columns=columns,
         iuphar=IupharConfig(
-            affinity_parameter=iuphar.get("affinity_parameter", "pKi"),
-            approved_only=iuphar.get("approved_only"),
-            primary_target_only=iuphar.get("primary_target_only", True),
+            affinity_parameter=settings.iuphar.affinity_parameter,
+            approved_only=settings.iuphar.approved_only,
+            primary_target_only=settings.iuphar.primary_target_only,
         ),
     )
 
