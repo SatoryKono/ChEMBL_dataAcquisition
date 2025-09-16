@@ -46,6 +46,7 @@ def test_chembl_client_handles_activity_404(
 
     client = ChemblClient(base_url=base_url)
     assert client.fetch_activity("CHEMBL404") is None
+    assert requests_mock.call_count == 1
 
 
 def test_get_activities_batches_requests() -> None:

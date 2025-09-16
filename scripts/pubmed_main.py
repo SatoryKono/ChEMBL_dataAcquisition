@@ -75,7 +75,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "workers": 1,
         "column_pubmed": "PMID",
         "column_chembl": "document_chembl_id",
-        "status_forcelist": [404, 408, 409, 429, 500, 502, 503, 504],
+        "status_forcelist": [408, 409, 429, 500, 502, 503, 504],
     },
 }
 
