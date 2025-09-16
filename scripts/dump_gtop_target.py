@@ -5,23 +5,19 @@ from __future__ import annotations
 import argparse
 import csv
 import logging
-
-import sys
-
-
 from pathlib import Path
 from typing import List, cast
 
 import pandas as pd
 import yaml
-from library.data_profiling import analyze_table_quality
-from library.logging_utils import configure_logging
 
+if __package__ in {None, ""}:
+    from _path_utils import ensure_project_root as _ensure_project_root
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+    _ensure_project_root()
 
+from library.data_profiling import analyze_table_quality  # noqa: E402
+from library.logging_utils import configure_logging  # noqa: E402
 from library.gtop_client import GtoPClient, GtoPConfig, resolve_target  # noqa: E402
 from library.http_client import CacheConfig  # noqa: E402
 from library.gtop_normalize import (  # noqa: E402

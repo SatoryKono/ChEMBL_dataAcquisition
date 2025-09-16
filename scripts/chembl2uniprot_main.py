@@ -21,18 +21,17 @@ To use a standalone configuration file ``my_config.yaml``::
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-LIB_DIR = ROOT / "library"
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-if str(LIB_DIR) not in sys.path:
-    sys.path.insert(0, str(LIB_DIR))
+if __package__ in {None, ""}:
+    from _path_utils import ensure_project_root as _ensure_project_root
+
+    _ensure_project_root()
 
 from chembl2uniprot.mapping import map_chembl_to_uniprot  # noqa: E402
 from library.logging_utils import configure_logging  # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 DEFAULT_LOG_LEVEL = "INFO"
@@ -47,8 +46,8 @@ def main(argv: list[str] | None = None) -> None:
     Parameters
     ----------
     argv:
-        Optional list of command line arguments.  When ``None`` the arguments
-        are taken from :data:`sys.argv`.
+        Optional list of command line arguments. When ``None`` the arguments
+        provided via the command line are used.
     """
 
     parser = argparse.ArgumentParser(description="Map ChEMBL IDs to UniProt IDs")

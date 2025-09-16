@@ -11,13 +11,13 @@ import argparse
 import json
 from datetime import datetime
 from pathlib import Path
-import sys
 
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+if __package__ in {None, ""}:
+    from _path_utils import ensure_project_root as _ensure_project_root
+
+    _ensure_project_root()
 
 from library.protein_classifier import classify_protein
 from library.logging_utils import configure_logging

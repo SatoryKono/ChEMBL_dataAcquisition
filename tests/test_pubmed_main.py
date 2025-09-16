@@ -22,7 +22,9 @@ from library.openalex_client import OpenAlexRecord  # type: ignore  # noqa: E402
 from library.crossref_client import CrossrefRecord  # type: ignore  # noqa: E402
 
 
-def _make_args(command: str, *, input_path: Path, output_path: Path, column: str) -> argparse.Namespace:
+def _make_args(
+    command: str, *, input_path: Path, output_path: Path, column: str
+) -> argparse.Namespace:
     return argparse.Namespace(
         command=command,
         input=input_path,
@@ -32,7 +34,9 @@ def _make_args(command: str, *, input_path: Path, output_path: Path, column: str
     )
 
 
-def test_run_pubmed_creates_output_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_pubmed_creates_output_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """run_pubmed_command should create the parent directory for the output file."""
 
     input_csv = tmp_path / "input.csv"
@@ -93,13 +97,17 @@ def test_run_pubmed_creates_output_directory(tmp_path: Path, monkeypatch: pytest
         error=None,
     )
 
-    def fake_gather(pmids: Sequence[str], *, cfg: dict[str, Any]) -> tuple[list[Any], list[Any], list[Any], list[Any]]:
+    def fake_gather(
+        pmids: Sequence[str], *, cfg: dict[str, Any]
+    ) -> tuple[list[Any], list[Any], list[Any], list[Any]]:
         return [pubmed_record], [scholar_record], [openalex_record], [crossref_record]
 
     monkeypatch.setattr(pm, "_gather_pubmed_sources", fake_gather)
 
     output_path = tmp_path / "out" / "result.csv"
-    args = _make_args("pubmed", input_path=input_csv, output_path=output_path, column="PMID")
+    args = _make_args(
+        "pubmed", input_path=input_csv, output_path=output_path, column="PMID"
+    )
     config = deepcopy(pm.DEFAULT_CONFIG)
 
     pm.run_pubmed_command(args, config)
@@ -160,14 +168,18 @@ def test_run_all_merges_chembl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     def fake_get_documents(ids: Sequence[str], *, cfg: Any, client: Any, chunk_size: int, timeout: float) -> pd.DataFrame:  # type: ignore[override]
         return chembl_df
 
-    def fake_gather(pmids: Sequence[str], *, cfg: dict[str, Any]) -> tuple[list[Any], list[Any], list[Any], list[Any]]:
+    def fake_gather(
+        pmids: Sequence[str], *, cfg: dict[str, Any]
+    ) -> tuple[list[Any], list[Any], list[Any], list[Any]]:
         return [pubmed_record], [], [], []
 
     monkeypatch.setattr(pm, "get_documents", fake_get_documents)
     monkeypatch.setattr(pm, "_gather_pubmed_sources", fake_gather)
 
     output_path = tmp_path / "output.csv"
-    args = _make_args("all", input_path=input_csv, output_path=output_path, column="chembl_id")
+    args = _make_args(
+        "all", input_path=input_csv, output_path=output_path, column="chembl_id"
+    )
     args.workers = 1
     config = deepcopy(pm.DEFAULT_CONFIG)
 
@@ -176,3 +188,27 @@ def test_run_all_merges_chembl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     df = pd.read_csv(output_path)
     assert "ChEMBL.document_chembl_id" in df.columns
     assert df.loc[0, "ChEMBL.document_chembl_id"] == "DOC1"
+
+
+def test_global_cli_overrides_before_command() -> None:
+    """Global CLI flags provided before the command should update the config."""
+
+    parser = pm.build_parser()
+    args = parser.parse_args(["--batch-size", "25", "all"])
+    config = deepcopy(pm.DEFAULT_CONFIG)
+
+    pm.apply_cli_overrides(args, config)
+
+    assert config["pubmed"]["batch_size"] == 25
+
+
+def test_chembl_global_cli_overrides() -> None:
+    """Global ChEMBL flags should work regardless of argument order."""
+
+    parser = pm.build_parser()
+    args = parser.parse_args(["--chunk-size", "8", "chembl"])
+    config = deepcopy(pm.DEFAULT_CONFIG)
+
+    pm.apply_cli_overrides(args, config)
+
+    assert config["chembl"]["chunk_size"] == 8

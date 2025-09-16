@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import sys
 from pathlib import Path
 from typing import Any, Dict, Sequence
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+if __package__ in {None, ""}:
+    from _path_utils import ensure_project_root as _ensure_project_root
+
+    _ensure_project_root()
 
 from library.io_utils import CsvConfig, write_rows  # noqa: E402
 from library.logging_utils import configure_logging  # noqa: E402

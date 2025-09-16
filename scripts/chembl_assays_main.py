@@ -13,6 +13,11 @@ from typing import Sequence
 
 import pandas as pd
 
+if __package__ in {None, ""}:
+    from _path_utils import ensure_project_root as _ensure_project_root
+
+    _ensure_project_root()
+
 from library.assay_postprocessing import postprocess_assays
 from library.assay_validation import AssaysSchema, validate_assays
 from library.chembl_client import ChemblClient
