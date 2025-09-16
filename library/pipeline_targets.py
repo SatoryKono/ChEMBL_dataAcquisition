@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from math import isnan
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Callable, Dict, List, Sequence
@@ -228,6 +229,74 @@ def _serialise_list(items: Sequence[Any], list_format: str) -> str:
     return json.dumps(cleaned, ensure_ascii=False, sort_keys=True)
 
 
+def _load_serialised_list(serialised: Any | None, list_format: str) -> List[Any]:
+    """Deserialize list-like data encoded as JSON or pipe-separated text.
+
+    Parameters
+    ----------
+    serialised:
+        Input value produced by :func:`_serialise_list` or the ChEMBL
+        target serializer. ``None`` and empty strings are treated as empty
+        lists. ``NaN`` values from pandas inputs are also interpreted as
+        missing data.
+    list_format:
+        Encoding of the data. Supported values are ``"json"`` and
+        ``"pipe"``.
+
+    Returns
+    -------
+    List[Any]
+        Decoded list of items. Items encoded as JSON primitives retain their
+        original types. When pipe encoding is used and items are not valid
+        JSON fragments they are returned as plain strings.
+
+    Raises
+    ------
+    ValueError
+        If ``list_format`` is unknown or the JSON payload cannot be
+        decoded into a list.
+    """
+
+    if serialised is None:
+        return []
+    if isinstance(serialised, float) and isnan(serialised):
+        return []
+    if isinstance(serialised, list):
+        return list(serialised)
+    if isinstance(serialised, tuple):
+        return list(serialised)
+    if isinstance(serialised, str):
+        text = serialised.strip()
+    else:
+        text = str(serialised).strip()
+    if not text:
+        return []
+
+    if list_format == "json":
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Invalid JSON list serialisation") from exc
+        if data is None:
+            return []
+        if isinstance(data, list):
+            return data
+        raise ValueError("JSON payload does not represent a list")
+    if list_format == "pipe":
+        parts = text.split("|")
+        items: List[Any] = []
+        for part in parts:
+            chunk = part.strip()
+            if not chunk:
+                continue
+            try:
+                items.append(json.loads(chunk))
+            except json.JSONDecodeError:
+                items.append(chunk)
+        return items
+    raise ValueError(f"Unsupported list_format: {list_format}")
+
+
 def _select_primary(
     entries: List[Dict[str, Any]], priority: Sequence[str]
 ) -> Dict[str, Any] | None:
@@ -310,7 +379,7 @@ def run_pipeline(
     records: List[Dict[str, Any]] = []
     for row in chembl_df.to_dict(orient="records"):
         chembl_id = row.get("target_chembl_id", "")
-        comps = json.loads(row.get("target_components") or "[]")
+        comps = _load_serialised_list(row.get("target_components"), cfg.list_format)
         accessions = [c.get("accession") for c in comps if c.get("accession")]
         uniprot_entries: List[Dict[str, Any]] = []
         raw_entries: Dict[str, Dict[str, Any]] = {}
@@ -410,8 +479,8 @@ def run_pipeline(
         isoform_synonyms: List[str] = []
         if cfg.include_isoforms and primary:
             try:
-                iso_data = json.loads(primary.get("isoforms_json", "[]"))
-            except json.JSONDecodeError:
+                iso_data = _load_serialised_list(primary.get("isoforms_json"), "json")
+            except ValueError:
                 iso_data = []
             for iso in iso_data:
                 isoform_synonyms.extend(iso.get("isoform_synonyms", []))
@@ -441,9 +510,9 @@ def run_pipeline(
                 )
                 orthologs_count = len(orthologs)
 
-        pc = json.loads(row.get("protein_classifications") or "[]")
+        pc = _load_serialised_list(row.get("protein_classifications"), cfg.list_format)
         pc += [""] * (5 - len(pc))
-        cross_refs = json.loads(row.get("cross_references") or "[]")
+        cross_refs = _load_serialised_list(row.get("cross_references"), cfg.list_format)
         chembl_refs = [
             r.get("xref_id") for r in cross_refs if r.get("xref_db") == "ChEMBL"
         ]
@@ -452,9 +521,11 @@ def run_pipeline(
         synonyms: set[str] = set()
         if row.get("pref_name"):
             names.add(row.get("pref_name", ""))
-        syn_list = json.loads(row.get("protein_synonym_list") or "[]")
+        syn_list = _load_serialised_list(
+            row.get("protein_synonym_list"), cfg.list_format
+        )
         synonyms.update(syn_list)
-        gene_list = json.loads(row.get("gene_symbol_list") or "[]")
+        gene_list = _load_serialised_list(row.get("gene_symbol_list"), cfg.list_format)
         synonyms.update(gene_list)
         if primary:
             if primary.get("protein_recommended_name"):
@@ -494,7 +565,9 @@ def run_pipeline(
                 (
                     primary.get("protein_alternative_names", [])
                     if primary
-                    else json.loads(row.get("protein_synonym_list") or "[]")
+                    else _load_serialised_list(
+                        row.get("protein_synonym_list"), cfg.list_format
+                    )
                 ),
                 cfg.list_format,
             ),
