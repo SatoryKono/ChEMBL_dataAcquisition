@@ -108,3 +108,32 @@ def get_activities(
         log_label="activities",
         dedupe_column="activity_chembl_id",
     )
+
+
+def get_testitems(
+    client: ChemblClient,
+    molecule_ids: Iterable[str],
+    *,
+    chunk_size: int = 20,
+) -> pd.DataFrame:
+    """Fetch molecule metadata for ``molecule_ids``.
+
+    Parameters
+    ----------
+    client:
+        Instance of :class:`ChemblClient` responsible for network requests.
+    molecule_ids:
+        Iterable of molecule identifiers to fetch from the ChEMBL API.
+    chunk_size:
+        Number of identifiers to process in a single batch.  Adjusting the
+        chunk size can improve determinism when operating under flaky network
+        conditions.
+    """
+
+    return _fetch_dataframe(
+        fetch=client.fetch_many_molecules,
+        identifiers=molecule_ids,
+        chunk_size=chunk_size,
+        log_label="molecules",
+        dedupe_column="molecule_chembl_id",
+    )
