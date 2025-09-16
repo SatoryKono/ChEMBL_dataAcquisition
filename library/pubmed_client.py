@@ -167,8 +167,12 @@ def _parse_article(article: ET.Element) -> PubMedRecord:
         journal_abbrev = journal_abbrev.strip()
 
     journal_issue = article.find("MedlineCitation/Article/Journal/JournalIssue")
-    volume = _safe_text(journal_issue.find("Volume") if journal_issue is not None else None)
-    issue = _safe_text(journal_issue.find("Issue") if journal_issue is not None else None)
+    volume = _safe_text(
+        journal_issue.find("Volume") if journal_issue is not None else None
+    )
+    issue = _safe_text(
+        journal_issue.find("Issue") if journal_issue is not None else None
+    )
     start_page = article.findtext("MedlineCitation/Article/Pagination/StartPage")
     end_page = article.findtext("MedlineCitation/Article/Pagination/EndPage")
     start_page = start_page.strip() if isinstance(start_page, str) else None
@@ -283,7 +287,9 @@ def fetch_pubmed_records(
         LOGGER.debug("Requesting %d PubMed IDs", len(chunk))
         try:
             resp = client.request("get", API_URL, params=params)
-        except requests.HTTPError as exc:  # pragma: no cover - exercised via status handling
+        except (
+            requests.HTTPError
+        ) as exc:  # pragma: no cover - exercised via status handling
             status = exc.response.status_code if exc.response is not None else "N/A"
             msg = f"HTTP error {status}"
             LOGGER.warning("PubMed batch failed: %s", msg)

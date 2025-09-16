@@ -108,7 +108,9 @@ def fetch_crossref_records(
         message = payload.get("message") if isinstance(payload, dict) else None
         if not isinstance(message, dict):
             msg = "Unexpected response payload"
-            LOGGER.warning("Crossref responded with %s for DOI %s", type(payload).__name__, doi)
+            LOGGER.warning(
+                "Crossref responded with %s for DOI %s", type(payload).__name__, doi
+            )
             records[doi] = CrossrefRecord.from_error(doi, msg)
             continue
 
@@ -116,7 +118,9 @@ def fetch_crossref_records(
         title = titles[0].strip() if titles and isinstance(titles[0], str) else None
         subtitles = message.get("subtitle") or []
         subtitle = (
-            subtitles[0].strip() if subtitles and isinstance(subtitles[0], str) else None
+            subtitles[0].strip()
+            if subtitles and isinstance(subtitles[0], str)
+            else None
         )
         subject = _normalise_subject(message.get("subject"))
 

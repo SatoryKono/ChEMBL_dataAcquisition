@@ -15,6 +15,10 @@ try:  # pragma: no cover - поддержка импорта без контек
 except ImportError:  # pragma: no cover
     from http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
 
+
+import logging
+
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -86,6 +90,13 @@ class ChemblClient:
             "activity", activity_id, id_field="activity_chembl_id"
         )
 
+    def fetch_molecule(self, molecule_id: str) -> Dict[str, Any] | None:
+        """Вернуть JSON для ``molecule_id``."""
+
+        return self._fetch_resource(
+            "molecule", molecule_id, id_field="molecule_chembl_id"
+        )
+
     def _fetch_many(
         self,
         identifiers: Iterable[str],
@@ -109,6 +120,11 @@ class ChemblClient:
         """Получить несколько payloads для активностей."""
 
         return self._fetch_many(activity_ids, self.fetch_activity)
+
+    def fetch_many_molecules(self, molecule_ids: Iterable[str]) -> List[Dict[str, Any]]:
+        """Получить несколько payloads для молекул."""
+
+        return self._fetch_many(molecule_ids, self.fetch_molecule)
 
     def request_json(self, url: str, *, cfg: ApiCfg, timeout: float) -> Dict[str, Any]:
         """Вернуть JSON payload для ``url`` используя http."""
