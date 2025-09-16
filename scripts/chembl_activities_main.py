@@ -24,6 +24,7 @@ from library.chembl_library import get_activities
 from library.data_profiling import analyze_table_quality
 from library.io import read_ids
 from library.io_utils import CsvConfig
+from library.logging_utils import configure_logging
 from library.metadata import write_meta_yaml
 from library.normalize_activities import normalize_activities
 
@@ -34,13 +35,6 @@ def _default_output_name(input_path: str) -> str:
     stem = Path(input_path).stem or "output"
     date_suffix = datetime.now().strftime("%Y%m%d")
     return f"output_{stem}_{date_suffix}.csv"
-
-
-def _configure_logging(level: str) -> None:
-    logging.basicConfig(
-        level=getattr(logging, level.upper(), logging.INFO),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
 
 
 def _serialise_complex_columns(df: pd.DataFrame, list_format: str) -> pd.DataFrame:
@@ -251,7 +245,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Entry point used by the CLI and tests."""
 
     args = parse_args(argv)
-    _configure_logging(args.log_level)
+    configure_logging(args.log_level)
     try:
         cmd_parts = [sys.argv[0], *(argv or sys.argv[1:])]
         return run_pipeline(args, command_parts=cmd_parts)
