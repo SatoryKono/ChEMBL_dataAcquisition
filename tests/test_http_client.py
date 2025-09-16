@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from library.http_client import CacheConfig, HttpClient
+import requests
+
+from library.http_client import CacheConfig, HttpClient, create_http_session
 
 
 def test_http_client_uses_cache(tmp_path: Path, requests_mock) -> None:
@@ -27,3 +29,21 @@ def test_http_client_uses_cache(tmp_path: Path, requests_mock) -> None:
     assert getattr(second, "from_cache", False)
 
     assert requests_mock.call_count == 1
+
+
+def test_create_http_session_falls_back_when_cache_dependency_missing(
+    tmp_path: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    """A plain :class:`requests.Session` is returned when caching dependency is absent."""
+
+    caplog.set_level("WARNING", "library.http_client")
+    monkeypatch.setattr("library.http_client._import_requests_cache", lambda: None)
+    cache_path = tmp_path / "http_cache"
+    config = CacheConfig(enabled=True, path=str(cache_path), ttl_seconds=60)
+
+    session = create_http_session(config)
+
+    assert isinstance(session, requests.Session)
+    assert "requests-cache" in caplog.text
