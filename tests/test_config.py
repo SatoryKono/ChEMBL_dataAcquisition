@@ -11,6 +11,9 @@ DATA_DIR = Path(__file__).parent / "data"
 CONFIG_DIR = DATA_DIR / "config"
 SCHEMA = CONFIG_DIR / "config.schema.json"
 CONFIG = CONFIG_DIR / "valid.yaml"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_CONFIG = PROJECT_ROOT / "config.yaml"
+PROJECT_SCHEMA = PROJECT_ROOT / "schemas" / "config.schema.json"
 
 
 def _write_config(tmp_path: Path, text: str) -> Path:
@@ -78,3 +81,14 @@ def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     loaded = load_and_validate_config(CONFIG)
     assert loaded.batch.size == 5
     assert loaded.logging.format == "human"
+
+
+def test_env_override_project_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Project-scoped environment variables target combined configurations."""
+    monkeypatch.setenv("CHEMBL_DA__CHEMBL2UNIPROT__BATCH__SIZE", "6")
+    loaded = load_and_validate_config(
+        PROJECT_CONFIG,
+        PROJECT_SCHEMA,
+        section="chembl2uniprot",
+    )
+    assert loaded.batch.size == 6

@@ -79,6 +79,25 @@ The pipeline is primarily driven by the scripts in the `scripts/` directory. Eac
 
 The pipeline's behavior is controlled by the `config.yaml` file. This file contains settings for API endpoints, network parameters, data processing options, and output formats. A JSON schema for this file is provided in `schemas/config.schema.json`.
 
+#### Environment variable overrides
+
+Configuration values can be overridden at runtime via environment variables. The recommended pattern prefixes variables with `CHEMBL_DA__` followed by the uppercase configuration path where nested keys are separated by double underscores. For example, to increase the retry budget for the bundled `chembl2uniprot` configuration section you can run:
+
+```bash
+export CHEMBL_DA__CHEMBL2UNIPROT__RETRY__MAX_ATTEMPTS=8
+export CHEMBL_DA__CHEMBL2UNIPROT__RETRY__BACKOFF_SEC=2
+python scripts/chembl2uniprot_main.py --input data/input/targets.csv
+```
+
+The loader is case-insensitive and coerces primitive values automatically, so the strings above are parsed as integers and floats. When working with standalone configuration files that only contain the mapping schema (for example copies of `tests/data/config/valid.yaml`), the legacy `CHEMBL_` prefix remains supported:
+
+```bash
+export CHEMBL_BATCH__SIZE=10  # Equivalent to CHEMBL_DA__BATCH__SIZE
+python scripts/chembl2uniprot_main.py --config my_config.yaml
+```
+
+Always define the environment variables in the shell session before launching the CLI so that the overrides are visible to the Python process.
+
 ### Running the Pipeline
 
 The main entry point for the unified pipeline is `scripts/pipeline_targets_main.py`. This script orchestrates the entire data acquisition and normalization process.

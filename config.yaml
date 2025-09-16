@@ -123,12 +123,12 @@ chembl2uniprot:
       from_db: "ChEMBL"
       to_db: "UniProtKB"
     polling:
-      interval_sec: 0
+      interval_sec: 2
     rate_limit:
-      rps: 1000
+      rps: 5
     retry:
-      max_attempts: 2
-      backoff_sec: 0
+      max_attempts: 5
+      backoff_sec: 1
   network:
     timeout_sec: 30
   batch:
