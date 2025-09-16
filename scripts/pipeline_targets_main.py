@@ -1,13 +1,9 @@
-# ruff: noqa: E402
-
 """CLI entry point for the unified target data pipeline."""
 
 from __future__ import annotations
 
 import argparse
 import logging
-
-import sys
 from pathlib import Path
 
 from typing import Any, Callable, Dict, Iterable, List, Sequence
@@ -16,10 +12,10 @@ import pandas as pd
 import yaml  # type: ignore[import]
 from tqdm.auto import tqdm
 
+if __package__ in {None, ""}:
+    from _path_utils import ensure_project_root as _ensure_project_root
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+    _ensure_project_root()
 
 
 from library.chembl_targets import TargetConfig, fetch_targets

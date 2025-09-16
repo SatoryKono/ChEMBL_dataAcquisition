@@ -1,4 +1,3 @@
-# ruff: noqa: E402
 """Command line interface for :mod:`uniprot_enrich`.
 
 This script enriches a CSV file containing UniProt accessions with additional
@@ -24,16 +23,12 @@ separator::
 from __future__ import annotations
 
 import argparse
-
-
-import sys
-from pathlib import Path
 import shutil
 
+if __package__ in {None, ""}:
+    from _path_utils import ensure_project_root as _ensure_project_root
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+    _ensure_project_root()
 
 
 from library.uniprot_enrich import enrich_uniprot
@@ -52,7 +47,7 @@ def main(argv: list[str] | None = None) -> None:
     ----------
     argv:
         Optional list of command line arguments. When ``None`` the arguments
-        are taken from :data:`sys.argv`.
+        provided on the command line are used.
     """
 
     parser = argparse.ArgumentParser(description="Enrich UniProt data in a CSV file")

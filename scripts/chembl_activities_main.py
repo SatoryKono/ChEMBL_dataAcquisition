@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-# Ensure the project root is importable when the script is run directly.
 if __package__ in {None, ""}:
-    import sys as _sys
-    from pathlib import Path as _Path
+    from _path_utils import ensure_project_root as _ensure_project_root
 
-    _ROOT = str(_Path(__file__).resolve().parents[1])
-    if _ROOT not in _sys.path:
-        _sys.path.insert(0, _ROOT)
+    _ensure_project_root()
 
 import argparse
 import json
