@@ -1,0 +1,5 @@
+﻿index,assay_tax_id,assay_with_same_target,confidence_score,src_id
+assay_tax_id,1.0,,,
+assay_with_same_target,,,,
+confidence_score,,,,
+src_id,,,,

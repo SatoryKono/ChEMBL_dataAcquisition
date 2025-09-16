@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+
 import re
+
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List
@@ -15,6 +17,7 @@ try:  # pragma: no cover - поддержка импорта без контек
     from .http_client import CacheConfig, HttpClient
 except ImportError:  # pragma: no cover
     from http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
+
 
 LOGGER = logging.getLogger(__name__)
 
