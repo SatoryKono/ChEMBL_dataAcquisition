@@ -7,7 +7,7 @@ import json
 import logging
 import sys
 from copy import deepcopy
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, MutableMapping, Sequence
 
@@ -138,17 +138,23 @@ def _determine_output_path(input_path: Path, output: str | None, command: str) -
     if output:
         return Path(output)
     stem = input_path.stem
-    date = datetime.utcnow().strftime("%Y%m%d")
+    date = datetime.now(UTC).strftime("%Y%m%d")
     return input_path.parent / f"output_{command}_{stem}_{date}.csv"
 
 
-def _build_global_parser(default_config: Path) -> argparse.ArgumentParser:
+def _build_global_parser(
+    default_config: Path, *, include_defaults: bool = True
+) -> argparse.ArgumentParser:
     """Create a parser with arguments shared across commands.
 
     Parameters
     ----------
     default_config:
         Path to the default configuration file bundled with the project.
+    include_defaults:
+        Whether to assign default values to the shared arguments. Defaults are
+        only applied when constructing the top-level parser to avoid subparsers
+        overriding arguments provided before the command name.
 
     Returns
     -------
@@ -160,20 +166,47 @@ def _build_global_parser(default_config: Path) -> argparse.ArgumentParser:
     parser.add_argument(
         "--config",
         help="Path to YAML configuration file",
-        default=str(default_config),
+        default=(
+            str(default_config)
+            if include_defaults
+            else argparse.SUPPRESS  # type: ignore[arg-type]
+        ),
     )
     parser.add_argument(
-        "--input", help="Input CSV path", default="input.csv", type=Path
+        "--input",
+        help="Input CSV path",
+        default=(Path("input.csv") if include_defaults else argparse.SUPPRESS),
+        type=Path,
     )
-    parser.add_argument("--output", help="Output CSV path", default=None)
-    parser.add_argument("--column", help="Name of the identifier column", default=None)
-    parser.add_argument("--sep", help="CSV separator", default=None)
-    parser.add_argument("--encoding", help="CSV encoding", default=None)
-    parser.add_argument("--log-level", default="INFO")
+    parser.add_argument(
+        "--output",
+        help="Output CSV path",
+        default=(None if include_defaults else argparse.SUPPRESS),
+    )
+    parser.add_argument(
+        "--column",
+        help="Name of the identifier column",
+        default=(None if include_defaults else argparse.SUPPRESS),
+    )
+    parser.add_argument(
+        "--sep",
+        help="CSV separator",
+        default=(None if include_defaults else argparse.SUPPRESS),
+    )
+    parser.add_argument(
+        "--encoding",
+        help="CSV encoding",
+        default=(None if include_defaults else argparse.SUPPRESS),
+    )
+    parser.add_argument(
+        "--log-level",
+        default=("INFO" if include_defaults else argparse.SUPPRESS),
+    )
     parser.add_argument(
         "--print-config",
         action="store_true",
         help="Print effective configuration and exit",
+        default=(False if include_defaults else argparse.SUPPRESS),
     )
     return parser
 
@@ -318,7 +351,7 @@ def run_chembl_command(args: argparse.Namespace, config: Dict[str, Any]) -> None
     LOGGER.info("Loaded %d ChEMBL document IDs", len(ids))
     chem_cfg = config["chembl"]
     chem_client = ChemblClient(
-        _create_http_client(
+        http_client=_create_http_client(
             chem_cfg,
             override_rps=float(chem_cfg.get("rps", 1.0)),
         )
@@ -374,7 +407,9 @@ def run_all_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     LOGGER.info("Loaded %d ChEMBL document IDs", len(ids))
     chem_cfg = config["chembl"]
     chem_client = ChemblClient(
-        _create_http_client(chem_cfg, override_rps=float(chem_cfg.get("rps", 1.0)))
+        http_client=_create_http_client(
+            chem_cfg, override_rps=float(chem_cfg.get("rps", 1.0))
+        )
     )
     cfg_obj = ApiCfg(timeout_read=float(chem_cfg.get("timeout", 30.0)))
     chem_df = get_documents(
@@ -436,10 +471,11 @@ def build_parser() -> argparse.ArgumentParser:
     default_config = (
         Path(__file__).resolve().parent.parent / "config" / "documents.yaml"
     )
-    common_parser = _build_global_parser(default_config)
     parser = argparse.ArgumentParser(
-        description="Collect bibliographic metadata", parents=[common_parser]
+        description="Collect bibliographic metadata",
+        parents=[_build_global_parser(default_config)],
     )
+    common_parser = _build_global_parser(default_config, include_defaults=False)
     parser.add_argument(
         "--batch-size",
         dest="global_batch_size",
