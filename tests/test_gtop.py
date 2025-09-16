@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
 import requests_mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -77,3 +78,15 @@ def test_400_response_returns_empty(requests_mock: requests_mock.Mocker) -> None
     requests_mock.get(url, status_code=400)
     data = client.fetch_target_endpoint(1, "interactions")
     assert data == []
+
+
+def test_500_response_logs_and_returns_empty(
+    requests_mock: requests_mock.Mocker, caplog: pytest.LogCaptureFixture
+) -> None:
+    client = _client()
+    url = "http://test/targets/1/synonyms"
+    requests_mock.get(url, status_code=500, text="boom")
+    with caplog.at_level("ERROR"):
+        data = client.fetch_target_endpoint(1, "synonyms")
+    assert data == []
+    assert "server error" in caplog.text
