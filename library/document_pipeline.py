@@ -7,7 +7,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Sequence
+from typing import Any, Callable, Dict, List, Mapping, Sequence
 
 import pandas as pd
 
@@ -103,17 +103,35 @@ def merge_metadata(
     crossref_records: Sequence[CrossrefRecord],
     *,
     max_workers: int = 1,
+    progress_callback: Callable[[int], None] | None = None,
 ) -> List[Dict[str, Any]]:
-    """Merge per-source metadata into row dictionaries suitable for CSV output."""
+    """Merge per-source metadata into row dictionaries suitable for CSV output.
+
+    Parameters
+    ----------
+    pubmed_records:
+        PubMed records to merge with partner data sources.
+    scholar_records:
+        Records returned from the Semantic Scholar API.
+    openalex_records:
+        Records returned from the OpenAlex API.
+    crossref_records:
+        Records returned from the Crossref API.
+    max_workers:
+        Maximum number of worker threads used when building merged rows.
+    progress_callback:
+        Optional callable invoked with the number of processed records after
+        each merge step. Designed for progress bar integrations.
+    """
 
     scholar_map = {rec.pmid: rec for rec in scholar_records}
     openalex_map = {rec.pmid: rec for rec in openalex_records}
     crossref_map: Dict[str, CrossrefRecord] = {}
-    for record in crossref_records:
-        if record.doi:
-            key = _normalise_doi(record.doi)
+    for crossref_record in crossref_records:
+        if crossref_record.doi:
+            key = _normalise_doi(crossref_record.doi)
             if key:
-                crossref_map[key] = record
+                crossref_map[key] = crossref_record
 
     def _build_row(record: PubMedRecord) -> Dict[str, Any]:
         row = record.to_dict()
@@ -188,10 +206,18 @@ def merge_metadata(
     if max_workers > 1 and len(pubmed_records) > 1:
         from concurrent.futures import ThreadPoolExecutor
 
+        rows: List[Dict[str, Any]] = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            rows = list(executor.map(_build_row, pubmed_records))
+            for row in executor.map(_build_row, pubmed_records):
+                rows.append(row)
+                if progress_callback is not None:
+                    progress_callback(1)
     else:
-        rows = [_build_row(record) for record in pubmed_records]
+        rows = []
+        for pubmed_record in pubmed_records:
+            rows.append(_build_row(pubmed_record))
+            if progress_callback is not None:
+                progress_callback(1)
 
     return rows
 
@@ -223,7 +249,9 @@ def build_dataframe(rows: Sequence[Mapping[str, Any]]) -> pd.DataFrame:
     for column in DOCUMENT_SCHEMA_COLUMNS:
         if column not in df.columns:
             df[column] = pd.NA
-    other_columns = sorted(col for col in df.columns if col not in DOCUMENT_SCHEMA_COLUMNS)
+    other_columns = sorted(
+        col for col in df.columns if col not in DOCUMENT_SCHEMA_COLUMNS
+    )
     ordered_columns = list(DOCUMENT_SCHEMA_COLUMNS) + other_columns
     df = df.reindex(columns=ordered_columns)
     return df
@@ -294,11 +322,18 @@ def quality_report(df: pd.DataFrame) -> Dict[str, Any]:
     """Return basic quality metrics for ``df``."""
 
     total = len(df)
-    doi_missing = int(df["PubMed.DOI"].fillna("").eq("").sum()) if "PubMed.DOI" in df.columns else total
-    class_counts = df.get("publication_class", pd.Series(dtype="string")).value_counts(dropna=False)
+    doi_missing = (
+        int(df["PubMed.DOI"].fillna("").eq("").sum())
+        if "PubMed.DOI" in df.columns
+        else total
+    )
+    class_counts = df.get("publication_class", pd.Series(dtype="string")).value_counts(
+        dropna=False
+    )
     error_columns = [col for col in df.columns if col.endswith(".Error")]
     error_summary = {
-        col: int((df[col].fillna("").astype(str).str.len() > 0).sum()) for col in error_columns
+        col: int((df[col].fillna("").astype(str).str.len() > 0).sum())
+        for col in error_columns
     }
     return {
         "row_count": total,
