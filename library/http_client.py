@@ -19,28 +19,87 @@ Algorithm Notes
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from importlib import import_module
 import logging
+from pathlib import Path
 from types import ModuleType
 import time
-from pathlib import Path
 
-
-
-
-from typing import Any, Mapping, Optional, Iterable, Tuple, cast
+from typing import Any, Iterable, Mapping, Tuple, cast
 
 
 import requests  # type: ignore[import-untyped]
 
 from tenacity import (
+    RetryCallState,
     retry,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
 )
+from tenacity.wait import wait_base
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """Return retry delay in seconds parsed from a ``Retry-After`` header."""
+
+    if value is None:
+        return None
+    candidate = value.strip()
+    if not candidate:
+        return None
+    try:
+        seconds = float(candidate)
+    except ValueError:
+        try:
+            retry_dt = parsedate_to_datetime(candidate)
+        except (TypeError, ValueError):
+            return None
+        if retry_dt.tzinfo is None:
+            retry_dt = retry_dt.replace(tzinfo=timezone.utc)
+        delta = (retry_dt - datetime.now(timezone.utc)).total_seconds()
+        return max(0.0, delta)
+    else:
+        return max(0.0, seconds)
+
+
+def _retry_after_from_response(response: requests.Response) -> float | None:
+    """Extract the retry delay from ``response`` when advertised by the server."""
+
+    return _parse_retry_after(response.headers.get("Retry-After"))
+
+
+class RetryAfterWaitStrategy(wait_base):
+    """Tenacity wait strategy that honours ``Retry-After`` headers."""
+
+    def __init__(self, fallback: wait_base) -> None:
+        self._fallback = fallback
+
+    def __call__(self, retry_state: RetryCallState) -> float:
+        retry_after = self._retry_after_seconds(retry_state)
+        if retry_after is not None:
+            if retry_after > 0:
+                LOGGER.debug(
+                    "Retry-After header requested sleeping for %.2f seconds",
+                    retry_after,
+                )
+                return retry_after
+            LOGGER.debug("Retry-After header requested immediate retry")
+            return 0.0
+        return self._fallback(retry_state)
+
+    @staticmethod
+    def _retry_after_seconds(retry_state: RetryCallState) -> float | None:
+        if retry_state.outcome is None or not retry_state.outcome.failed:
+            return None
+        exception = retry_state.outcome.exception()
+        if isinstance(exception, requests.HTTPError) and exception.response is not None:
+            return _retry_after_from_response(exception.response)
+        return None
 
 
 def _import_requests_cache() -> ModuleType | None:
@@ -218,8 +277,8 @@ class HttpClient:
         rps: float,
         status_forcelist: Iterable[int] | None = None,
         backoff_multiplier: float = 1.0,
-        cache_config: 'CacheConfig | None' = None,
-        session: 'requests.Session | None' = None,
+        cache_config: "CacheConfig | None" = None,
+        session: "requests.Session | None" = None,
     ) -> None:
         if isinstance(timeout, tuple):
             self.timeout = timeout
@@ -232,7 +291,9 @@ class HttpClient:
         else:
             # Если передан cache_config, используем create_http_session, иначе обычную сессию
             self.session = create_http_session(cache_config)
-        self.status_forcelist = set(status_forcelist or {404, 408, 409, 429, 500, 502, 503, 504})
+        self.status_forcelist = set(
+            status_forcelist or {404, 408, 409, 429, 500, 502, 503, 504}
+        )
         self.backoff_multiplier = backoff_multiplier
 
     def request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
@@ -255,11 +316,15 @@ class HttpClient:
             retry.
         """
 
+        wait_strategy = RetryAfterWaitStrategy(
+            wait_exponential(multiplier=self.backoff_multiplier)
+        )
+
         @retry(
             reraise=True,
             retry=retry_if_exception_type(requests.RequestException),
             stop=stop_after_attempt(self.max_retries),
-            wait=wait_exponential(multiplier=self.backoff_multiplier),
+            wait=wait_strategy,
         )
         def _do_request() -> requests.Response:
             self.rate_limiter.wait()
@@ -267,9 +332,22 @@ class HttpClient:
             LOGGER.debug("HTTP %s %s (timeout=%s)", method.upper(), url, timeout)
             resp = self.session.request(method, url, timeout=timeout, **kwargs)
             if resp.status_code in self.status_forcelist:
-                LOGGER.warning(
-                    "Transient HTTP %s for %s %s", resp.status_code, method.upper(), url
-                )
+                retry_after = _retry_after_from_response(resp)
+                if retry_after is not None:
+                    LOGGER.warning(
+                        "Transient HTTP %s for %s %s; retrying after %.2f seconds",
+                        resp.status_code,
+                        method.upper(),
+                        url,
+                        retry_after,
+                    )
+                else:
+                    LOGGER.warning(
+                        "Transient HTTP %s for %s %s",
+                        resp.status_code,
+                        method.upper(),
+                        url,
+                    )
                 resp.raise_for_status()
             return resp
 
