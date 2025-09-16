@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import logging
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, cast
 
 import requests  # type: ignore[import-untyped]
 from typing import TYPE_CHECKING
@@ -32,6 +32,11 @@ else:  # pragma: no cover - allow package or top-level imports
         from .uniprot_client import NetworkConfig, RateLimitConfig
     except ImportError:  # pragma: no cover
         from uniprot_client import NetworkConfig, RateLimitConfig
+
+try:  # pragma: no cover - optional import paths for tests
+    from .http_client import CacheConfig, create_http_session
+except ImportError:  # pragma: no cover
+    from http_client import CacheConfig, create_http_session  # type: ignore[no-redef]
 
 LOGGER = logging.getLogger(__name__)
 
@@ -115,16 +120,44 @@ def _species_from_gene(ensembl_gene_id: str) -> Optional[str]:
 
 @dataclass
 class EnsemblHomologyClient:
-    """Client for the Ensembl REST ``/homology`` endpoint."""
+    """Client for the Ensembl REST ``/homology`` endpoint.
+
+    Parameters
+    ----------
+    base_url:
+        Root URL of the Ensembl REST API.
+    network:
+        Network configuration shared with other UniProt clients.
+    rate_limit:
+        Rate limiting parameters enforcing polite API usage.
+    cache:
+        Optional HTTP cache configuration applied to all requests.
+    session:
+        Optional :class:`requests.Session` instance. When ``None`` a new session
+        honouring ``cache`` is created automatically.
+    """
 
     base_url: str
     network: NetworkConfig
     rate_limit: RateLimitConfig
-    session: requests.Session = field(default_factory=requests.Session)
+    cache: CacheConfig | None = None
+    session: requests.Session | None = None
 
     _last_call: float = 0.0
     _symbol_cache: Dict[str, str] = field(default_factory=dict)
     _uniprot_cache: Dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:  # pragma: no cover - simple initialisation
+        if self.session is None:
+            self.session = create_http_session(self.cache)
+        assert self.session is not None
+
+    def _get_session(self) -> requests.Session:
+        """Return the HTTP session used for outbound requests."""
+
+        if self.session is None:  # pragma: no cover - defensive
+            raise RuntimeError("HTTP session is not initialised")
+        return cast(requests.Session, self.session)
 
     def _wait_rate_limit(self) -> None:
         """Sleep if necessary to enforce the configured rate limit."""
@@ -159,8 +192,9 @@ class EnsemblHomologyClient:
             The response object, or None if an error occurred.
         """
         self._wait_rate_limit()
+        session = self._get_session()
         try:
-            resp = self.session.get(
+            resp = session.get(
                 url,
                 params=params,
                 timeout=self.network.timeout_sec,
@@ -313,12 +347,39 @@ class OmaClient:
 
     The current implementation serves as a fallback and returns an empty list
     when no data can be retrieved.  The interface mirrors that of
-    :class:`EnsemblHomologyClient` to allow easy substitution."""
+    :class:`EnsemblHomologyClient` to allow easy substitution.
+
+    Parameters
+    ----------
+    base_url:
+        Root URL of the OMA API.
+    network:
+        Network configuration specifying timeouts and retries.
+    rate_limit:
+        Rate limiting applied to outbound requests.
+    cache:
+        Optional HTTP cache configuration applied to all requests.
+    session:
+        Optional :class:`requests.Session` instance reused across calls.
+    """
 
     base_url: str
     network: NetworkConfig
     rate_limit: RateLimitConfig
-    session: requests.Session = field(default_factory=requests.Session)
+    cache: CacheConfig | None = None
+    session: requests.Session | None = None
+
+    def __post_init__(self) -> None:  # pragma: no cover - simple initialisation
+        if self.session is None:
+            self.session = create_http_session(self.cache)
+        assert self.session is not None
+
+    def _get_session(self) -> requests.Session:
+        """Return the HTTP session used for outbound requests."""
+
+        if self.session is None:  # pragma: no cover - defensive
+            raise RuntimeError("HTTP session is not initialised")
+        return cast(requests.Session, self.session)
 
     def get_orthologs_by_uniprot(self, uniprot_id: str) -> List[Ortholog]:
         """Return orthologs for ``uniprot_id``.
@@ -327,8 +388,9 @@ class OmaClient:
         list if the request fails or the endpoint is not available."""
 
         url = f"{self.base_url}/orthologs/{uniprot_id}/"
+        session = self._get_session()
         try:
-            resp = self.session.get(
+            resp = session.get(
                 url,
                 timeout=self.network.timeout_sec,
                 headers={"Accept": "application/json"},

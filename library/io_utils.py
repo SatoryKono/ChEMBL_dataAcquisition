@@ -68,6 +68,7 @@ def _serialise_list(values: Iterable[Any], list_format: str) -> str:
     str
         The serialized string.
     """
+
     def _normalise(v: Any) -> Any:
         if isinstance(v, tuple):
             # Represent domain tuples as id|name or JSON object

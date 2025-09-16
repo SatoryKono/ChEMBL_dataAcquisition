@@ -35,6 +35,7 @@ from library.uniprot_normalize import (  # noqa: E402
     output_columns,
 )
 from library.orthologs import EnsemblHomologyClient, OmaClient  # noqa: E402
+from library.http_client import CacheConfig  # noqa: E402
 
 
 DEFAULT_INPUT = "input.csv"
@@ -100,6 +101,7 @@ def main(argv: List[str] | None = None) -> None:
     uniprot_cfg = config.get("uniprot", {})
     output_cfg = config.get("output", {})
     orth_cfg = config.get("orthologs", {})
+    global_cache = CacheConfig.from_dict(config.get("http_cache"))
 
     list_format = output_cfg.get("list_format", "json")
     include_seq = args.include_sequence or output_cfg.get("include_sequence", False)
@@ -122,6 +124,7 @@ def main(argv: List[str] | None = None) -> None:
             backoff_sec=1.0,
         ),
         rate_limit=RateLimitConfig(rps=uniprot_cfg.get("rps", 3)),
+        cache=CacheConfig.from_dict(uniprot_cfg.get("cache")) or global_cache,
     )
 
     input_path = Path(args.input)
@@ -152,6 +155,7 @@ def main(argv: List[str] | None = None) -> None:
     orth_rows: List[Dict[str, Any]] = []
 
     if args.with_orthologs and orth_cfg.get("enabled", True):
+        orth_cache = CacheConfig.from_dict(orth_cfg.get("cache")) or global_cache
         ensembl_client = EnsemblHomologyClient(
             base_url="https://rest.ensembl.org",
             network=NetworkConfig(
@@ -160,6 +164,7 @@ def main(argv: List[str] | None = None) -> None:
                 backoff_sec=orth_cfg.get("backoff_base_sec", 1.0),
             ),
             rate_limit=RateLimitConfig(rps=orth_cfg.get("rate_limit_rps", 2)),
+            cache=orth_cache,
         )
         oma_client = OmaClient(
             base_url="https://omabrowser.org/api",
@@ -169,6 +174,7 @@ def main(argv: List[str] | None = None) -> None:
                 backoff_sec=orth_cfg.get("backoff_base_sec", 1.0),
             ),
             rate_limit=RateLimitConfig(rps=orth_cfg.get("rate_limit_rps", 2)),
+            cache=orth_cache,
         )
         target_species = orth_cfg.get("target_species", [])
         orth_cols = [

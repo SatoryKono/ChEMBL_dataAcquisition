@@ -190,3 +190,8 @@ orthologs:
   retries: 3
   backoff_base_sec: 1.0
 
+http_cache:
+  enabled: false
+  path: ".cache/http_cache"
+  ttl_sec: 86400
+

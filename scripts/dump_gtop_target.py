@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from library.gtop_client import GtoPClient, GtoPConfig, resolve_target  # noqa: E402
+from library.http_client import CacheConfig  # noqa: E402
 from library.gtop_normalize import (  # noqa: E402
     normalise_interactions,
     normalise_synonyms,
@@ -97,6 +98,7 @@ def main() -> None:
     logging.basicConfig(level=getattr(logging, args.log_level.upper()))
     cfg_dict = _load_config(Path(args.config))
     gcfg = cfg_dict.get("gtop", {})
+    global_cache = CacheConfig.from_dict(cfg_dict.get("http_cache"))
     client = GtoPClient(
         GtoPConfig(
             base_url=gcfg.get(
@@ -105,6 +107,7 @@ def main() -> None:
             timeout_sec=cfg_dict.get("network", {}).get("timeout_sec", 30),
             max_retries=cfg_dict.get("network", {}).get("max_retries", 3),
             rps=cfg_dict.get("rate_limit", {}).get("rps", 2),
+            cache=CacheConfig.from_dict(gcfg.get("cache")) or global_cache,
         )
     )
 

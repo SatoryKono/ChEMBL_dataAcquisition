@@ -15,11 +15,11 @@ Algorithm Notes
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import json
 import logging
 import time
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, cast
 
 import requests
 from tenacity import (
@@ -30,6 +30,12 @@ from tenacity import (
 )
 
 LOGGER = logging.getLogger(__name__)
+
+
+try:  # pragma: no cover - optional import paths for tests
+    from .http_client import CacheConfig, create_http_session
+except ImportError:  # pragma: no cover
+    from http_client import CacheConfig, create_http_session  # type: ignore[no-redef]
 
 
 @dataclass
@@ -60,17 +66,44 @@ class RateLimitConfig:
 
 @dataclass
 class UniProtClient:
-    """Thin wrapper around the UniProtKB REST API."""
+    """Thin wrapper around the UniProtKB REST API.
+
+    Attributes
+    ----------
+    base_url:
+        Base endpoint for UniProt API requests.
+    fields:
+        Comma-separated list of fields requested from the search endpoint.
+    network:
+        Network configuration controlling timeouts and retries.
+    rate_limit:
+        Rate limiting configuration applied before each request.
+    cache:
+        Optional HTTP cache configuration applied to outbound requests.
+    session:
+        Optional :class:`requests.Session` instance. When ``None`` the client
+        creates a session honouring ``cache`` automatically.
+    """
 
     base_url: str
     fields: str
     network: NetworkConfig
     rate_limit: RateLimitConfig
-    session: requests.Session = field(default_factory=requests.Session)
+    cache: CacheConfig | None = None
+    session: Optional[requests.Session] = None
 
     def __post_init__(self) -> None:  # pragma: no cover - simple initialisation
         self.base_url = self.base_url.rstrip("/")
         self._last_call = 0.0
+        if self.session is None:
+            self.session = create_http_session(self.cache)
+
+    def _get_session(self) -> requests.Session:
+        """Return the underlying :class:`requests.Session` instance."""
+
+        if self.session is None:  # pragma: no cover - defensive
+            raise RuntimeError("HTTP session is not initialised")
+        return cast(requests.Session, self.session)
 
     # ------------------------------------------------------------------
     def _wait_rate_limit(self) -> None:
@@ -99,6 +132,9 @@ class UniProtClient:
         Optional[requests.Response]
             The response object, or None if an error occurred.
         """
+
+        session = self._get_session()
+
         @retry(
             reraise=True,
             retry=retry_if_exception_type(requests.RequestException),
@@ -108,9 +144,7 @@ class UniProtClient:
         def _do_request() -> requests.Response:
             self._wait_rate_limit()
             LOGGER.debug("GET %s params=%s", url, params)
-            resp = self.session.get(
-                url, params=params, timeout=self.network.timeout_sec
-            )
+            resp = session.get(url, params=params, timeout=self.network.timeout_sec)
             if resp.status_code >= 500:
                 resp.raise_for_status()
             return resp
