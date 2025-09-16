@@ -77,3 +77,4 @@ def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CHEMBL_BATCH__SIZE", "5")
     loaded = load_and_validate_config(CONFIG)
     assert loaded.batch.size == 5
+    assert loaded.logging.format == "human"
