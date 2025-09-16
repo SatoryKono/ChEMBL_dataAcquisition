@@ -44,3 +44,15 @@ def test_get_documents_parses_response() -> None:
         df = get_documents(["DOC1"], cfg=cfg, client=client)
     assert df.loc[0, "document_chembl_id"] == "DOC1"
     assert df.loc[0, "pubmed_id"] == "1"
+
+
+def test_fetch_assay_returns_none_on_404() -> None:
+    """``ChemblClient.fetch_assay`` yields ``None`` when the resource is missing."""
+
+    http = HttpClient(timeout=1.0, max_retries=2, rps=0)
+    client = ChemblClient(http_client=http)
+    assay_id = "CHEMBL404"
+    url = f"{client.base_url.rstrip('/')}/assay/{assay_id}.json"
+    with requests_mock.Mocker() as m:
+        m.get(url, status_code=404, json={"detail": "not found"})
+        assert client.fetch_assay(assay_id) is None
