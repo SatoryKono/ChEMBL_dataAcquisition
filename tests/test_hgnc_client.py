@@ -138,3 +138,42 @@ def test_duplicate_input_ids(requests_mock, tmp_path: Path) -> None:
     ]
     assert hgnc_mock.call_count == 1
     assert uniprot_mock.call_count == 1
+
+
+def test_parallel_requests_call_count(requests_mock, tmp_path: Path) -> None:
+    in_csv = tmp_path / "in.csv"
+    _write_csv(in_csv, ["P35348", "P24530"])
+    out_csv = tmp_path / "out.csv"
+
+    for accession, gene_symbol in [
+        ("P35348", "ADRA1A"),
+        ("P24530", "ADRA1D"),
+    ]:
+        hgnc_url = f"https://rest.genenames.org/fetch/uniprot_ids/{accession}"
+        requests_mock.get(
+            hgnc_url,
+            json={
+                "response": {
+                    "docs": [
+                        {
+                            "symbol": gene_symbol,
+                            "name": "placeholder",
+                            "hgnc_id": "HGNC:0000",
+                        }
+                    ]
+                }
+            },
+        )
+        uniprot_url = f"https://rest.uniprot.org/uniprotkb/{accession}.json"
+        requests_mock.get(
+            uniprot_url,
+            json={
+                "proteinDescription": {
+                    "recommendedName": {"fullName": {"value": "protein"}}
+                }
+            },
+        )
+
+    map_uniprot_to_hgnc(in_csv, out_csv, CONFIG, config_section="hgnc")
+    expected_requests = len({"P35348", "P24530"}) * 2
+    assert requests_mock.call_count == expected_requests

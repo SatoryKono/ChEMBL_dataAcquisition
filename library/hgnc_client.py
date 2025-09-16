@@ -11,6 +11,7 @@ Algorithm Notes
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Dict, List
@@ -323,7 +324,10 @@ def map_uniprot_to_hgnc(
     unique_ids = list(dict.fromkeys(filter(None, raw_ids)))
 
     client = HGNCClient(cfg)
-    mapping: Dict[str, HGNCRecord] = {uid: client.fetch(uid) for uid in unique_ids}
+    max_workers = int(cfg.rate_limit.rps) or 1
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        results = executor.map(client.fetch, unique_ids)
+        mapping: Dict[str, HGNCRecord] = dict(zip(unique_ids, results))
 
     rows = [
         asdict(mapping.get(uid, HGNCRecord(uid, "", "", "", ""))) for uid in raw_ids
