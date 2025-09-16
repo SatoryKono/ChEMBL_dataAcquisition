@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List
 
 import pandas as pd
@@ -13,9 +14,6 @@ try:  # pragma: no cover - поддержка импорта без контек
     from .http_client import CacheConfig, HttpClient
 except ImportError:  # pragma: no cover
     from http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
-
-import logging
-from dataclasses import dataclass
 
 LOGGER = logging.getLogger(__name__)
 
@@ -58,19 +56,18 @@ class ChemblClient:
         }
         try:
             response = self._http.request("get", url, headers=headers)
-            if response.status_code == 404:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            if status_code == 404:
                 LOGGER.warning(
                     "%s %s не найден (404)", resource.capitalize(), identifier
                 )
                 return None
-            response.raise_for_status()
-        except requests.HTTPError:
             LOGGER.exception("Не удалось получить %s %s", resource, identifier)
             raise
         except requests.RequestException:
-            LOGGER.exception(
-                "Сетевая ошибка при получении %s %s", resource, identifier
-            )
+            LOGGER.exception("Сетевая ошибка при получении %s %s", resource, identifier)
             raise
 
         payload: Dict[str, Any] = response.json()
@@ -90,7 +87,9 @@ class ChemblClient:
         )
 
     def _fetch_many(
-        self, identifiers: Iterable[str], fetcher: Callable[[str], Dict[str, Any] | None]
+        self,
+        identifiers: Iterable[str],
+        fetcher: Callable[[str], Dict[str, Any] | None],
     ) -> List[Dict[str, Any]]:
         records: List[Dict[str, Any]] = []
         for identifier in identifiers:
