@@ -24,7 +24,11 @@ import logging
 from types import ModuleType
 import time
 from pathlib import Path
-from typing import Any, Mapping, Optional, cast
+
+
+
+
+from typing import Any, Mapping, Optional, Iterable, Tuple, cast
 
 
 import requests  # type: ignore[import-untyped]
@@ -186,21 +190,50 @@ class RateLimiter:
 
 
 class HttpClient:
-    """Wrapper around :mod:`requests` with retry, caching and rate limiting."""
+    """Обёртка вокруг :mod:`requests` с поддержкой повторов, кэширования и ограничения скорости.
+
+    Parameters
+    ----------
+    timeout:
+        Таймаут по умолчанию для запросов. Может быть либо одним числом (float), применяемым к фазам соединения и чтения, либо кортежем ``(connect, read)``.
+    max_retries:
+        Максимальное количество попыток при временных ошибках.
+    rps:
+        Целевое количество запросов в секунду, реализуемое через простой token bucket.
+    status_forcelist:
+        Коды HTTP-статусов, при которых будет выполняться повтор запроса. По умолчанию включает наиболее распространённые временные ошибки.
+    backoff_multiplier:
+        Множитель для экспоненциальной задержки между попытками.
+    cache_config:
+        Необязательная конфигурация кэширования HTTP-запросов.
+    session:
+        Необязательный :class:`requests.Session`, позволяющий использовать заранее сконфигурированную сессию (например, с кэшем или кастомными заголовками).
+    """
 
     def __init__(
         self,
         *,
-        timeout: float,
+        timeout: float | Tuple[float, float],
         max_retries: int,
         rps: float,
-        cache_config: CacheConfig | None = None,
-        session: Optional[requests.Session] = None,
+        status_forcelist: Iterable[int] | None = None,
+        backoff_multiplier: float = 1.0,
+        cache_config: 'CacheConfig | None' = None,
+        session: 'requests.Session | None' = None,
     ) -> None:
-        self.timeout = timeout
+        if isinstance(timeout, tuple):
+            self.timeout = timeout
+        else:
+            self.timeout = (timeout, timeout)
         self.max_retries = max_retries
         self.rate_limiter = RateLimiter(rps)
-        self.session = session or create_http_session(cache_config)
+        if session is not None:
+            self.session = session
+        else:
+            # Если передан cache_config, используем create_http_session, иначе обычную сессию
+            self.session = create_http_session(cache_config)
+        self.status_forcelist = set(status_forcelist or {404, 408, 409, 429, 500, 502, 503, 504})
+        self.backoff_multiplier = backoff_multiplier
 
     def request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
         """Perform an HTTP request honouring retry and rate limits.
@@ -213,23 +246,34 @@ class HttpClient:
             Absolute URL to request.
         **kwargs:
             Additional arguments passed to :func:`requests.request`.
+
+        Returns
+        -------
+        :class:`requests.Response`
+            Raw HTTP response. Callers are responsible for decoding JSON/XML
+            payloads and interpreting non-2xx statuses that do not trigger a
+            retry.
         """
 
         @retry(
             reraise=True,
             retry=retry_if_exception_type(requests.RequestException),
             stop=stop_after_attempt(self.max_retries),
-            wait=wait_exponential(multiplier=1),
+            wait=wait_exponential(multiplier=self.backoff_multiplier),
         )
         def _do_request() -> requests.Response:
             self.rate_limiter.wait()
-            resp = self.session.request(method, url, timeout=self.timeout, **kwargs)
-            if resp.status_code >= 500:
+            timeout = kwargs.pop("timeout", self.timeout)
+            LOGGER.debug("HTTP %s %s (timeout=%s)", method.upper(), url, timeout)
+            resp = self.session.request(method, url, timeout=timeout, **kwargs)
+            if resp.status_code in self.status_forcelist:
+                LOGGER.warning(
+                    "Transient HTTP %s for %s %s", resp.status_code, method.upper(), url
+                )
                 resp.raise_for_status()
             return resp
 
-        resp = _do_request()
-        return resp
+        return _do_request()
 
 
 __all__ = ["CacheConfig", "HttpClient", "RateLimiter", "create_http_session"]

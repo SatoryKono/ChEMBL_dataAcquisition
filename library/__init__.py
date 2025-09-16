@@ -11,6 +11,10 @@ __all__ = [
     "protein_classifier",
     "iuphar",
     "data_profiling",
+    "pubmed_client",
+    "semantic_scholar_client",
+    "openalex_client",
+    "crossref_client",
     "chembl_client",
     "chembl_library",
     "assay_postprocessing",
@@ -20,4 +24,5 @@ __all__ = [
     "activity_validation",
     "metadata",
     "io",
+    "document_pipeline",
 ]
