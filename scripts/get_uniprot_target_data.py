@@ -10,13 +10,17 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sys
 from datetime import datetime
 from pathlib import Path
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 import yaml
+
+if __package__ in {None, ""}:
+    from _path_utils import ensure_project_root as _ensure_project_root
+
+    _ensure_project_root()
 
 if TYPE_CHECKING:  # pragma: no cover - imported for typing only
     from library.orthologs import EnsemblHomologyClient, OmaClient
@@ -73,12 +77,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     """Run the UniProt target data retrieval workflow.
 
     Args:
-        argv: Optional sequence of command-line arguments.  When ``None``,
-            :data:`sys.argv` is used implicitly.
+        argv: Optional sequence of command-line arguments. When ``None``,
+            the arguments provided via the command line are used implicitly.
     """
-
-    if str(ROOT) not in sys.path:
-        sys.path.insert(0, str(ROOT))
 
     from library.http_client import CacheConfig
     from library.io_utils import CsvConfig, read_ids, write_rows

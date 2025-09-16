@@ -6,6 +6,11 @@ import argparse
 import datetime as dt
 from pathlib import Path
 
+if __package__ in {None, ""}:
+    from _path_utils import ensure_project_root as _ensure_project_root
+
+    _ensure_project_root()
+
 from library.iuphar import IUPHARData
 from library.logging_utils import configure_logging
 
