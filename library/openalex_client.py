@@ -136,7 +136,9 @@ def fetch_openalex_records(
 
         if not isinstance(item, dict):
             msg = "Unexpected response payload"
-            LOGGER.warning("OpenAlex responded with %s for PMID %s", type(item).__name__, pmid)
+            LOGGER.warning(
+                "OpenAlex responded with %s for PMID %s", type(item).__name__, pmid
+            )
             records[pmid] = OpenAlexRecord.from_error(pmid, msg)
             continue
 
@@ -181,7 +183,9 @@ def fetch_openalex_records(
         key = pmid.strip()
         if not key:
             continue
-        ordered.append(records.get(key, OpenAlexRecord.from_error(key, "PMID not requested")))
+        ordered.append(
+            records.get(key, OpenAlexRecord.from_error(key, "PMID not requested"))
+        )
     return ordered
 
 

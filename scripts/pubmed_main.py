@@ -7,12 +7,13 @@ import json
 import logging
 import sys
 from copy import deepcopy
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, MutableMapping, Sequence
 
 import pandas as pd
 import yaml
+from tqdm.auto import tqdm
 
 # Ensure imports resolve when the script is executed directly.
 if __package__ in {None, ""}:
@@ -51,8 +52,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "semantic_scholar": {
         "chunk_size": 100,
         "timeout": 30.0,
-        "max_retries": 3,
-        "rps": 3.0,
+        "max_retries": 6,
+        "rps": 0.3,
+        "backoff_multiplier": 5.0,
+        "retry_penalty_seconds": 30.0,
     },
     "openalex": {
         "rps": 1.0,
@@ -125,11 +128,15 @@ def _create_http_client(
     status_forcelist = (
         cfg.get("status_forcelist") or DEFAULT_CONFIG["pipeline"]["status_forcelist"]
     )
+    backoff_multiplier = float(cfg.get("backoff_multiplier", 1.0))
+    retry_penalty_seconds = float(cfg.get("retry_penalty_seconds", 0.0))
     return HttpClient(
         timeout=(timeout_connect, timeout_read),
         max_retries=max_retries,
         rps=rps,
         status_forcelist=status_forcelist,
+        backoff_multiplier=backoff_multiplier,
+        retry_penalty_seconds=retry_penalty_seconds,
     )
 
 
@@ -137,8 +144,77 @@ def _determine_output_path(input_path: Path, output: str | None, command: str) -
     if output:
         return Path(output)
     stem = input_path.stem
-    date = datetime.utcnow().strftime("%Y%m%d")
+    date = datetime.now(UTC).strftime("%Y%m%d")
     return input_path.parent / f"output_{command}_{stem}_{date}.csv"
+
+
+def _build_global_parser(
+    default_config: Path, *, include_defaults: bool = True
+) -> argparse.ArgumentParser:
+    """Create a parser with arguments shared across commands.
+
+    Parameters
+    ----------
+    default_config:
+        Path to the default configuration file bundled with the project.
+    include_defaults:
+        Whether to assign default values to the shared arguments. Defaults are
+        only applied when constructing the top-level parser to avoid subparsers
+        overriding arguments provided before the command name.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        Parser instance containing global CLI arguments.
+    """
+
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument(
+        "--config",
+        help="Path to YAML configuration file",
+        default=(
+            str(default_config)
+            if include_defaults
+            else argparse.SUPPRESS  # type: ignore[arg-type]
+        ),
+    )
+    parser.add_argument(
+        "--input",
+        help="Input CSV path",
+        default=(Path("input.csv") if include_defaults else argparse.SUPPRESS),
+        type=Path,
+    )
+    parser.add_argument(
+        "--output",
+        help="Output CSV path",
+        default=(None if include_defaults else argparse.SUPPRESS),
+    )
+    parser.add_argument(
+        "--column",
+        help="Name of the identifier column",
+        default=(None if include_defaults else argparse.SUPPRESS),
+    )
+    parser.add_argument(
+        "--sep",
+        help="CSV separator",
+        default=(None if include_defaults else argparse.SUPPRESS),
+    )
+    parser.add_argument(
+        "--encoding",
+        help="CSV encoding",
+        default=(None if include_defaults else argparse.SUPPRESS),
+    )
+    parser.add_argument(
+        "--log-level",
+        default=("INFO" if include_defaults else argparse.SUPPRESS),
+    )
+    parser.add_argument(
+        "--print-config",
+        action="store_true",
+        help="Print effective configuration and exit",
+        default=(False if include_defaults else argparse.SUPPRESS),
+    )
+    return parser
 
 
 def _read_identifier_column(
@@ -235,13 +311,24 @@ def run_pubmed_command(args: argparse.Namespace, config: Dict[str, Any]) -> None
         openalex_records,
         crossref_records,
     ) = _gather_pubmed_sources(ids, cfg=config)
-    rows = merge_metadata(
-        pubmed_records,
-        scholar_records,
-        openalex_records,
-        crossref_records,
-        max_workers=workers,
-    )
+    if pubmed_records:
+        with tqdm(total=len(pubmed_records), desc="merge metadata") as pbar:
+            rows = merge_metadata(
+                pubmed_records,
+                scholar_records,
+                openalex_records,
+                crossref_records,
+                max_workers=workers,
+                progress_callback=pbar.update,
+            )
+    else:
+        rows = merge_metadata(
+            pubmed_records,
+            scholar_records,
+            openalex_records,
+            crossref_records,
+            max_workers=workers,
+        )
     df = build_dataframe(rows)
     schema = DocumentsSchema(DOCUMENT_SCHEMA_COLUMNS)
     errors = schema.validate(df)
@@ -270,7 +357,7 @@ def run_chembl_command(args: argparse.Namespace, config: Dict[str, Any]) -> None
     LOGGER.info("Loaded %d ChEMBL document IDs", len(ids))
     chem_cfg = config["chembl"]
     chem_client = ChemblClient(
-        _create_http_client(
+        http_client=_create_http_client(
             chem_cfg,
             override_rps=float(chem_cfg.get("rps", 1.0)),
         )
@@ -326,7 +413,9 @@ def run_all_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     LOGGER.info("Loaded %d ChEMBL document IDs", len(ids))
     chem_cfg = config["chembl"]
     chem_client = ChemblClient(
-        _create_http_client(chem_cfg, override_rps=float(chem_cfg.get("rps", 1.0)))
+        http_client=_create_http_client(
+            chem_cfg, override_rps=float(chem_cfg.get("rps", 1.0))
+        )
     )
     cfg_obj = ApiCfg(timeout_read=float(chem_cfg.get("timeout", 30.0)))
     chem_df = get_documents(
@@ -350,13 +439,24 @@ def run_all_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
         openalex_records,
         crossref_records,
     ) = _gather_pubmed_sources(pmids, cfg=config)
-    rows = merge_metadata(
-        pubmed_records,
-        scholar_records,
-        openalex_records,
-        crossref_records,
-        max_workers=workers,
-    )
+    if pubmed_records:
+        with tqdm(total=len(pubmed_records), desc="merge metadata") as pbar:
+            rows = merge_metadata(
+                pubmed_records,
+                scholar_records,
+                openalex_records,
+                crossref_records,
+                max_workers=workers,
+                progress_callback=pbar.update,
+            )
+    else:
+        rows = merge_metadata(
+            pubmed_records,
+            scholar_records,
+            openalex_records,
+            crossref_records,
+            max_workers=workers,
+        )
     df_metadata = build_dataframe(rows)
     df_metadata = dataframe_to_strings(df_metadata)
     df_metadata = df_metadata.sort_values(
@@ -374,23 +474,14 @@ def run_all_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Collect bibliographic metadata")
     default_config = (
         Path(__file__).resolve().parent.parent / "config" / "documents.yaml"
     )
-    parser.add_argument(
-        "--config",
-        help="Path to YAML configuration file",
-        default=str(default_config),
+    parser = argparse.ArgumentParser(
+        description="Collect bibliographic metadata",
+        parents=[_build_global_parser(default_config)],
     )
-    parser.add_argument(
-        "--input", help="Input CSV path", default="input.csv", type=Path
-    )
-    parser.add_argument("--output", help="Output CSV path", default=None)
-    parser.add_argument("--column", help="Name of the identifier column", default=None)
-    parser.add_argument("--sep", help="CSV separator", default=None)
-    parser.add_argument("--encoding", help="CSV encoding", default=None)
-    parser.add_argument("--log-level", default="INFO")
+    common_parser = _build_global_parser(default_config, include_defaults=False)
     parser.add_argument(
         "--batch-size",
         dest="global_batch_size",
@@ -440,15 +531,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override the timeout for ChEMBL document downloads",
     )
-    parser.add_argument(
-        "--print-config",
-        action="store_true",
-        help="Print effective configuration and exit",
-    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     pubmed_parser = subparsers.add_parser(
-        "pubmed", help="Fetch PubMed and partner metadata"
+        "pubmed",
+        help="Fetch PubMed and partner metadata",
+        parents=[common_parser],
     )
     pubmed_parser.add_argument("--batch-size", type=int, default=None)
     pubmed_parser.add_argument("--sleep", type=float, default=None)
@@ -457,13 +545,17 @@ def build_parser() -> argparse.ArgumentParser:
     pubmed_parser.add_argument("--crossref-rps", type=float, default=None)
 
     chembl_parser = subparsers.add_parser(
-        "chembl", help="Download ChEMBL document metadata"
+        "chembl",
+        help="Download ChEMBL document metadata",
+        parents=[common_parser],
     )
     chembl_parser.add_argument("--chunk-size", type=int, default=None)
     chembl_parser.add_argument("--timeout", type=float, default=None)
 
     all_parser = subparsers.add_parser(
-        "all", help="Fetch ChEMBL documents and enrich with PubMed ecosystems"
+        "all",
+        help="Fetch ChEMBL documents and enrich with PubMed ecosystems",
+        parents=[common_parser],
     )
     all_parser.add_argument("--batch-size", type=int, default=None)
     all_parser.add_argument("--sleep", type=float, default=None)

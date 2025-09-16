@@ -2,9 +2,35 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import requests
+import pytest
+import requests  # type: ignore[import-untyped]
 
-from library.http_client import CacheConfig, HttpClient, create_http_session
+from library.http_client import (
+    CacheConfig,
+    HttpClient,
+    RateLimiter,
+    create_http_session,
+)
+
+
+class FakeClock:
+    """Deterministic clock used to capture sleep durations in tests."""
+
+    def __init__(self) -> None:
+        self.monotonic_time = 0.0
+        self.wall_time = 1_000_000.0
+        self.sleeps: list[float] = []
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.monotonic_time += seconds
+        self.wall_time += seconds
+
+    def monotonic(self) -> float:
+        return self.monotonic_time
+
+    def time(self) -> float:
+        return self.wall_time
 
 
 def test_http_client_uses_cache(tmp_path: Path, requests_mock) -> None:
@@ -47,3 +73,138 @@ def test_create_http_session_falls_back_when_cache_dependency_missing(
 
     assert isinstance(session, requests.Session)
     assert "requests-cache" in caplog.text
+
+
+def _patch_clock(monkeypatch, clock: FakeClock) -> None:
+    """Patch time related functions to use ``clock`` for deterministic sleeps."""
+
+    monkeypatch.setattr("tenacity.nap.time.sleep", clock.sleep)
+    monkeypatch.setattr("library.http_client.time.sleep", clock.sleep)
+    monkeypatch.setattr("library.http_client.time.monotonic", clock.monotonic)
+    monkeypatch.setattr("library.http_client.time.time", clock.time)
+
+
+def test_http_client_honours_retry_after(monkeypatch, requests_mock) -> None:
+    """The client sleeps according to ``Retry-After`` headers before retrying."""
+
+    clock = FakeClock()
+    _patch_clock(monkeypatch, clock)
+    url = "https://example.org/throttled"
+    requests_mock.post(
+        url,
+        [
+            {
+                "status_code": 429,
+                "headers": {"Retry-After": "3"},
+                "json": {"detail": "rate limit"},
+            },
+            {"status_code": 200, "json": {"status": "ok"}},
+        ],
+    )
+    client = HttpClient(timeout=1, max_retries=2, rps=0)
+
+    response = client.request("post", url)
+
+    assert response.json() == {"status": "ok"}
+    assert clock.sleeps
+    assert pytest.approx(3.0, rel=1e-3) == clock.sleeps[0]
+
+
+def test_http_client_falls_back_when_retry_after_invalid(
+    monkeypatch, requests_mock
+) -> None:
+    """Invalid ``Retry-After`` values defer to exponential backoff."""
+
+    clock = FakeClock()
+    _patch_clock(monkeypatch, clock)
+    url = "https://example.org/throttled-invalid"
+    requests_mock.get(
+        url,
+        [
+            {
+                "status_code": 429,
+                "headers": {"Retry-After": "not-a-date"},
+                "json": {"detail": "rate limit"},
+            },
+            {"status_code": 200, "json": {"status": "ok"}},
+        ],
+    )
+    client = HttpClient(timeout=1, max_retries=2, rps=0, backoff_multiplier=0.5)
+
+    response = client.request("get", url)
+
+    assert response.json() == {"status": "ok"}
+    assert clock.sleeps
+    assert pytest.approx(0.5, rel=1e-3) == clock.sleeps[0]
+
+
+def test_http_client_respects_rate_limit_reset_header(
+    monkeypatch, requests_mock
+) -> None:
+    """``X-RateLimit-Reset`` headers act as ``Retry-After`` equivalents."""
+
+    clock = FakeClock()
+    _patch_clock(monkeypatch, clock)
+    url = "https://example.org/rate-limit-reset"
+    requests_mock.get(
+        url,
+        [
+            {
+                "status_code": 429,
+                "headers": {"X-RateLimit-Reset": str(clock.time() + 30)},
+                "json": {"detail": "rate limit"},
+            },
+            {"status_code": 200, "json": {"status": "ok"}},
+        ],
+    )
+    client = HttpClient(timeout=1, max_retries=2, rps=0)
+
+    response = client.request("get", url)
+
+    assert response.json() == {"status": "ok"}
+    assert pytest.approx(30.0, rel=1e-3) == clock.sleeps[0]
+
+
+def test_http_client_penalises_future_requests(monkeypatch, requests_mock) -> None:
+    """Fallback penalty slows down subsequent retries without ``Retry-After``."""
+
+    clock = FakeClock()
+    _patch_clock(monkeypatch, clock)
+    url = "https://example.org/hard-limit"
+    requests_mock.post(
+        url,
+        [
+            {"status_code": 429, "json": {"detail": "limit"}},
+            {"status_code": 200, "json": {"status": "ok"}},
+        ],
+    )
+    client = HttpClient(
+        timeout=1,
+        max_retries=2,
+        rps=0,
+        retry_penalty_seconds=5.0,
+    )
+
+    response = client.request("post", url)
+
+    assert response.json() == {"status": "ok"}
+    # Tenacity waits ``backoff_multiplier`` seconds (defaults to 1.0)
+    # followed by the penalty applied by the rate limiter.
+    assert pytest.approx([1.0, 4.0], rel=1e-3) == clock.sleeps
+
+
+def test_rate_limiter_penalty_blocks_until_elapsed(monkeypatch) -> None:
+    """Rate limiter delays requests until the configured penalty expires."""
+
+    clock = FakeClock()
+    monkeypatch.setattr("library.http_client.time.sleep", clock.sleep)
+    monkeypatch.setattr("library.http_client.time.monotonic", clock.monotonic)
+    limiter = RateLimiter(rps=0)
+
+    limiter.apply_penalty(2.5)
+    limiter.wait()
+
+    assert pytest.approx(2.5, rel=1e-3) == clock.monotonic_time
+    # Subsequent waits without additional penalties do not sleep again.
+    limiter.wait()
+    assert pytest.approx(2.5, rel=1e-3) == clock.monotonic_time
