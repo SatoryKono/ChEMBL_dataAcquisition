@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Iterable, List
 
+import numpy as np
 import pandas as pd
 import pytest
 import requests_mock as requests_mock_lib
@@ -131,6 +132,28 @@ def test_validate_activities_writes_errors(tmp_path: Path) -> None:
     assert errors_path.exists()
     data = json.loads(errors_path.read_text(encoding="utf-8"))
     assert len(data) == 1
+
+
+def test_validate_activities_handles_numpy_payloads(tmp_path: Path) -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "activity_chembl_id": "CHEMBL1",
+                "assay_chembl_id": "ASSAY1",
+                "activity_properties": np.array([], dtype=object),
+                "target_components": np.array([{"name": "component"}], dtype=object),
+                "standard_value": np.array([np.nan]),
+            }
+        ]
+    )
+
+    errors_path = tmp_path / "errors.json"
+    validated = validate_activities(df, errors_path=errors_path)
+
+    assert not errors_path.exists()
+    assert validated.loc[0, "activity_properties"] == []
+    assert validated.loc[0, "target_components"] == [{"name": "component"}]
+    assert pd.isna(validated.loc[0, "standard_value"])
 
 
 def test_chembl_activities_main_dry_run(tmp_path: Path) -> None:
