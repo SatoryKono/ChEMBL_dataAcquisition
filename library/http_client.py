@@ -19,14 +19,15 @@ Algorithm Notes
 from __future__ import annotations
 
 from dataclasses import dataclass
+from importlib import import_module
 import logging
+from types import ModuleType
 import time
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, Optional, cast
 
 
 import requests  # type: ignore[import-untyped]
-import requests_cache  # type: ignore[import-untyped]
 
 from tenacity import (
     retry,
@@ -36,6 +37,22 @@ from tenacity import (
 )
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _import_requests_cache() -> ModuleType | None:
+    """Return the :mod:`requests_cache` module when installed.
+
+    The HTTP cache is optional because some environments (for example,
+    lightweight Windows installations) may execute the CLI utilities without the
+    ``requests-cache`` dependency pre-installed.  Returning ``None`` allows the
+    caller to gracefully fall back to an uncached session while emitting a
+    helpful log message that explains how to enable caching.
+    """
+
+    try:
+        return import_module("requests_cache")
+    except ModuleNotFoundError:
+        return None
 
 
 @dataclass
@@ -105,13 +122,23 @@ class CacheConfig:
 def create_http_session(cache_config: CacheConfig | None = None) -> requests.Session:
     """Return a :class:`requests.Session` honouring ``cache_config``.
 
-    When caching is disabled or misconfigured, a plain session is returned.
-    Otherwise, :class:`requests_cache.CachedSession` is instantiated with the
-    provided settings.
+    A plain session is returned when caching is disabled, misconfigured or the
+    optional ``requests-cache`` dependency is unavailable.  Otherwise,
+    :class:`requests_cache.CachedSession` is instantiated with the provided
+    settings.
     """
 
     if cache_config is None or not cache_config.is_active():
         return requests.Session()
+    requests_cache_module = _import_requests_cache()
+    if requests_cache_module is None:
+        LOGGER.warning(
+            "HTTP caching requested but optional dependency 'requests-cache' is "
+            "missing. Install it via 'pip install requests-cache' to enable "
+            "caching. Proceeding without caching."
+        )
+        return requests.Session()
+
     assert cache_config.path is not None
     cache_path = Path(cache_config.path).expanduser()
     cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -120,7 +147,8 @@ def create_http_session(cache_config: CacheConfig | None = None) -> requests.Ses
         cache_path,
         cache_config.ttl_seconds,
     )
-    session = requests_cache.CachedSession(
+    cached_session_factory = cast(Any, requests_cache_module).CachedSession
+    session = cached_session_factory(
         cache_name=str(cache_path),
         backend="sqlite",
         expire_after=int(cache_config.ttl_seconds),
