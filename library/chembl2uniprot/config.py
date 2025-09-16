@@ -105,7 +105,7 @@ class BatchConfig(BaseModel):
 class LoggingConfig(BaseModel):
     """Logging configuration."""
 
-    level: str
+    level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
     format: Literal["human", "json"] = "human"
 
 
