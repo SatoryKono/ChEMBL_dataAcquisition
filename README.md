@@ -99,6 +99,7 @@ python scripts/pipeline_targets_main.py \
 The `scripts/` directory contains several other scripts for performing specific tasks:
 
 *   `chembl2uniprot_main.py`: Map ChEMBL IDs to UniProt accessions.
+*   `chembl_tissue_main.py`: Download tissue metadata directly from ChEMBL.
 *   `get_target_data_main.py`: Download target metadata from ChEMBL.
 *   `get_uniprot_target_data.py`: Retrieve and normalize detailed information about UniProt targets.
 *   `get_hgnc_by_uniprot.py`: Map UniProt accessions to HGNC identifiers.
