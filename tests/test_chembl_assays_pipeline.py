@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Iterable, List
 
+import numpy as np
 import pandas as pd
 import pytest
 import requests_mock as requests_mock_lib
@@ -127,6 +128,26 @@ def test_validate_assays_writes_errors(tmp_path: Path) -> None:
     assert errors_path.exists()
     data = json.loads(errors_path.read_text(encoding="utf-8"))
     assert len(data) == 1
+
+
+def test_validate_assays_handles_empty_array(tmp_path: Path) -> None:
+    df = pd.DataFrame(
+        [
+            {
+                "assay_chembl_id": "CHEMBL1",
+                "document_chembl_id": "DOC1",
+                "target_chembl_id": np.array([], dtype=str),
+                "assay_with_same_target": 0,
+            }
+        ]
+    )
+
+    errors_path = tmp_path / "errors.json"
+    validated = validate_assays(df, errors_path=errors_path)
+
+    assert len(validated) == 1
+    assert validated.loc[0, "target_chembl_id"] is None
+    assert not errors_path.exists()
 
 
 def test_write_meta_yaml(tmp_path: Path) -> None:

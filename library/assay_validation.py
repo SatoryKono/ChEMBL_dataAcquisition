@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from typing import Any, Iterable, List, Mapping
 
+import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
@@ -62,10 +63,44 @@ class AssaysSchema(BaseModel):
         return list(cls.model_fields.keys())
 
 
+def _is_missing(value: Any) -> bool:
+    """Return ``True`` when ``value`` should be treated as missing.
+
+    Args:
+        value: Arbitrary value taken from a pandas ``Series``.
+
+    Returns:
+        ``True`` if the value should be converted to ``None`` during validation,
+        otherwise ``False``.
+    """
+
+    if value is None:
+        return True
+
+    if isinstance(value, (pd.Series, np.ndarray)):
+        if value.size == 0:
+            return True
+        missing = pd.isna(value)
+        if isinstance(missing, (pd.Series, np.ndarray)):
+            return bool(missing.all())
+        return bool(missing)
+
+    try:
+        missing = pd.isna(value)
+    except TypeError:
+        return False
+
+    if isinstance(missing, (pd.Series, np.ndarray)):
+        if missing.size == 0:
+            return True
+        return bool(missing.all())
+    return bool(missing)
+
+
 def _coerce_record(row: pd.Series) -> dict[str, Any]:
     clean: dict[str, Any] = {}
     for key, value in row.items():
-        if pd.isna(value):
+        if _is_missing(value):
             clean[key] = None
         else:
             clean[key] = value
@@ -78,7 +113,16 @@ def validate_assays(
     *,
     errors_path: Path,
 ) -> pd.DataFrame:
-    """Validate rows in ``df`` against ``schema`` and write failures."""
+    """Validate and coerce assay records.
+
+    Args:
+        df: Normalised assay data to validate.
+        schema: Pydantic model used to validate each row.
+        errors_path: Location where validation errors are persisted as JSON.
+
+    Returns:
+        A DataFrame containing only the records that passed validation.
+    """
 
     if df.empty:
         LOGGER.info("Validation skipped because the DataFrame is empty")
