@@ -68,9 +68,7 @@ class ChemblClient:
             LOGGER.exception("Не удалось получить %s %s", resource, identifier)
             raise
         except requests.RequestException:
-            LOGGER.exception(
-                "Сетевая ошибка при получении %s %s", resource, identifier
-            )
+            LOGGER.exception("Сетевая ошибка при получении %s %s", resource, identifier)
             raise
 
         payload: Dict[str, Any] = response.json()
@@ -90,7 +88,9 @@ class ChemblClient:
         )
 
     def _fetch_many(
-        self, identifiers: Iterable[str], fetcher: Callable[[str], Dict[str, Any] | None]
+        self,
+        identifiers: Iterable[str],
+        fetcher: Callable[[str], Dict[str, Any] | None],
     ) -> List[Dict[str, Any]]:
         records: List[Dict[str, Any]] = []
         for identifier in identifiers:

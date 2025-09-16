@@ -93,7 +93,9 @@ def _parse_item(raw: Any, fallback_pmid: str) -> SemanticScholarRecord:
         publication_types=publication_types,
         venue=venue,
         paper_id=paper_id,
-        external_ids={key: value for key, value in external_ids.items() if value is not None},
+        external_ids={
+            key: value for key, value in external_ids.items() if value is not None
+        },
         error=None,
     )
 
@@ -127,7 +129,10 @@ def fetch_semantic_scholar_records(
 
     records: Dict[str, SemanticScholarRecord] = {}
     for chunk in _chunked(cleaned, chunk_size):
-        payload = {"ids": [f"PMID:{p}" for p in chunk], "fields": ",".join(DEFAULT_FIELDS)}
+        payload = {
+            "ids": [f"PMID:{p}" for p in chunk],
+            "fields": ",".join(DEFAULT_FIELDS),
+        }
         LOGGER.debug("Requesting %d Semantic Scholar IDs", len(chunk))
         try:
             resp = client.request("post", API_URL, json=payload)
@@ -174,14 +179,20 @@ def fetch_semantic_scholar_records(
 
         # Ensure that identifiers missing in the response are represented.
         for pmid in chunk:
-            records.setdefault(pmid, SemanticScholarRecord.from_error(pmid, "PMID missing"))
+            records.setdefault(
+                pmid, SemanticScholarRecord.from_error(pmid, "PMID missing")
+            )
 
     ordered: List[SemanticScholarRecord] = []
     for pmid in pmids:
         key = pmid.strip()
         if not key:
             continue
-        ordered.append(records.get(key, SemanticScholarRecord.from_error(key, "PMID not requested")))
+        ordered.append(
+            records.get(
+                key, SemanticScholarRecord.from_error(key, "PMID not requested")
+            )
+        )
     return ordered
 
 
