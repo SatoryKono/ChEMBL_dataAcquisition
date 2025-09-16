@@ -18,6 +18,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from library.io_utils import CsvConfig, write_rows  # noqa: E402
+from library.logging_utils import configure_logging  # noqa: E402
 
 LOGGER = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ def main() -> None:
     compares their SHA-256 hashes.  A mismatch results in a ``RuntimeError``.
     """
 
-    logging.basicConfig(level=logging.INFO)
+    configure_logging("INFO")
 
     cfg = CsvConfig(sep=",", encoding="utf-8", list_format="json")
     rows = _sample_rows()

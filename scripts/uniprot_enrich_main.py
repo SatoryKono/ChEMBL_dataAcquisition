@@ -37,7 +37,7 @@ if str(ROOT) not in sys.path:
 
 
 from library.uniprot_enrich import enrich_uniprot
-from library.chembl2uniprot.logging_utils import configure_logging
+from library.logging_utils import configure_logging
 
 
 DEFAULT_LOG_LEVEL = "INFO"
@@ -78,7 +78,7 @@ def main(argv: list[str] | None = None) -> None:
         help="Logging output format",
     )
     args = parser.parse_args()
-    configure_logging(args.log_level, json_logs=args.log_format == "json")
+    configure_logging(args.log_level, log_format=args.log_format)
 
     target = args.output or args.input
     if args.output:

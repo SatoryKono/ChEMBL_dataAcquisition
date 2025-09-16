@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
-import logging
 from pathlib import Path
 
 from library.iuphar import IUPHARData
+from library.logging_utils import configure_logging
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,10 +34,7 @@ def main() -> None:
     """CLI entry point."""
 
     args = parse_args()
-    logging.basicConfig(
-        level=getattr(logging, args.log_level.upper(), logging.INFO),
-        format="%(levelname)s %(name)s %(message)s",
-    )
+    configure_logging(args.log_level)
     if args.output is None:
         date = dt.date.today().strftime("%Y%m%d")
         stem = Path(args.input).stem

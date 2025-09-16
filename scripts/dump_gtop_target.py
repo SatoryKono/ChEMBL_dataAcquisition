@@ -15,6 +15,7 @@ from typing import List, cast
 import pandas as pd
 import yaml
 from library.data_profiling import analyze_table_quality
+from library.logging_utils import configure_logging
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -94,7 +95,7 @@ def read_ids(path: Path, column: str) -> List[str]:
 def main() -> None:
     """Main entry point for the script."""
     args = parse_args()
-    logging.basicConfig(level=getattr(logging, args.log_level.upper()))
+    configure_logging(args.log_level)
     cfg_dict = _load_config(Path(args.config))
     gcfg = cfg_dict.get("gtop", {})
     client = GtoPClient(

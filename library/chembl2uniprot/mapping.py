@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence, cast
+from typing import Any, Dict, Iterable, List, Sequence, cast, Literal
 import hashlib
 import json
 import logging
@@ -391,7 +391,7 @@ def map_chembl_to_uniprot(
     *,
     config_section: str | None = None,
     log_level: str | None = None,
-    log_format: str | None = None,
+    log_format: Literal["human", "json"] | None = None,
     sep: str | None = None,
     encoding: str | None = None,
 ) -> Path:
@@ -443,12 +443,15 @@ def map_chembl_to_uniprot(
 
     # Allow overriding the configuration with function arguments
     log_level = log_level or cfg.logging.level
-    log_format = log_format or cfg.logging.format
+    resolved_format = log_format or cfg.logging.format
     sep = sep or cfg.io.csv.separator
     encoding_in = encoding or cfg.io.input.encoding
     encoding_out = encoding or cfg.io.output.encoding
 
-    configure_logging(log_level, json_logs=log_format == "json")
+    configure_logging(
+        log_level,
+        log_format=cast(Literal["human", "json"], resolved_format),
+    )
     logging.getLogger("urllib3").setLevel(logging.INFO)  # Reduce HTTP verbosity
 
     input_csv_path = Path(input_csv_path)

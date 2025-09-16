@@ -8,12 +8,12 @@ Example
 from __future__ import annotations
 
 import argparse
-import sys
+import json
 import logging
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
-import json
 
 import yaml
 
@@ -35,6 +35,7 @@ from library.uniprot_normalize import (  # noqa: E402
     output_columns,
 )
 from library.orthologs import EnsemblHomologyClient, OmaClient  # noqa: E402
+from library.logging_utils import configure_logging  # noqa: E402
 
 
 DEFAULT_INPUT = "input.csv"
@@ -94,7 +95,7 @@ def main(argv: List[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
 
-    logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
+    configure_logging(args.log_level)
 
     config = yaml.safe_load((ROOT / "config.yaml").read_text())
     uniprot_cfg = config.get("uniprot", {})
