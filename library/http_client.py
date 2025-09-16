@@ -25,8 +25,8 @@ from pathlib import Path
 from typing import Any, Mapping, Optional
 
 
-import requests
-import requests_cache
+import requests  # type: ignore[import-untyped]
+import requests_cache  # type: ignore[import-untyped]
 
 from tenacity import (
     retry,

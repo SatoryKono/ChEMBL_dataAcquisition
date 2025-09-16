@@ -22,7 +22,6 @@ if TYPE_CHECKING:  # pragma: no cover - imported for typing only
     from library.orthologs import EnsemblHomologyClient, OmaClient
     from library.uniprot_normalize import Isoform
 
-
 DEFAULT_INPUT = "input.csv"
 DEFAULT_OUTPUT = "output_input_{date}.csv"
 DEFAULT_COLUMN = "uniprot_id"

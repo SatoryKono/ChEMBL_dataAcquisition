@@ -124,6 +124,8 @@ The `scripts/` directory contains several other scripts for performing specific 
 *   `dump_gtop_target.py`: Download comprehensive GtoPdb target information.
 *   `protein_classify_main.py`: Classify proteins based on UniProt data.
 *   `uniprot_enrich_main.py`: Enrich a CSV file with additional UniProt annotations.
+*   `chembl_assays_main.py`: Retrieve, validate, and export ChEMBL assay metadata with quality reports.
+*   `chembl_activities_main.py`: Stream activity identifiers, fetch ChEMBL activity records, normalise/validate them, and emit quality reports.
 
 For detailed usage information for each script, run it with the `--help` flag.
 
@@ -168,3 +170,31 @@ mypy .
 ## License
 
 This project is licensed under the MIT License. See the `LICENSE` file for details.
+#### ChEMBL activities extraction
+
+The `chembl_activities_main.py` script orchestrates the end-to-end retrieval and
+validation of ChEMBL activity records. Key features include streaming input ID
+reading, optional limits for sampling large files, resilient API access with a
+configurable User-Agent, deterministic normalisation, schema-based validation
+with JSON sidecar reports, and automatic quality profiling alongside metadata
+sidecars.
+
+Example commands:
+
+```bash
+# Inspect the input file without making API calls or writing outputs
+python scripts/chembl_activities_main.py --input activities.csv --dry-run
+
+# Download, normalise, and validate activities with explicit limits and output paths
+python scripts/chembl_activities_main.py \
+    --input activities.csv \
+    --output output_activities.csv \
+    --column activity_chembl_id \
+    --limit 1000 \
+    --chunk-size 10 \
+    --log-level DEBUG
+```
+
+Validation errors are persisted to `<output>.errors.json` while dataset metadata
+is written to `<output>.meta.yaml`. Quality and correlation reports are produced
+alongside the main CSV file.
