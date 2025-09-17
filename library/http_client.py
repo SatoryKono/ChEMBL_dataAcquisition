@@ -44,6 +44,9 @@ from tenacity.wait import wait_base
 LOGGER = logging.getLogger(__name__)
 
 
+DEFAULT_STATUS_FORCELIST: frozenset[int] = frozenset({408, 409, 429, 500, 502, 503, 504})
+
+
 def _parse_retry_after(value: str | None) -> float | None:
     """Return retry delay in seconds parsed from a ``Retry-After`` header."""
 
@@ -310,7 +313,11 @@ class HttpClient:
         Целевое количество запросов в секунду, реализуемое через простой token bucket.
     status_forcelist:
         Коды HTTP-статусов, при которых будет выполняться повтор запроса. По
-        умолчанию включает наиболее распространённые временные ошибки.
+        умолчанию используется ``DEFAULT_STATUS_FORCELIST``, исключающая
+        ``404 Not Found``. Чтобы расширить стандартный набор, передайте
+        собственный итератор, например ``DEFAULT_STATUS_FORCELIST | {404}``
+        для повторов ответов ``404`` в специфичных сценариях (например, при
+        работе с нестабильными индексами).
     backoff_multiplier:
         Множитель для экспоненциальной задержки между попытками.
     retry_penalty_seconds:
@@ -347,9 +354,10 @@ class HttpClient:
         else:
             # Если передан cache_config, используем create_http_session, иначе обычную сессию
             self.session = create_http_session(cache_config)
-        self.status_forcelist = set(
-            status_forcelist or {404, 408, 409, 429, 500, 502, 503, 504}
-        )
+        if status_forcelist is None:
+            self.status_forcelist = set(DEFAULT_STATUS_FORCELIST)
+        else:
+            self.status_forcelist = set(status_forcelist)
         self.backoff_multiplier = backoff_multiplier
         self.retry_penalty_seconds = retry_penalty_seconds
 
@@ -414,4 +422,10 @@ class HttpClient:
         return _do_request()
 
 
-__all__ = ["CacheConfig", "HttpClient", "RateLimiter", "create_http_session"]
+__all__ = [
+    "CacheConfig",
+    "DEFAULT_STATUS_FORCELIST",
+    "HttpClient",
+    "RateLimiter",
+    "create_http_session",
+]

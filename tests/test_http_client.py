@@ -7,6 +7,7 @@ import requests  # type: ignore[import-untyped]
 
 from library.http_client import (
     CacheConfig,
+    DEFAULT_STATUS_FORCELIST,
     HttpClient,
     RateLimiter,
     create_http_session,
@@ -163,6 +164,56 @@ def test_http_client_respects_rate_limit_reset_header(
 
     assert response.json() == {"status": "ok"}
     assert pytest.approx(30.0, rel=1e-3) == clock.sleeps[0]
+
+
+def test_http_client_does_not_retry_not_found_by_default(requests_mock) -> None:
+    """404 responses are returned to the caller instead of being retried."""
+
+    url = "https://example.org/missing"
+    requests_mock.get(
+        url,
+        [
+            {"status_code": 404, "json": {"detail": "missing"}},
+            {"status_code": 200, "json": {"status": "ok"}},
+        ],
+    )
+    client = HttpClient(timeout=1, max_retries=2, rps=0)
+
+    response = client.request("get", url)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "missing"}
+    assert requests_mock.call_count == 1
+
+
+def test_http_client_retries_opt_in_not_found_status(
+    monkeypatch, requests_mock
+) -> None:
+    """404 responses can be retried when explicitly configured."""
+
+    clock = FakeClock()
+    _patch_clock(monkeypatch, clock)
+    url = "https://example.org/flaky-index"
+    requests_mock.get(
+        url,
+        [
+            {"status_code": 404, "json": {"detail": "pending"}},
+            {"status_code": 200, "json": {"status": "ok"}},
+        ],
+    )
+    client = HttpClient(
+        timeout=1,
+        max_retries=2,
+        rps=0,
+        status_forcelist=DEFAULT_STATUS_FORCELIST | {404},
+    )
+
+    response = client.request("get", url)
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    assert requests_mock.call_count == 2
+    assert clock.sleeps
 
 
 def test_http_client_penalises_future_requests(monkeypatch, requests_mock) -> None:
