@@ -43,6 +43,7 @@ def test_chembl_client_handles_404(requests_mock: requests_mock_lib.Mocker) -> N
 
     client = ChemblClient(base_url=base_url)
     assert client.fetch_assay("CHEMBL404") is None
+    assert requests_mock.call_count == 1
 
 
 def test_get_assays_batches_requests() -> None:

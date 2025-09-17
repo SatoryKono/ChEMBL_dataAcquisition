@@ -348,7 +348,7 @@ class HttpClient:
             # Если передан cache_config, используем create_http_session, иначе обычную сессию
             self.session = create_http_session(cache_config)
         self.status_forcelist = set(
-            status_forcelist or {404, 408, 409, 429, 500, 502, 503, 504}
+            status_forcelist or {408, 409, 429, 500, 502, 503, 504}
         )
         self.backoff_multiplier = backoff_multiplier
         self.retry_penalty_seconds = retry_penalty_seconds
