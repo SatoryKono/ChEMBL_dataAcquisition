@@ -44,7 +44,9 @@ from tenacity.wait import wait_base
 LOGGER = logging.getLogger(__name__)
 
 
-DEFAULT_STATUS_FORCELIST: frozenset[int] = frozenset({408, 409, 429, 500, 502, 503, 504})
+DEFAULT_STATUS_FORCELIST: frozenset[int] = frozenset(
+    {408, 409, 429, 500, 502, 503, 504}
+)
 
 
 def _parse_retry_after(value: str | None) -> float | None:
