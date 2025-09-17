@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import shlex
 import sys
@@ -22,7 +21,7 @@ from library.chembl_client import ChemblClient
 from library.chembl_library import get_testitems
 from library.data_profiling import analyze_table_quality
 from library.io import read_ids
-from library.io_utils import CsvConfig
+from library.io_utils import CsvConfig, serialise_cell
 from library.metadata import write_meta_yaml
 from library.normalize_testitems import normalize_testitems
 from library.testitem_library import PUBCHEM_BASE_URL, add_pubchem_data
@@ -39,6 +38,7 @@ def _default_output_name(input_path: str) -> str:
     return f"output_{stem}_{date_suffix}.csv"
 
 
+ 
 def _serialise_value(value: object, list_format: str) -> object:
     if isinstance(value, dict):
         return json.dumps(value, ensure_ascii=False, sort_keys=True)
@@ -49,15 +49,21 @@ def _serialise_value(value: object, list_format: str) -> object:
             )
         return json.dumps(value, ensure_ascii=False, sort_keys=True)
     return value
+ 
+def _configure_logging(level: str) -> None:
+    logging.basicConfig(
+        level=getattr(logging, level.upper(), logging.INFO),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+ 
 
 
 def _serialise_complex_columns(df: pd.DataFrame, list_format: str) -> pd.DataFrame:
     result = df.copy()
     for column in result.columns:
-        if result[column].map(lambda value: isinstance(value, (list, dict))).any():
-            result[column] = result[column].map(
-                lambda value: _serialise_value(value, list_format)
-            )
+        result[column] = result[column].map(
+            lambda value: serialise_cell(value, list_format)
+        )
     return result
 
 

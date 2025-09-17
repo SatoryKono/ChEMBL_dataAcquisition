@@ -48,6 +48,7 @@ def _escape_pipe(value: str) -> str:
     str
         The string with pipe characters escaped.
     """
+
     return value.replace("|", "\\|")
 
 
@@ -75,6 +76,18 @@ def _serialise_list(values: Iterable[Any], list_format: str) -> str:
             if list_format == "json":
                 return {"id": v[0], "name": v[1]}
             return f"{_escape_pipe(str(v[0]))}|{_escape_pipe(str(v[1]))}"
+        if isinstance(v, dict):
+            # Sort keys for determinism prior to JSON serialisation
+            ordered = {key: v[key] for key in sorted(v)}
+            if list_format == "json":
+                return ordered
+            return _escape_pipe(
+                json.dumps(ordered, ensure_ascii=False, sort_keys=False)
+            )
+        if isinstance(v, list):
+            if list_format == "json":
+                return [_normalise(item) for item in v]
+            return _escape_pipe(_serialise_list(v, list_format))
         return _escape_pipe(str(v)) if list_format == "pipe" else v
 
     norm = [_normalise(v) for v in values]
@@ -103,9 +116,40 @@ def _serialise_value(value: Any, list_format: str) -> str:
     str
         The serialized string.
     """
+    if isinstance(value, dict):
+        ordered = {key: value[key] for key in sorted(value)}
+        text = json.dumps(ordered, ensure_ascii=False, sort_keys=False)
+        return _escape_pipe(text) if list_format == "pipe" else text
     if isinstance(value, list):
         return _serialise_list(value, list_format)
     return str(value)
+
+
+def serialise_cell(value: Any, list_format: str) -> Any:
+    """Serialise a value for CSV output while preserving separators.
+
+    Parameters
+    ----------
+    value:
+        The value to serialise. Lists and dictionaries are converted into
+        deterministic JSON payloads using :func:`_serialise_list` and
+        :func:`_serialise_value` respectively.
+    list_format:
+        Encoding for list-like values (``"json"`` or ``"pipe"``).
+
+    Returns
+    -------
+    Any
+        Serialised representation suitable for writing to CSV cells.
+        Non-collection objects are returned unchanged except for strings in
+        ``"pipe"`` mode where pipe characters are escaped.
+    """
+
+    if isinstance(value, (dict, list)):
+        return _serialise_value(value, list_format)
+    if isinstance(value, str) and list_format == "pipe":
+        return _escape_pipe(value)
+    return value
 
 
 def write_rows(
@@ -121,5 +165,5 @@ def write_rows(
         writer.writerow(columns)
         for row in rows:
             writer.writerow(
-                [_serialise_value(row.get(col, ""), cfg.list_format) for col in columns]
+                [serialise_cell(row.get(col, ""), cfg.list_format) for col in columns]
             )

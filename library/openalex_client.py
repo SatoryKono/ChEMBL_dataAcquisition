@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 import requests
 
@@ -13,6 +13,96 @@ from .http_client import HttpClient
 LOGGER = logging.getLogger(__name__)
 
 API_URL = "https://api.openalex.org/works/pmid:{pmid}"
+
+
+def _clean_string(value: Any) -> str | None:
+    if isinstance(value, str):
+        candidate = value.strip()
+        if candidate:
+            return candidate
+    return None
+
+
+def _as_mapping(value: Any) -> Mapping[str, Any] | None:
+    if isinstance(value, Mapping):
+        return value
+    return None
+
+
+def _dedupe_preserve_order(values: Iterable[str]) -> List[str]:
+    seen: set[str] = set()
+    ordered: List[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered
+
+
+def _extract_publication_types(item: Mapping[str, Any]) -> List[str]:
+    values: List[str] = []
+    raw_types = item.get("publication_types")
+    if isinstance(raw_types, list):
+        values.extend(
+            [entry for entry in (_clean_string(val) for val in raw_types) if entry]
+        )
+    else:
+        single = _clean_string(raw_types)
+        if single:
+            values.append(single)
+
+    fallback_candidates = [
+        _clean_string(item.get("type")),
+        _clean_string(item.get("type_crossref")),
+    ]
+    primary_location = _as_mapping(item.get("primary_location"))
+    if primary_location:
+        source = _as_mapping(primary_location.get("source"))
+        if source:
+            fallback_candidates.append(_clean_string(source.get("type")))
+
+    for candidate in fallback_candidates:
+        if candidate:
+            values.append(candidate)
+
+    return _dedupe_preserve_order(values)
+
+
+def _extract_venue(item: Mapping[str, Any]) -> str | None:
+    host = _as_mapping(item.get("host_venue"))
+    if host:
+        venue = _clean_string(host.get("display_name"))
+        if venue:
+            return venue
+
+    primary_location = _as_mapping(item.get("primary_location"))
+    if primary_location:
+        venue = _clean_string(primary_location.get("display_name"))
+        if venue:
+            return venue
+        source = _as_mapping(primary_location.get("source"))
+        if source:
+            venue = _clean_string(source.get("display_name"))
+            if venue:
+                return venue
+
+    locations = item.get("locations")
+    if isinstance(locations, list):
+        for location in locations:
+            location_map = _as_mapping(location)
+            if not location_map:
+                continue
+            venue = _clean_string(location_map.get("display_name"))
+            if venue:
+                return venue
+            source = _as_mapping(location_map.get("source"))
+            if source:
+                venue = _clean_string(source.get("display_name"))
+                if venue:
+                    return venue
+
+    return None
 
 
 def _normalise_doi(doi: str | None) -> str | None:
@@ -143,27 +233,12 @@ def fetch_openalex_records(
             continue
 
         doi = _normalise_doi(item.get("doi"))
-        publication_types = [
-            str(value).strip()
-            for value in item.get("publication_types") or []
-            if str(value).strip()
-        ]
-        type_crossref = item.get("type_crossref")
-        if isinstance(type_crossref, str):
-            type_crossref = type_crossref.strip() or None
-        genre = item.get("genre")
-        if isinstance(genre, str):
-            genre = genre.strip() or None
-        venue = None
-        host = item.get("host_venue")
-        if isinstance(host, dict):
-            display_name = host.get("display_name")
-            if isinstance(display_name, str):
-                venue = display_name.strip() or None
+        publication_types = _extract_publication_types(item)
+        type_crossref = _clean_string(item.get("type_crossref"))
+        genre = _clean_string(item.get("genre")) or _clean_string(item.get("type"))
+        venue = _extract_venue(item)
         mesh_descriptors, mesh_qualifiers = _parse_mesh(item.get("mesh"))
-        work_id = item.get("id")
-        if isinstance(work_id, str):
-            work_id = work_id.strip() or None
+        work_id = _clean_string(item.get("id"))
 
         records[pmid] = OpenAlexRecord(
             pmid=pmid,

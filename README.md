@@ -98,6 +98,17 @@ python scripts/chembl2uniprot_main.py --config my_config.yaml
 
 Always define the environment variables in the shell session before launching the CLI so that the overrides are visible to the Python process.
 
+#### HTTP retry configuration
+
+Network-bound scripts rely on `library.http_client.HttpClient`, which retries transient HTTP errors listed in `status_forcelist`. The default value, exposed as `library.http_client.DEFAULT_STATUS_FORCELIST`, targets rate limits and server-side failures (408, 409, 429, 500, 502, 503, 504) and intentionally skips `404 Not Found`. Retrying missing resources usually wastes the retry budget and slows down processing, so only opt in when a specific API is known to return temporary 404 responses. To enable this behaviour, provide a custom list in the configuration file, for example:
+
+```yaml
+pipeline:
+  status_forcelist: [404, 408, 409, 429, 500, 502, 503, 504]
+```
+
+or construct an HTTP client directly with `HttpClient(..., status_forcelist=DEFAULT_STATUS_FORCELIST | {404})` for carefully scoped scripts.
+
 ### Running the Pipeline
 
 The main entry point for the unified pipeline is `scripts/pipeline_targets_main.py`. This script orchestrates the entire data acquisition and normalization process.
