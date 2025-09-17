@@ -9,7 +9,7 @@ from typing import Any, Iterable
 
 from hypothesis import given, settings, strategies as st
 
-from library.io_utils import CsvConfig, _serialise_list, write_rows
+from library.io_utils import CsvConfig, _serialise_list, serialise_cell, write_rows
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +79,26 @@ def test_serialise_list_json_roundtrip(values: list[Any]) -> None:
     assert parsed == expected
 
 
+def test_serialise_cell_pipe_escapes_strings() -> None:
+    """Ensure ``serialise_cell`` escapes pipe characters in scalar strings."""
+
+    assert serialise_cell("alpha|beta", "pipe") == "alpha\\|beta"
+
+
+def test_serialise_cell_pipe_handles_lists() -> None:
+    """Ensure ``serialise_cell`` escapes list items containing pipes."""
+
+    value = ["foo|bar", "baz"]
+    assert serialise_cell(value, "pipe") == "foo\\|bar|baz"
+
+
+def test_serialise_cell_pipe_handles_dicts() -> None:
+    """Ensure dictionaries are serialised deterministically with escaping."""
+
+    result = serialise_cell({"name": "alpha|beta", "id": 1}, "pipe")
+    assert result == '{"id": 1, "name": "alpha\\|beta"}'
+
+
 # ---------------------------------------------------------------------------
 # Golden file test for write_rows
 # ---------------------------------------------------------------------------
@@ -106,6 +126,34 @@ def test_write_rows_golden(tmp_path: Path) -> None:
 
     digest = hashlib.sha256(out.read_bytes()).hexdigest()
     assert digest == "f3acc2865cc6a94ad18b62dfac787ba4cb991e95b815a1cb5558bdacd071e285"
+
+
+def test_write_rows_pipe_golden(tmp_path: Path) -> None:
+    """Golden test covering pipe serialisation with escaping."""
+
+    cfg = CsvConfig(sep=",", encoding="utf-8", list_format="pipe")
+    rows = [
+        {
+            "id": 1,
+            "names": ["alpha|beta", "gamma"],
+            "meta": [{"id": "x|y", "name": "value|with|pipes"}],
+        },
+        {
+            "id": 2,
+            "names": ["delta", "epsilon|zeta"],
+            "meta": [],
+        },
+    ]
+    columns = ["id", "names", "meta"]
+
+    out = tmp_path / "rows_pipe.csv"
+    write_rows(out, rows, columns, cfg)
+
+    golden = Path(__file__).parent / "data" / "golden_write_rows_pipe.csv"
+    assert out.read_bytes() == golden.read_bytes()
+
+    digest = hashlib.sha256(out.read_bytes()).hexdigest()
+    assert digest == "bf34f72b1240346d4ed9c1e79c4e1a3cbb13666bd1e20e0df5ba2f310dc8a7e3"
 
 
 # ---------------------------------------------------------------------------
