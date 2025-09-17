@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from pathlib import Path
 
 from typing import Any, Callable, Dict, Iterable, List, Sequence
@@ -37,6 +38,7 @@ from library.logging_utils import configure_logging
 
 from library.protein_classifier import classify_protein
 from library.data_profiling import analyze_table_quality
+from library.cli_common import write_cli_metadata
 
 
 from library.pipeline_targets import (
@@ -549,6 +551,11 @@ def parse_args() -> argparse.Namespace:
         default=50,
         help="Maximum number of IDs per network request",
     )
+    parser.add_argument(
+        "--meta-output",
+        default=None,
+        help="Optional metadata YAML path",
+    )
     return parser.parse_args()
 
 
@@ -831,7 +838,17 @@ def main() -> None:
     cols = [c for c in out_df.columns if c not in IUPHAR_CLASS_COLUMNS]
     out_df = out_df[cols + IUPHAR_CLASS_COLUMNS]
 
-    out_df.to_csv(args.output, index=False, sep=args.sep, encoding=args.encoding)
+    output_path = save_output(out_df, args.output, sep=args.sep, encoding=args.encoding)
+
+    meta_path = Path(args.meta_output) if args.meta_output else None
+    write_cli_metadata(
+        output_path,
+        row_count=int(out_df.shape[0]),
+        column_count=int(out_df.shape[1]),
+        namespace=args,
+        command_parts=tuple(sys.argv),
+        meta_path=meta_path,
+    )
 
 
 if __name__ == "__main__":

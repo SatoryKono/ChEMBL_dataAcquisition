@@ -184,9 +184,7 @@ class _PubChemRequest:
 
     @property
     def session(self) -> requests.Session:
-
         """Expose the underlying :class:`requests.Session` for convenience."""
-
 
         return self.http_client.session
 
@@ -250,6 +248,7 @@ class _PubChemRequest:
         results: dict[str, object] = {}
 
         property_fields = list(dict.fromkeys(self.properties))
+        property_success = False
         if property_fields:
             url = (
                 f"{self.base_url.rstrip('/')}/compound/smiles/{encoded}/property/"
@@ -262,8 +261,9 @@ class _PubChemRequest:
                     record = properties[0]
                     for prop in property_fields:
                         results[prop] = _normalise_numeric(prop, record.get(prop))
+                    property_success = True
 
-        if "CID" in self.properties and results.get("CID") is None:
+        if property_success and "CID" in self.properties and results.get("CID") is None:
             cid_url = f"{self.base_url.rstrip('/')}/compound/smiles/{encoded}/cids/JSON"
             payload = self._get_json(cid_url, smiles=smiles, context="CID list")
             if payload is not None:

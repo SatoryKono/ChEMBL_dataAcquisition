@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Iterable
+
+import yaml
 
 from hypothesis import given, settings, strategies as st
 
@@ -161,10 +165,24 @@ def test_write_rows_pipe_golden(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_check_determinism_script() -> None:
-    """Run the determinism script and ensure it succeeds."""
+def test_check_determinism_script(tmp_path: Path) -> None:
+    """Run the determinism script twice and inspect metadata output."""
 
-    import subprocess
-    import sys
+    output_csv = tmp_path / "determinism.csv"
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/check_determinism.py",
+            "--output",
+            str(output_csv),
+            "--keep-artifacts",
+        ],
+        check=True,
+    )
 
-    subprocess.run([sys.executable, "scripts/check_determinism.py"], check=True)
+    meta_path = output_csv.with_suffix(".csv.meta.yaml")
+    metadata = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
+    determinism = metadata["determinism"]
+    assert determinism["matches_previous"] is True
+    assert determinism["previous_sha256"] == determinism["current_sha256"]
+    assert determinism["check_count"] >= 2
