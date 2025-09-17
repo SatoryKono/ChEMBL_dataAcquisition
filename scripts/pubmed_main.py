@@ -209,9 +209,7 @@ def _build_global_parser(
         "--config",
         help="Path to YAML configuration file",
         default=(
-            str(default_config)
-            if include_defaults
-            else argparse.SUPPRESS  # type: ignore[arg-type]
+            str(default_config) if include_defaults else argparse.SUPPRESS  # type: ignore[arg-type]
         ),
     )
     parser.add_argument(

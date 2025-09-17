@@ -21,7 +21,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 def _module_logger(module: object) -> logging.Logger:
     """Return the module-specific logger if available."""
 
-    return getattr(module, "LOGGER", logging.getLogger(getattr(module, "__name__", "cli")))
+    return getattr(
+        module, "LOGGER", logging.getLogger(getattr(module, "__name__", "cli"))
+    )
 
 
 def _load_module(module_path: str) -> object:

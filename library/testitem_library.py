@@ -208,7 +208,6 @@ class _PubChemRequest:
 
         headers = {"Accept": "application/json", "User-Agent": self.user_agent}
         try:
- 
             response = self.session.get(url, timeout=self.timeout, headers=headers)
             if response.status_code == 404:
                 LOGGER.debug(
@@ -219,12 +218,10 @@ class _PubChemRequest:
         except requests.HTTPError:
             LOGGER.warning(
                 "HTTP error when requesting PubChem %s for %s", context, smiles
- 
             )
             return None
         except requests.RequestException:
             LOGGER.warning(
- 
                 "Network error when requesting PubChem %s for %s", context, smiles
             )
             return None
@@ -266,7 +263,6 @@ class _PubChemRequest:
                     results["CID"] = _normalise_numeric("CID", identifiers[0])
 
         return results
- 
 
 
 def _unique_smiles(values: Iterable[object]) -> list[str]:

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import shlex
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterator, Sequence, cast
 
 import pandas as pd
 
@@ -38,7 +39,6 @@ def _default_output_name(input_path: str) -> str:
     return f"output_{stem}_{date_suffix}.csv"
 
 
- 
 def _serialise_value(value: object, list_format: str) -> object:
     if isinstance(value, dict):
         return json.dumps(value, ensure_ascii=False, sort_keys=True)
@@ -49,13 +49,13 @@ def _serialise_value(value: object, list_format: str) -> object:
             )
         return json.dumps(value, ensure_ascii=False, sort_keys=True)
     return value
- 
+
+
 def _configure_logging(level: str) -> None:
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
- 
 
 
 def _serialise_complex_columns(df: pd.DataFrame, list_format: str) -> pd.DataFrame:
@@ -179,8 +179,8 @@ def _prepare_configuration(namespace: argparse.Namespace) -> dict[str, object]:
 
 def _limited_ids(
     path: Path, column: str, cfg: CsvConfig, limit: int | None
-) -> Iterable[str]:
-    return read_ids(path, column, cfg, limit=limit)
+) -> Iterator[str]:
+    return cast(Iterator[str], read_ids(path, column, cfg, limit=limit))
 
 
 def run_pipeline(
