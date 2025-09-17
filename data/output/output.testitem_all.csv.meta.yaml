@@ -18,6 +18,10 @@ config:
   dictionary: null
   smiles_column: canonical_smiles
   pubchem_timeout: 10.0
+  pubchem_max_retries: 3
+  pubchem_rps: 5.0
+  pubchem_backoff: 1.0
+  pubchem_retry_penalty: 5.0
   pubchem_base_url: https://pubchem.ncbi.nlm.nih.gov/rest/pug
   pubchem_user_agent: ChEMBLDataAcquisition/1.0
   dry_run: false

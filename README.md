@@ -150,6 +150,25 @@ All command line entry points accept `--log-format` to switch between the
 default human-readable output and structured JSON logs, complementing the
 existing `--log-level` control.
 
+#### `chembl_testitems_main.py`
+
+The `chembl_testitems_main.py` CLI fetches molecule metadata from ChEMBL and
+optionally enriches the results with PubChem descriptors.  In addition to the
+existing `--pubchem-timeout`, `--pubchem-base-url`, and `--pubchem-user-agent`
+flags, the following options fine-tune the PubChem HTTP client:
+
+* `--pubchem-max-retries` – maximum retry attempts before giving up (default:
+  `3`).
+* `--pubchem-rps` – allowed PubChem requests per second (default: `5.0`).
+* `--pubchem-backoff` – exponential backoff multiplier applied between
+  retries (default: `1.0`).
+* `--pubchem-retry-penalty` – additional cooldown in seconds added after each
+  retry cycle (default: `5.0`).
+
+Combine these parameters to comply with local rate limits or API usage
+guidelines.  All supplied values are captured in the CLI metadata sidecar to
+aid reproducibility.
+
 ## Library
 
 The `library/` directory contains the core logic of the pipeline, organized into several modules:

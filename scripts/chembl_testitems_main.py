@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import shlex
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -18,14 +17,25 @@ if __package__ in {None, ""}:
 
     _ensure_project_root()
 
+from library.cli_common import (
+    ensure_output_dir,
+    serialise_dataframe,
+    write_cli_metadata,
+)
 from library.chembl_client import ChemblClient
 from library.chembl_library import get_testitems
 from library.data_profiling import analyze_table_quality
 from library.io import read_ids
-from library.io_utils import CsvConfig, serialise_cell
-from library.metadata import write_meta_yaml
+from library.io_utils import CsvConfig
 from library.normalize_testitems import normalize_testitems
-from library.testitem_library import PUBCHEM_BASE_URL, add_pubchem_data
+from library.testitem_library import (
+    PUBCHEM_BASE_URL,
+    PUBCHEM_DEFAULT_BACKOFF,
+    PUBCHEM_DEFAULT_MAX_RETRIES,
+    PUBCHEM_DEFAULT_RETRY_PENALTY,
+    PUBCHEM_DEFAULT_RPS,
+    add_pubchem_data,
+)
 from library.testitem_validation import TestitemsSchema, validate_testitems
 from library.logging_utils import configure_logging
 
@@ -65,6 +75,7 @@ def _serialise_complex_columns(df: pd.DataFrame, list_format: str) -> pd.DataFra
             lambda value: serialise_cell(value, list_format)
         )
     return result
+
 
 
 def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
@@ -148,6 +159,30 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         help="PubChem HTTP timeout in seconds",
     )
     parser.add_argument(
+        "--pubchem-max-retries",
+        type=int,
+        default=PUBCHEM_DEFAULT_MAX_RETRIES,
+        help="Maximum retry attempts for PubChem requests",
+    )
+    parser.add_argument(
+        "--pubchem-rps",
+        type=float,
+        default=PUBCHEM_DEFAULT_RPS,
+        help="Maximum PubChem requests per second",
+    )
+    parser.add_argument(
+        "--pubchem-backoff",
+        type=float,
+        default=PUBCHEM_DEFAULT_BACKOFF,
+        help="Exponential backoff multiplier for PubChem retries",
+    )
+    parser.add_argument(
+        "--pubchem-retry-penalty",
+        type=float,
+        default=PUBCHEM_DEFAULT_RETRY_PENALTY,
+        help="Additional sleep in seconds applied after PubChem retries",
+    )
+    parser.add_argument(
         "--pubchem-base-url",
         default=PUBCHEM_BASE_URL,
         help="PubChem PUG REST base URL",
@@ -163,18 +198,6 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         help="Read and validate the input file without fetching or writing output",
     )
     return parser.parse_args(args)
-
-
-def _prepare_configuration(namespace: argparse.Namespace) -> dict[str, object]:
-    config: dict[str, object] = {}
-    for key, value in vars(namespace).items():
-        if key in {"output", "errors_output", "meta_output"}:
-            continue
-        if isinstance(value, Path):
-            config[key] = str(value)
-        else:
-            config[key] = value
-    return config
 
 
 def _limited_ids(
@@ -232,12 +255,23 @@ def run_pipeline(
         molecules_df = pd.DataFrame(columns=TestitemsSchema.ordered_columns())
 
     normalised = normalize_testitems(molecules_df)
+    pubchem_http_client_config = {
+        "max_retries": args.pubchem_max_retries,
+        "rps": args.pubchem_rps,
+        "backoff_multiplier": args.pubchem_backoff,
+        "retry_penalty_seconds": args.pubchem_retry_penalty,
+    }
+    LOGGER.debug(
+        "Using PubChem HTTP client configuration: %s", pubchem_http_client_config
+    )
+
     enriched = add_pubchem_data(
         normalised,
         smiles_column=args.smiles_column,
         timeout=args.pubchem_timeout,
         base_url=args.pubchem_base_url,
         user_agent=args.pubchem_user_agent,
+        http_client_config=pubchem_http_client_config,
     )
     validated = validate_testitems(enriched, errors_path=errors_path)
 
@@ -263,19 +297,16 @@ def run_pipeline(
             drop=True
         )
 
-    serialised = _serialise_complex_columns(validated, args.list_format)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    serialised = serialise_dataframe(validated, args.list_format)
+    ensure_output_dir(output_path)
     serialised.to_csv(output_path, index=False, sep=args.sep, encoding=args.encoding)
 
-    if command_parts is None:
-        command_parts = sys.argv
-
-    write_meta_yaml(
+    write_cli_metadata(
         output_path,
-        command=" ".join(shlex.quote(part) for part in command_parts),
-        config=_prepare_configuration(args),
         row_count=int(len(serialised)),
         column_count=int(len(serialised.columns)),
+        namespace=args,
+        command_parts=command_parts,
         meta_path=meta_path,
     )
 
