@@ -37,5 +37,16 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["library"]
 
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.format]
+quote-style = "double"
+
 [tool.mypy]
 ignore_missing_imports = true

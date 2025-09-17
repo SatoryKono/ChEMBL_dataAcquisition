@@ -85,6 +85,34 @@ def test_openalex_parses_fields():
     assert recs[0].venue == "Journal"
 
 
+def test_openalex_handles_html_error() -> None:
+    """HTML error responses should be converted into readable messages."""
+
+    html_body = (
+        """<!doctype html><html><title>Not Found</title><body>Not Found</body></html>"""
+    )
+    with requests_mock.Mocker() as m:
+        m.get(OA_URL.format(pmid="2"), status_code=404, text=html_body)
+        client = HttpClient(timeout=1.0, max_retries=1, rps=0)
+        recs = fetch_openalex_records(["2"], client=client)
+    assert recs[0].error == "HTTP 404: Not Found"
+
+
+def test_openalex_prefers_json_error_message() -> None:
+    """JSON error payloads should surface the provided message."""
+
+    with requests_mock.Mocker() as m:
+        m.get(
+            OA_URL.format(pmid="3"),
+            status_code=429,
+            json={"message": "Rate limit exceeded"},
+            reason="Too Many Requests",
+        )
+        client = HttpClient(timeout=1.0, max_retries=1, rps=0)
+        recs = fetch_openalex_records(["3"], client=client)
+    assert recs[0].error == "HTTP 429: Rate limit exceeded"
+
+
 def test_crossref_parses_fields():
     doi = "10.1/doi1"
     with requests_mock.Mocker() as m:
