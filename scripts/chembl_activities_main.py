@@ -8,7 +8,6 @@ if __package__ in {None, ""}:
     _ensure_project_root()
 
 import argparse
-import json
 import logging
 import shlex
 import sys
@@ -23,7 +22,7 @@ from library.chembl_client import ChemblClient
 from library.chembl_library import get_activities
 from library.data_profiling import analyze_table_quality
 from library.io import read_ids
-from library.io_utils import CsvConfig
+from library.io_utils import CsvConfig, serialise_cell
 from library.metadata import write_meta_yaml
 from library.normalize_activities import normalize_activities
 
@@ -46,23 +45,10 @@ def _configure_logging(level: str) -> None:
 def _serialise_complex_columns(df: pd.DataFrame, list_format: str) -> pd.DataFrame:
     result = df.copy()
     for column in result.columns:
-        if result[column].map(lambda value: isinstance(value, (list, dict))).any():
-            result[column] = result[column].map(
-                lambda value: _serialise_value(value, list_format)
-            )
+        result[column] = result[column].map(
+            lambda value: serialise_cell(value, list_format)
+        )
     return result
-
-
-def _serialise_value(value: object, list_format: str) -> object:
-    if isinstance(value, dict):
-        return json.dumps(value, ensure_ascii=False, sort_keys=True)
-    if isinstance(value, list):
-        if list_format == "pipe":
-            return "|".join(
-                json.dumps(item, ensure_ascii=False, sort_keys=True) for item in value
-            )
-        return json.dumps(value, ensure_ascii=False, sort_keys=True)
-    return value
 
 
 def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:

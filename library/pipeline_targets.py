@@ -229,6 +229,33 @@ def _serialise_list(items: Sequence[Any], list_format: str) -> str:
     return json.dumps(cleaned, ensure_ascii=False, sort_keys=True)
 
 
+def _split_pipe(serialised: str) -> List[str]:
+    """Split a pipe-delimited string handling escaped separators."""
+
+    parts: List[str] = []
+    current: List[str] = []
+    escape = False
+    for char in serialised:
+        if escape:
+            if char not in ("|", "\\"):
+                current.append("\\")
+            current.append(char)
+            escape = False
+            continue
+        if char == "\\":
+            escape = True
+            continue
+        if char == "|":
+            parts.append("".join(current))
+            current = []
+            continue
+        current.append(char)
+    if escape:
+        current.append("\\")
+    parts.append("".join(current))
+    return parts
+
+
 def _load_serialised_list(serialised: Any | None, list_format: str) -> List[Any]:
     """Deserialize list-like data encoded as JSON or pipe-separated text.
 
@@ -283,7 +310,7 @@ def _load_serialised_list(serialised: Any | None, list_format: str) -> List[Any]
             return data
         raise ValueError("JSON payload does not represent a list")
     if list_format == "pipe":
-        parts = text.split("|")
+        parts = _split_pipe(text)
         items: List[Any] = []
         for part in parts:
             chunk = part.strip()

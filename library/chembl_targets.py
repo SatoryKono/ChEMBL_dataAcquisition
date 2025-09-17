@@ -17,7 +17,6 @@ Algorithm Notes
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import json
 import logging
 from typing import Any, Dict, List, Sequence
 
@@ -28,8 +27,10 @@ import pandas as pd
 # first and fall back to the top-level module.
 try:  # pragma: no cover - fallback for test environments
     from .http_client import CacheConfig, HttpClient
+    from .io_utils import serialise_cell
 except ImportError:  # pragma: no cover
     from http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
+    from io_utils import serialise_cell  # type: ignore[no-redef]
 
 LOGGER = logging.getLogger(__name__)
 
@@ -121,30 +122,6 @@ def normalise_ids(ids: Sequence[str]) -> List[str]:
 
 # ---------------------------------------------------------------------------
 # Data extraction utilities
-
-
-def _serialize(obj: Any, *, list_format: str) -> str:
-    """Serialise an object deterministically.
-
-    If the object is a list and `list_format` is "pipe", it is joined into a
-    pipe-separated string. Otherwise, it is serialized as a JSON string.
-
-    Parameters
-    ----------
-    obj:
-        The object to serialize.
-    list_format:
-        The format to use for lists ("pipe" or "json").
-
-    Returns
-    -------
-    str
-        The serialized string.
-    """
-
-    if isinstance(obj, list) and list_format == "pipe":
-        return "|".join(json.dumps(x, ensure_ascii=False, sort_keys=True) for x in obj)
-    return json.dumps(obj, ensure_ascii=False, sort_keys=True)
 
 
 def _extract_components(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -406,25 +383,22 @@ def fetch_targets(
                 "organism": payload.get("organism"),
                 "tax_id": payload.get("tax_id"),
                 "species_group_flag": payload.get("species_group_flag"),
-                "target_components": _serialize(
-                    _extract_components(payload), list_format=cfg.list_format
+                "target_components": serialise_cell(
+                    _extract_components(payload), cfg.list_format
                 ),
-                "protein_classifications": _serialize(
-                    _extract_protein_classifications(payload),
-                    list_format=cfg.list_format,
+                "protein_classifications": serialise_cell(
+                    _extract_protein_classifications(payload), cfg.list_format
                 ),
-                "cross_references": _serialize(
-                    _extract_cross_refs(payload), list_format=cfg.list_format
+                "cross_references": serialise_cell(
+                    _extract_cross_refs(payload), cfg.list_format
                 ),
-                "gene_symbol_list": _serialize(genes, list_format=cfg.list_format),
-                "protein_synonym_list": _serialize(
-                    prot_names, list_format=cfg.list_format
+                "gene_symbol_list": serialise_cell(genes, cfg.list_format),
+                "protein_synonym_list": serialise_cell(prot_names, cfg.list_format),
+                "ec_number_list": serialise_cell(ec_numbers, cfg.list_format),
+                "chembl_alternative_name_list": serialise_cell(
+                    alt_names, cfg.list_format
                 ),
-                "ec_number_list": _serialize(ec_numbers, list_format=cfg.list_format),
-                "chembl_alternative_name_list": _serialize(
-                    alt_names, list_format=cfg.list_format
-                ),
-                "uniprot_id_list": _serialize(uniprot_ids, list_format=cfg.list_format),
+                "uniprot_id_list": serialise_cell(uniprot_ids, cfg.list_format),
                 "hgnc_name": hgnc_name,
                 "hgnc_id": hgnc_id,
             }
