@@ -1,0 +1,27 @@
+generated_at: '2025-09-17T08:48:42.473114+00:00'
+command: '''scripts\chembl_testitems_main.py'' --input ''data\input\testitem2.csv''
+  --output ''data\output\output.testitem_all.csv'''
+config:
+  input: data\input\testitem2.csv
+  column: molecule_chembl_id
+  chunk_size: 20
+  timeout: 30.0
+  max_retries: 3
+  rps: 2.0
+  base_url: https://www.ebi.ac.uk/chembl/api/data
+  user_agent: ChEMBLDataAcquisition/1.0
+  sep: ','
+  encoding: utf-8
+  list_format: json
+  log_level: INFO
+  limit: null
+  dictionary: null
+  smiles_column: canonical_smiles
+  pubchem_timeout: 10.0
+  pubchem_base_url: https://pubchem.ncbi.nlm.nih.gov/rest/pug
+  pubchem_user_agent: ChEMBLDataAcquisition/1.0
+  dry_run: false
+output: data\output\output.testitem_all.csv
+sha256: 9adad567969af43c6f1a4444838cd55c848934eab66fc54ce737a7a685c17e29
+rows: 40607
+columns: 59
