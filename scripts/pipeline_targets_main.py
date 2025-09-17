@@ -49,6 +49,9 @@ from library.iuphar import ClassificationRecord, IUPHARClassifier, IUPHARData
 
 
 # Columns produced by :func:`add_iuphar_classification`.
+DEFAULT_LOG_FORMAT = "human"
+
+
 IUPHAR_CLASS_COLUMNS = [
     "iuphar_target_id",
     "iuphar_family_id",
@@ -523,6 +526,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--id-column", default="target_chembl_id")
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--log-level", default="INFO")
+    parser.add_argument(
+        "--log-format",
+        default=DEFAULT_LOG_FORMAT,
+        choices=("human", "json"),
+        help="Logging output format (human or json)",
+    )
     parser.add_argument("--sep", default=",")
     parser.add_argument("--encoding", default="utf-8-sig")
     parser.add_argument("--list-format", default="json")
@@ -683,7 +692,7 @@ def main() -> None:
     """Main entry point for the unified target data pipeline."""
 
     args = parse_args()
-    configure_logging(args.log_level)
+    configure_logging(args.log_level, log_format=args.log_format)
     pipeline_cfg = load_pipeline_config(args.config)
     pipeline_cfg.list_format = args.list_format
     pipeline_cfg.species_priority = [args.species]

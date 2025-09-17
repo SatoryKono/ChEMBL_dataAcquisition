@@ -19,6 +19,7 @@ DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_SEP = ","
 DEFAULT_ENCODING = "utf-8"
 DEFAULT_COLUMN = "uniprot_id"
+DEFAULT_LOG_FORMAT = "human"
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -41,11 +42,17 @@ def main(argv: list[str] | None = None) -> None:
         "--config", help="Path to YAML configuration file", required=False
     )
     parser.add_argument("--log-level", default=DEFAULT_LOG_LEVEL, help="Logging level")
+    parser.add_argument(
+        "--log-format",
+        default=DEFAULT_LOG_FORMAT,
+        choices=("human", "json"),
+        help="Logging output format (human or json)",
+    )
     parser.add_argument("--sep", default=DEFAULT_SEP, help="CSV field separator")
     parser.add_argument("--encoding", default=DEFAULT_ENCODING, help="File encoding")
     args = parser.parse_args(argv)
 
-    configure_logging(args.log_level)
+    configure_logging(args.log_level, log_format=args.log_format)
 
     if args.config:
         config_path = Path(args.config)

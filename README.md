@@ -139,6 +139,9 @@ The `scripts/` directory contains several other scripts for performing specific 
 *   `chembl_activities_main.py`: Stream activity identifiers, fetch ChEMBL activity records, normalise/validate them, and emit quality reports.
 
 For detailed usage information for each script, run it with the `--help` flag.
+All command line entry points accept `--log-format` to switch between the
+default human-readable output and structured JSON logs, complementing the
+existing `--log-level` control.
 
 ## Library
 
@@ -203,7 +206,8 @@ python scripts/chembl_activities_main.py \
     --column activity_chembl_id \
     --limit 1000 \
     --chunk-size 10 \
-    --log-level DEBUG
+    --log-level DEBUG \
+    --log-format json
 ```
 
 Validation errors are persisted to `<output>.errors.json` while dataset metadata

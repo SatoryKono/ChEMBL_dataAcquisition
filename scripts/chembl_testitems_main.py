@@ -26,8 +26,10 @@ from library.metadata import write_meta_yaml
 from library.normalize_testitems import normalize_testitems
 from library.testitem_library import PUBCHEM_BASE_URL, add_pubchem_data
 from library.testitem_validation import TestitemsSchema, validate_testitems
+from library.logging_utils import configure_logging
 
 LOGGER = logging.getLogger(__name__)
+DEFAULT_LOG_FORMAT = "human"
 
 
 def _default_output_name(input_path: str) -> str:
@@ -36,11 +38,24 @@ def _default_output_name(input_path: str) -> str:
     return f"output_{stem}_{date_suffix}.csv"
 
 
+ 
+def _serialise_value(value: object, list_format: str) -> object:
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if isinstance(value, list):
+        if list_format == "pipe":
+            return "|".join(
+                json.dumps(item, ensure_ascii=False, sort_keys=True) for item in value
+            )
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return value
+ 
 def _configure_logging(level: str) -> None:
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+ 
 
 
 def _serialise_complex_columns(df: pd.DataFrame, list_format: str) -> pd.DataFrame:
@@ -97,6 +112,12 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--log-level", default="INFO", help="Logging level (e.g. INFO, DEBUG)"
+    )
+    parser.add_argument(
+        "--log-format",
+        default=DEFAULT_LOG_FORMAT,
+        choices=("human", "json"),
+        help="Logging output format (human or json)",
     )
     parser.add_argument(
         "--errors-output", default=None, help="Path to validation error report"
@@ -268,7 +289,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Entry point used by the CLI and tests."""
 
     args = parse_args(argv)
-    _configure_logging(args.log_level)
+    configure_logging(args.log_level, log_format=args.log_format)
     try:
         cmd_parts = [sys.argv[0], *(argv or sys.argv[1:])]
         return run_pipeline(args, command_parts=cmd_parts)

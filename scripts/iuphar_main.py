@@ -14,6 +14,8 @@ if __package__ in {None, ""}:
 from library.iuphar import IUPHARData
 from library.logging_utils import configure_logging
 
+DEFAULT_LOG_FORMAT = "human"
+
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
@@ -32,6 +34,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sep", default=",", help="CSV delimiter")
     parser.add_argument("--encoding", default="utf-8", help="File encoding")
     parser.add_argument("--log-level", default="INFO", help="Logging level")
+    parser.add_argument(
+        "--log-format",
+        default=DEFAULT_LOG_FORMAT,
+        choices=("human", "json"),
+        help="Logging output format (human or json)",
+    )
     return parser.parse_args()
 
 
@@ -39,7 +47,7 @@ def main() -> None:
     """CLI entry point."""
 
     args = parse_args()
-    configure_logging(args.log_level)
+    configure_logging(args.log_level, log_format=args.log_format)
     if args.output is None:
         date = dt.date.today().strftime("%Y%m%d")
         stem = Path(args.input).stem
