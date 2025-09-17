@@ -26,7 +26,7 @@ from library.chembl_client import ChemblClient
 from library.chembl_library import get_testitems
 from library.data_profiling import analyze_table_quality
 from library.io import read_ids
-from library.io_utils import CsvConfig
+from library.io_utils import CsvConfig, serialise_cell
 from library.normalize_testitems import normalize_testitems
 from library.testitem_library import (
     PUBCHEM_BASE_URL,
@@ -75,7 +75,6 @@ def _serialise_complex_columns(df: pd.DataFrame, list_format: str) -> pd.DataFra
             lambda value: serialise_cell(value, list_format)
         )
     return result
-
 
 
 def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:

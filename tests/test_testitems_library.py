@@ -65,12 +65,12 @@ def test_add_pubchem_data_enriches_dataframe(
 
     requests_mock.get(
         f"{PUBCHEM_BASE_URL}/compound/smiles/C/property/"
-        "MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
+        "CID,MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
         json=_pubchem_properties_response("CH4", 10),
     )
     requests_mock.get(
         f"{PUBCHEM_BASE_URL}/compound/smiles/CC/property/"
-        "MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
+        "CID,MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
         json=_pubchem_properties_response("C2H6", 20),
     )
     requests_mock.get(

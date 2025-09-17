@@ -92,6 +92,10 @@ def main(argv: list[str] | None = None) -> None:
             output_csv_path=Path(args.output) if args.output else None,
             config_path=config_path,
             schema_path=schema_path,
+            log_level=args.log_level,
+            log_format=args.log_format,
+            sep=args.sep,
+            encoding=args.encoding,
         )
     else:
         cfg_path = ROOT / "config.yaml"
@@ -101,6 +105,10 @@ def main(argv: list[str] | None = None) -> None:
             config_path=cfg_path,
             schema_path=schema,
             config_section="chembl2uniprot",
+            log_level=args.log_level,
+            log_format=args.log_format,
+            sep=args.sep,
+            encoding=args.encoding,
         )
 
     print(output)
