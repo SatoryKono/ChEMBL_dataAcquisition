@@ -222,3 +222,76 @@ def test_output_argument_after_command() -> None:
 
     assert args.command == "all"
     assert args.output == "results.csv"
+
+
+def test_run_semantic_scholar_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Semantic Scholar command should export the expected columns."""
+
+    input_csv = tmp_path / "input.csv"
+    pd.DataFrame({"PMID": ["123"]}).to_csv(input_csv, index=False)
+
+    scholar_record = SemanticScholarRecord(
+        pmid="123",
+        doi="10.1/doi1",
+        publication_types=["Journal Article"],
+        venue="Venue",
+        paper_id="S1",
+        external_ids={"PMID": "123", "DOI": "10.1/doi1"},
+        error=None,
+    )
+
+    monkeypatch.setattr(
+        pm,
+        "fetch_semantic_scholar_records",
+        lambda pmids, *, client, chunk_size: [scholar_record],
+    )
+
+    output_path = tmp_path / "out.csv"
+    args = argparse.Namespace(
+        command="scholar",
+        input=input_csv,
+        output=output_path,
+        column="PMID",
+        semantic_scholar_chunk_size=None,
+        semantic_scholar_rps=None,
+        semantic_scholar_timeout=None,
+    )
+    config = deepcopy(pm.DEFAULT_CONFIG)
+
+    pm.run_semantic_scholar_command(args, config)
+
+    df = pd.read_csv(output_path)
+    assert set(df.columns) >= {
+        "scholar.PMID",
+        "scholar.DOI",
+        "scholar.PublicationTypes",
+        "scholar.SemanticScholarId",
+        "scholar.Error",
+    }
+    assert str(df.loc[0, "scholar.PMID"]) == "123"
+
+
+def test_semantic_scholar_cli_overrides() -> None:
+    """Semantic Scholar CLI options should override config values."""
+
+    parser = pm.build_parser()
+    args = parser.parse_args(
+        [
+            "--semantic-scholar-rps",
+            "0.5",
+            "--semantic-scholar-timeout",
+            "10",
+            "--semantic-scholar-chunk-size",
+            "50",
+            "scholar",
+        ]
+    )
+    config = deepcopy(pm.DEFAULT_CONFIG)
+
+    pm.apply_cli_overrides(args, config)
+
+    assert config["semantic_scholar"]["rps"] == pytest.approx(0.5)
+    assert config["semantic_scholar"]["timeout"] == pytest.approx(10.0)
+    assert config["semantic_scholar"]["chunk_size"] == 50

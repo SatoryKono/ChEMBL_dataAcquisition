@@ -23,6 +23,7 @@ from library.chembl_client import ApiCfg, ChemblClient, get_documents
 from library.document_pipeline import (
     CH_EMBL_COLUMNS,
     DOCUMENT_SCHEMA_COLUMNS,
+    SEMANTIC_SCHOLAR_COLUMNS,
     DocumentsSchema,
     build_dataframe,
     compute_file_hash,
@@ -34,7 +35,10 @@ from library.document_pipeline import (
 )
 from library.http_client import HttpClient
 from library.pubmed_client import fetch_pubmed_records
-from library.semantic_scholar_client import fetch_semantic_scholar_records
+from library.semantic_scholar_client import (
+    SemanticScholarRecord,
+    fetch_semantic_scholar_records,
+)
 from library.openalex_client import fetch_openalex_records
 from library.crossref_client import fetch_crossref_records
 from library.logging_utils import configure_logging
@@ -82,6 +86,33 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "status_forcelist": [408, 409, 429, 500, 502, 503, 504],
     },
 }
+
+
+def _build_semantic_scholar_dataframe(
+    records: Sequence[SemanticScholarRecord],
+) -> pd.DataFrame:
+    """Return a DataFrame containing Semantic Scholar metadata.
+
+    Parameters
+    ----------
+    records:
+        Sequence of parsed Semantic Scholar responses.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Normalised table with deterministic column ordering.
+    """
+
+    if records:
+        df = pd.DataFrame([record.to_dict() for record in records])
+    else:
+        df = pd.DataFrame(columns=SEMANTIC_SCHOLAR_COLUMNS)
+    for column in SEMANTIC_SCHOLAR_COLUMNS:
+        if column not in df.columns:
+            df[column] = pd.NA
+    df = df.reindex(columns=SEMANTIC_SCHOLAR_COLUMNS)
+    return df
 
 
 def _deep_update(
@@ -526,6 +557,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the Crossref requests-per-second limit",
     )
     parser.add_argument(
+        "--semantic-scholar-rps",
+        dest="global_semantic_scholar_rps",
+        type=float,
+        default=None,
+        help="Override the Semantic Scholar requests-per-second limit",
+    )
+    parser.add_argument(
         "--chunk-size",
         dest="global_chunk_size",
         type=int,
@@ -539,6 +577,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override the timeout for ChEMBL document downloads",
     )
+    parser.add_argument(
+        "--semantic-scholar-chunk-size",
+        dest="global_semantic_scholar_chunk_size",
+        type=int,
+        default=None,
+        help="Override the Semantic Scholar chunk size",
+    )
+    parser.add_argument(
+        "--semantic-scholar-timeout",
+        dest="global_semantic_scholar_timeout",
+        type=float,
+        default=None,
+        help="Override the Semantic Scholar timeout",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     pubmed_parser = subparsers.add_parser(
@@ -551,6 +603,9 @@ def build_parser() -> argparse.ArgumentParser:
     pubmed_parser.add_argument("--workers", type=int, default=None)
     pubmed_parser.add_argument("--openalex-rps", type=float, default=None)
     pubmed_parser.add_argument("--crossref-rps", type=float, default=None)
+    pubmed_parser.add_argument("--semantic-scholar-rps", type=float, default=None)
+    pubmed_parser.add_argument("--semantic-scholar-chunk-size", type=int, default=None)
+    pubmed_parser.add_argument("--semantic-scholar-timeout", type=float, default=None)
 
     chembl_parser = subparsers.add_parser(
         "chembl",
@@ -559,6 +614,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     chembl_parser.add_argument("--chunk-size", type=int, default=None)
     chembl_parser.add_argument("--timeout", type=float, default=None)
+
+    scholar_parser = subparsers.add_parser(
+        "scholar",
+        help="Fetch Semantic Scholar metadata",
+        parents=[common_parser],
+    )
+    scholar_parser.add_argument("--semantic-scholar-chunk-size", type=int, default=None)
+    scholar_parser.add_argument("--semantic-scholar-rps", type=float, default=None)
+    scholar_parser.add_argument("--semantic-scholar-timeout", type=float, default=None)
 
     all_parser = subparsers.add_parser(
         "all",
@@ -572,6 +636,9 @@ def build_parser() -> argparse.ArgumentParser:
     all_parser.add_argument("--crossref-rps", type=float, default=None)
     all_parser.add_argument("--chunk-size", type=int, default=None)
     all_parser.add_argument("--timeout", type=float, default=None)
+    all_parser.add_argument("--semantic-scholar-rps", type=float, default=None)
+    all_parser.add_argument("--semantic-scholar-chunk-size", type=int, default=None)
+    all_parser.add_argument("--semantic-scholar-timeout", type=float, default=None)
 
     return parser
 
@@ -608,6 +675,28 @@ def apply_cli_overrides(args: argparse.Namespace, config: Dict[str, Any]) -> Non
         workers = _cli_option(args, "workers", "global_workers")
         if workers is not None:
             config["pipeline"]["workers"] = int(workers)
+    if args.command in {"pubmed", "all", "scholar"}:
+        scholar_rps = _cli_option(
+            args,
+            "semantic_scholar_rps",
+            "global_semantic_scholar_rps",
+        )
+        if scholar_rps is not None:
+            config["semantic_scholar"]["rps"] = float(scholar_rps)
+        scholar_chunk_size = _cli_option(
+            args,
+            "semantic_scholar_chunk_size",
+            "global_semantic_scholar_chunk_size",
+        )
+        if scholar_chunk_size is not None:
+            config["semantic_scholar"]["chunk_size"] = int(scholar_chunk_size)
+        scholar_timeout = _cli_option(
+            args,
+            "semantic_scholar_timeout",
+            "global_semantic_scholar_timeout",
+        )
+        if scholar_timeout is not None:
+            config["semantic_scholar"]["timeout"] = float(scholar_timeout)
     if args.command in {"chembl", "all"}:
         chunk_size = _cli_option(args, "chunk_size", "global_chunk_size")
         if chunk_size is not None:
@@ -615,6 +704,32 @@ def apply_cli_overrides(args: argparse.Namespace, config: Dict[str, Any]) -> Non
         timeout = _cli_option(args, "timeout", "global_timeout")
         if timeout is not None:
             config["chembl"]["timeout"] = float(timeout)
+
+
+def run_semantic_scholar_command(
+    args: argparse.Namespace, config: Dict[str, Any]
+) -> None:
+    """Write Semantic Scholar metadata for the provided PMIDs to disk."""
+
+    io_cfg = config["io"]
+    column = args.column or config["pipeline"].get("column_pubmed", "PMID")
+    ids = _read_identifier_column(
+        args.input, column, sep=io_cfg["sep"], encoding=io_cfg["encoding"]
+    )
+    LOGGER.info("Loaded %d unique PMIDs", len(ids))
+    scholar_cfg = config["semantic_scholar"]
+    scholar_client = _create_http_client(scholar_cfg)
+    records = fetch_semantic_scholar_records(
+        ids,
+        client=scholar_client,
+        chunk_size=int(scholar_cfg.get("chunk_size", 100)),
+    )
+    df = _build_semantic_scholar_dataframe(records)
+    df = dataframe_to_strings(df)
+    df = df.sort_values("scholar.PMID").reset_index(drop=True)
+    _write_output(
+        df, output_path=args.output, sep=io_cfg["sep"], encoding=io_cfg["encoding"]
+    )
 
 
 def main() -> None:
@@ -636,6 +751,8 @@ def main() -> None:
         run_pubmed_command(args, config)
     elif args.command == "chembl":
         run_chembl_command(args, config)
+    elif args.command == "scholar":
+        run_semantic_scholar_command(args, config)
     elif args.command == "all":
         run_all_command(args, config)
     else:  # pragma: no cover - safeguarded by argparse

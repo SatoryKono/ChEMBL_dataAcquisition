@@ -89,6 +89,17 @@ CH_EMBL_COLUMNS: List[str] = [
 ]
 
 
+SEMANTIC_SCHOLAR_COLUMNS: List[str] = [
+    "scholar.PMID",
+    "scholar.DOI",
+    "scholar.PublicationTypes",
+    "scholar.Venue",
+    "scholar.SemanticScholarId",
+    "scholar.ExternalIds",
+    "scholar.Error",
+]
+
+
 def _normalise_doi(doi: str | None) -> str | None:
     if not doi:
         return None
@@ -322,11 +333,25 @@ def quality_report(df: pd.DataFrame) -> Dict[str, Any]:
     """Return basic quality metrics for ``df``."""
 
     total = len(df)
-    doi_missing = (
-        int(df["PubMed.DOI"].fillna("").eq("").sum())
-        if "PubMed.DOI" in df.columns
-        else total
-    )
+    doi_columns = [
+        column
+        for column in (
+            "PubMed.DOI",
+            "scholar.DOI",
+            "OpenAlex.DOI",
+            "crossref.DOI",
+            "ChEMBL.doi",
+        )
+        if column in df.columns
+    ]
+    if doi_columns:
+        doi_present = pd.Series(False, index=df.index, dtype=bool)
+        for column in doi_columns:
+            values = df[column].fillna("").astype(str).str.strip()
+            doi_present = doi_present | values.ne("")
+        doi_missing = int((~doi_present).sum())
+    else:
+        doi_missing = total
     class_counts = df.get("publication_class", pd.Series(dtype="string")).value_counts(
         dropna=False
     )
@@ -360,4 +385,5 @@ __all__ = [
     "quality_report",
     "compute_file_hash",
     "save_quality_report",
+    "SEMANTIC_SCHOLAR_COLUMNS",
 ]
