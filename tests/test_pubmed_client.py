@@ -1,9 +1,10 @@
-"""Tests for the PubMed client."""
+"""Tests for the PubMed client helpers."""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Callable, Sequence
 
 import requests_mock
 
@@ -12,61 +13,23 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from library.http_client import HttpClient  # type: ignore  # noqa: E402
 from library import pubmed_client as pc  # type: ignore  # noqa: E402
+from library.http_client import HttpClient  # type: ignore  # noqa: E402
 
 
-SAMPLE_XML = """<?xml version='1.0'?>
-<PubmedArticleSet>
-  <PubmedArticle>
-    <MedlineCitation>
-      <PMID>1</PMID>
-      <Article>
-        <ArticleTitle>Title 1</ArticleTitle>
-        <Abstract>
-          <AbstractText>Abstract 1</AbstractText>
-        </Abstract>
-        <Journal><Title>Journal 1</Title></Journal>
-        <PublicationTypeList>
-          <PublicationType>Journal Article</PublicationType>
-        </PublicationTypeList>
-      </Article>
-    </MedlineCitation>
-    <PubmedData>
-      <ArticleIdList>
-        <ArticleId IdType="doi">10.1/doi1</ArticleId>
-      </ArticleIdList>
-    </PubmedData>
-  </PubmedArticle>
-  <PubmedArticle>
-    <MedlineCitation>
-      <PMID>2</PMID>
-      <Article>
-        <ArticleTitle>Title 2</ArticleTitle>
-        <Abstract>
-          <AbstractText>Abstract 2</AbstractText>
-        </Abstract>
-        <Journal><Title>Journal 2</Title></Journal>
-        <PublicationTypeList>
-          <PublicationType>Review</PublicationType>
-        </PublicationTypeList>
-      </Article>
-    </MedlineCitation>
-    <PubmedData>
-      <ArticleIdList>
-        <ArticleId IdType="doi">10.2/doi2</ArticleId>
-      </ArticleIdList>
-    </PubmedData>
-  </PubmedArticle>
-</PubmedArticleSet>
-"""
+def test_fetch_pubmed_records_parses_fields(
+    pubmed_xml_factory: Callable[[Sequence[tuple[str, str, str | None]]], str]
+) -> None:
+    """Basic parsing should surface the expected bibliographic fields."""
 
-
-def test_fetch_pubmed_records_parses_fields():
+    xml_payload = pubmed_xml_factory(
+        [("1", "Title 1", "Journal Article"), ("2", "Title 2", "Review")]
+    )
     with requests_mock.Mocker() as m:
-        m.get(pc.API_URL, text=SAMPLE_XML)
+        m.get(pc.API_URL, text=xml_payload)
         client = HttpClient(timeout=1.0, max_retries=1, rps=0)
         records = pc.fetch_pubmed_records(["1", "2"], client=client, batch_size=200)
+
     assert [r.pmid for r in records] == ["1", "2"]
     assert records[0].doi == "10.1/doi1"
     assert records[0].title == "Title 1"
@@ -77,3 +40,60 @@ def test_fetch_pubmed_records_parses_fields():
     )
     assert review_score > experimental_score
     assert "review" in normalised
+
+
+def test_fetch_pubmed_records_batches_requests(
+    pubmed_xml_factory: Callable[[Sequence[tuple[str, str, str | None]]], str]
+) -> None:
+    """The downloader should honour the requested batch size for pagination."""
+
+    xml_chunk_one = pubmed_xml_factory(
+        [("1", "Title 1", "Journal Article"), ("2", "Title 2", "Review")]
+    )
+    xml_chunk_two = pubmed_xml_factory([("3", "Title 3", None)])
+
+    def _match(expected: str):
+        def _matcher(request: requests_mock.request._RequestObjectProxy) -> bool:  # type: ignore[attr-defined]
+            ids = request.qs.get("id", [])
+            return ids == [expected]
+
+        return _matcher
+
+    with requests_mock.Mocker() as m:
+        m.get(pc.API_URL, text=xml_chunk_one, additional_matcher=_match("1,2"))
+        m.get(pc.API_URL, text=xml_chunk_two, additional_matcher=_match("3"))
+        client = HttpClient(timeout=1.0, max_retries=1, rps=0)
+        records = pc.fetch_pubmed_records(
+            ["1", "2", "3"], client=client, batch_size=2
+        )
+        history = list(m.request_history)
+
+    assert [req.qs["id"][0] for req in history] == ["1,2", "3"]
+    assert [record.pmid for record in records] == ["1", "2", "3"]
+
+
+def test_fetch_pubmed_records_reports_http_error() -> None:
+    """HTTP status errors should be converted into error records."""
+
+    with requests_mock.Mocker() as m:
+        m.get(pc.API_URL, status_code=500, text="boom")
+        client = HttpClient(timeout=1.0, max_retries=1, rps=0)
+        records = pc.fetch_pubmed_records(["99"], client=client, batch_size=1)
+
+    assert records[0].error is not None
+    assert records[0].error == "HTTP error 500"
+
+
+def test_fetch_pubmed_records_marks_missing_pmids(
+    pubmed_xml_factory: Callable[[Sequence[tuple[str, str, str | None]]], str]
+) -> None:
+    """Missing identifiers must surface descriptive error messages."""
+
+    xml_payload = pubmed_xml_factory([("1", "Title 1", None)])
+    with requests_mock.Mocker() as m:
+        m.get(pc.API_URL, text=xml_payload)
+        client = HttpClient(timeout=1.0, max_retries=1, rps=0)
+        records = pc.fetch_pubmed_records(["1", "2"], client=client, batch_size=5)
+
+    assert records[0].error is None
+    assert records[1].error == "PMID not returned by PubMed"

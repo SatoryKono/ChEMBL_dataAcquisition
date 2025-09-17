@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import pandas as pd
 import pytest
@@ -78,15 +78,15 @@ def test_run_pipeline_passes_pubchem_http_client_config(
     def fake_write_meta_yaml(
         output_path: Path,
         *,
-        command: str,
-        config: dict[str, Any],
         row_count: int,
         column_count: int,
-        meta_path: Path | None,
+        namespace: Any,
+        command_parts: Sequence[str] | None = None,
+        meta_path: Path | None = None,
     ) -> None:
         captured["meta_output_path"] = output_path
-        captured["meta_command"] = command
-        captured["meta_config"] = config
+        captured["meta_command"] = " ".join(command_parts or [])
+        captured["meta_config"] = vars(namespace)
         captured["meta_row_count"] = row_count
         captured["meta_column_count"] = column_count
         captured["meta_path"] = meta_path
@@ -96,7 +96,7 @@ def test_run_pipeline_passes_pubchem_http_client_config(
     monkeypatch.setattr(module, "normalize_testitems", fake_normalize)
     monkeypatch.setattr(module, "add_pubchem_data", fake_add_pubchem_data)
     monkeypatch.setattr(module, "validate_testitems", fake_validate)
-    monkeypatch.setattr(module, "write_meta_yaml", fake_write_meta_yaml)
+    monkeypatch.setattr(module, "write_cli_metadata", fake_write_meta_yaml)
     monkeypatch.setattr(module, "analyze_table_quality", lambda *_, **__: None)
 
     argv = [

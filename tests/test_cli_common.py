@@ -111,3 +111,32 @@ def test_write_cli_metadata_produces_expected_yaml(tmp_path: Path) -> None:
     assert "output" not in payload["config"]
     assert payload["rows"] == 1
     assert payload["columns"] == 1
+
+
+def test_write_cli_metadata_defaults_to_sys_argv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When no command parts are provided the helper should use ``sys.argv``."""
+
+    output_path = tmp_path / "dataset.csv"
+    ensure_output_dir(output_path)
+    output_path.write_text("col\nvalue\n", encoding="utf-8")
+
+    namespace = argparse.Namespace(
+        input=tmp_path / "input.csv",
+        output=str(output_path),
+        errors_output=None,
+        meta_output=None,
+        limit=3,
+    )
+
+    monkeypatch.setattr(sys, "argv", ["chembl-cli", "--flag", "value"])
+    meta_file = write_cli_metadata(
+        output_path,
+        row_count=1,
+        column_count=1,
+        namespace=namespace,
+    )
+
+    payload = yaml.safe_load(meta_file.read_text(encoding="utf-8"))
+    assert payload["command"] == "chembl-cli --flag value"
