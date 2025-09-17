@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Mapping, Sequence
 from urllib.parse import quote
 
 import requests
@@ -16,9 +16,27 @@ LOGGER = logging.getLogger(__name__)
 API_URL = "https://api.crossref.org/works/{doi}"
 
 
+def _clean_string(value: Any) -> str | None:
+    if isinstance(value, str):
+        candidate = value.strip()
+        if candidate:
+            return candidate
+    return None
+
+
 def _normalise_subject(subject: Any) -> List[str]:
     if isinstance(subject, list):
-        return [str(item).strip() for item in subject if str(item).strip()]
+        values: List[str] = []
+        for item in subject:
+            if isinstance(item, Mapping):
+                name = _clean_string(item.get("name"))
+                if name:
+                    values.append(name)
+                    continue
+            text = _clean_string(item)
+            if text:
+                values.append(text)
+        return values
     if isinstance(subject, str) and subject.strip():
         return [subject.strip()]
     return []
@@ -115,10 +133,12 @@ def fetch_crossref_records(
             continue
 
         titles = message.get("title") or []
-        title = titles[0].strip() if titles and isinstance(titles[0], str) else None
+        title = (
+            _clean_string(titles[0]) if titles and isinstance(titles[0], str) else None
+        )
         subtitles = message.get("subtitle") or []
         subtitle = (
-            subtitles[0].strip()
+            _clean_string(subtitles[0])
             if subtitles and isinstance(subtitles[0], str)
             else None
         )
@@ -126,8 +146,8 @@ def fetch_crossref_records(
 
         records[doi] = CrossrefRecord(
             doi=doi,
-            type=message.get("type"),
-            subtype=message.get("subtype"),
+            type=_clean_string(message.get("type")),
+            subtype=_clean_string(message.get("subtype")),
             title=title,
             subtitle=subtitle,
             subject=subject,

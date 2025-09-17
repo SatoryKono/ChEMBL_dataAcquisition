@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+
+import re
+
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List
@@ -16,10 +19,26 @@ except ImportError:  # pragma: no cover
     from http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
 
 
-import logging
-
-
 LOGGER = logging.getLogger(__name__)
+
+
+def _is_not_found_error(exception: requests.HTTPError) -> bool:
+    """Return ``True`` when ``exception`` represents a HTTP 404 error.
+
+    Some versions of :mod:`requests` may omit the :class:`requests.Response`
+    object when raising :class:`requests.HTTPError`.  In such cases we fall back
+    to inspecting the textual representation to determine whether the error
+    corresponds to a missing resource.
+    """
+
+    response = exception.response
+    if response is not None:
+        return response.status_code == 404
+
+    message = str(exception)
+    if not message or "Not Found" not in message:
+        return False
+    return bool(re.search(r"\b404\b", message))
 
 
 @dataclass
@@ -62,8 +81,7 @@ class ChemblClient:
             response = self._http.request("get", url, headers=headers)
             response.raise_for_status()
         except requests.HTTPError as exc:
-            status_code = exc.response.status_code if exc.response is not None else None
-            if status_code == 404:
+            if _is_not_found_error(exc):
                 LOGGER.warning(
                     "%s %s не найден (404)", resource.capitalize(), identifier
                 )

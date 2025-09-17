@@ -73,7 +73,12 @@ def _parse_item(raw: Any, fallback_pmid: str) -> SemanticScholarRecord:
         return SemanticScholarRecord.from_error(fallback_pmid, str(raw["error"]))
 
     external_ids = raw.get("externalIds") or {}
-    pmid = str(external_ids.get("PMID") or fallback_pmid)
+    pmid_value = (
+        external_ids.get("PMID")
+        or external_ids.get("PubMed")
+        or external_ids.get("pubmed")
+    )
+    pmid = str(pmid_value or fallback_pmid)
     doi = external_ids.get("DOI")
     if isinstance(doi, str):
         doi = doi.strip() or None
@@ -131,13 +136,11 @@ def fetch_semantic_scholar_records(
 
     records: Dict[str, SemanticScholarRecord] = {}
     for chunk in _chunked(cleaned, chunk_size):
-        payload = {
-            "ids": [f"PMID:{p}" for p in chunk],
-            "fields": ",".join(DEFAULT_FIELDS),
-        }
+        payload = {"ids": [f"PMID:{p}" for p in chunk]}
+        params = {"fields": ",".join(DEFAULT_FIELDS)}
         LOGGER.debug("Requesting %d Semantic Scholar IDs", len(chunk))
         try:
-            resp = client.request("post", API_URL, json=payload)
+            resp = client.request("post", API_URL, json=payload, params=params)
         except requests.HTTPError as exc:  # pragma: no cover
             status = exc.response.status_code if exc.response is not None else "N/A"
             msg = f"HTTP error {status}"

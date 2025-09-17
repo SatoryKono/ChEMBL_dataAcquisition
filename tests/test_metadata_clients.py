@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 from library.http_client import HttpClient  # type: ignore  # noqa: E402
 from library.semantic_scholar_client import (  # type: ignore  # noqa: E402
     API_URL as SS_URL,
+    DEFAULT_FIELDS,
     fetch_semantic_scholar_records,
 )
 from library.openalex_client import (  # type: ignore  # noqa: E402
@@ -30,13 +31,13 @@ def test_semantic_scholar_parses_fields():
     sample = [
         {
             "paperId": "S1",
-            "externalIds": {"PMID": "1", "DOI": "10.1/doi1"},
+            "externalIds": {"PubMed": "1", "DOI": "10.1/doi1", "CorpusId": 42},
             "publicationTypes": ["JournalArticle"],
             "venue": "Venue1",
         },
         {
             "paperId": "S2",
-            "externalIds": {"PMID": "2"},
+            "externalIds": {"PubMed": "2"},
             "publicationTypes": ["Review"],
             "venue": "Venue2",
         },
@@ -45,8 +46,13 @@ def test_semantic_scholar_parses_fields():
         m.post(SS_URL, json=sample)
         client = HttpClient(timeout=1.0, max_retries=1, rps=0)
         recs = fetch_semantic_scholar_records(["1", "2"], client=client)
+        assert m.last_request
+        fields_param = m.last_request.qs.get("fields")
+        assert fields_param is not None
+        assert fields_param[0].lower() == ",".join(DEFAULT_FIELDS).lower()
     assert recs[0].doi == "10.1/doi1"
     assert recs[1].publication_types == ["Review"]
+    assert recs[0].external_ids.get("CorpusId") == 42
 
 
 def test_semantic_scholar_handles_string_error():
@@ -64,15 +70,18 @@ def test_openalex_parses_fields():
             json={
                 "id": "https://openalex.org/W1",
                 "doi": "https://doi.org/10.1/doi1",
-                "publication_types": ["journal-article"],
+                "type": "article",
                 "type_crossref": "journal-article",
-                "genre": "journal-article",
-                "host_venue": {"display_name": "Journal"},
+                "primary_location": {
+                    "source": {"display_name": "Journal"},
+                },
             },
         )
         client = HttpClient(timeout=1.0, max_retries=1, rps=0)
         recs = fetch_openalex_records(["1"], client=client)
     assert recs[0].doi == "10.1/doi1"
+    assert recs[0].publication_types == ["article", "journal-article"]
+    assert recs[0].genre == "article"
     assert recs[0].venue == "Journal"
 
 
@@ -84,13 +93,17 @@ def test_crossref_parses_fields():
             json={
                 "message": {
                     "type": "journal-article",
-                    "subtype": "",
+                    "subtype": " clinical-trial ",
                     "title": ["Title"],
-                    "subject": ["Biology"],
+                    "subject": [
+                        {"name": "Biology"},
+                        " Chemistry ",
+                    ],
                 }
             },
         )
         client = HttpClient(timeout=1.0, max_retries=1, rps=0)
         recs = fetch_crossref_records([doi], client=client)
     assert recs[0].title == "Title"
-    assert recs[0].subject == ["Biology"]
+    assert recs[0].subtype == "clinical-trial"
+    assert recs[0].subject == ["Biology", "Chemistry"]
