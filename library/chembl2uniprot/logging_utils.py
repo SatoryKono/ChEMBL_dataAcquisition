@@ -7,10 +7,17 @@ centralised utilities located in :mod:`library.logging_utils`.
 
 from __future__ import annotations
 
-from library.logging_utils import (
-    JsonFormatter,
-    SecretRedactingFilter,
-    configure_logging,
-)
+try:
+    from library.logging_utils import (
+        JsonFormatter,
+        SecretRedactingFilter,
+        configure_logging,
+    )
+except ModuleNotFoundError:  # pragma: no cover - fallback for direct package import
+    from logging_utils import (  # type: ignore[attr-defined]
+        JsonFormatter,
+        SecretRedactingFilter,
+        configure_logging,
+    )
 
 __all__ = ["JsonFormatter", "SecretRedactingFilter", "configure_logging"]

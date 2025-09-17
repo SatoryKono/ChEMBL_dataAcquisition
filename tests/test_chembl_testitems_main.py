@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 chembl_testitems_main = importlib.import_module("scripts.chembl_testitems_main")
+prepare_cli_config = importlib.import_module("library.cli_common").prepare_cli_config
 
 
 def test_run_pipeline_passes_pubchem_http_client_config(
@@ -75,28 +76,34 @@ def test_run_pipeline_passes_pubchem_http_client_config(
         captured["errors_path"] = errors_path
         return df
 
-    def fake_write_meta_yaml(
+    def fake_write_cli_metadata(
         output_path: Path,
         *,
         row_count: int,
         column_count: int,
         namespace: Any,
+ 
         command_parts: Sequence[str] | None = None,
         meta_path: Path | None = None,
     ) -> None:
         captured["meta_output_path"] = output_path
         captured["meta_command"] = " ".join(command_parts or [])
         captured["meta_config"] = vars(namespace)
+ 
+ 
         captured["meta_row_count"] = row_count
         captured["meta_column_count"] = column_count
         captured["meta_path"] = meta_path
+        return output_path.with_suffix(".csv.meta.yaml")
 
     monkeypatch.setattr(module, "ChemblClient", DummyClient)
     monkeypatch.setattr(module, "get_testitems", fake_get_testitems)
     monkeypatch.setattr(module, "normalize_testitems", fake_normalize)
     monkeypatch.setattr(module, "add_pubchem_data", fake_add_pubchem_data)
     monkeypatch.setattr(module, "validate_testitems", fake_validate)
-    monkeypatch.setattr(module, "write_cli_metadata", fake_write_meta_yaml)
+ 
+    monkeypatch.setattr(module, "write_cli_metadata", fake_write_cli_metadata)
+ 
     monkeypatch.setattr(module, "analyze_table_quality", lambda *_, **__: None)
 
     argv = [

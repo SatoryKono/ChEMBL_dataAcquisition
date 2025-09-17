@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import requests_mock as requests_mock_lib
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -220,6 +221,27 @@ def test_chembl_activities_main_end_to_end(
 
     meta_file = output_csv.with_suffix(".csv.meta.yaml")
     assert meta_file.exists()
+
+    second_exit = chembl_activities_main(
+        [
+            "--input",
+            str(input_csv),
+            "--output",
+            str(output_csv),
+            "--base-url",
+            base_url,
+            "--chunk-size",
+            "1",
+            "--log-level",
+            "DEBUG",
+        ]
+    )
+    assert second_exit == 0
+
+    metadata = yaml.safe_load(meta_file.read_text(encoding="utf-8"))
+    determinism = metadata["determinism"]
+    assert determinism["matches_previous"] is True
+    assert determinism["previous_sha256"] == determinism["current_sha256"]
 
     quality_report = Path(f"{output_csv.with_suffix('')}_quality_report_table.csv")
     assert quality_report.exists()

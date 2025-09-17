@@ -207,6 +207,57 @@ IUPHAR summary.  Lists are serialised as JSON arrays and sorted to guarantee
 reproducible files.  See the source for the full column list.
 
 
+## CSV output conventions
+
+All command line utilities emit deterministic CSV files together with a
+``.meta.yaml`` companion capturing the command invocation, configuration and a
+SHA-256 digest of the output. The metadata file also records a determinism
+summary in the ``determinism`` section. Each time the CLI is executed the
+current hash is compared with the previous run and ``matches_previous`` reflects
+whether the outputs are byte-for-byte identical.
+
+### Column ordering
+
+- Pipelines with an explicit schema (for example
+  ``chembl_activities_main.py`` and ``chembl_testitems_main.py``) write schema
+  columns first and append any extra fields sorted alphabetically. This keeps
+  the core attributes stable while still surfacing optional enrichments in a
+  predictable order.
+- The unified target pipeline groups related columns so that identifiers and
+  annotations appear first while IUPHAR classification columns are appended as a
+  block at the end for clarity.
+
+### Row ordering
+
+- Pipelines that accept a list of identifiers preserve the order in which the
+  identifiers are supplied after deduplication. When a natural sort order exists
+  (e.g. assay or molecule identifiers) the data are sorted on those keys with
+  ``NaN`` entries placed at the end of the table to avoid jitter between runs.
+
+### CSV format and encoding
+
+- CSV files use Unix line endings (``\n``) and default to UTF-8 encoding. The
+  unified pipeline defaults to ``utf-8-sig`` for compatibility with downstream
+  tools, but the encoding and delimiter can be customised via ``--encoding`` and
+  ``--sep``.
+- Lists and dictionaries are serialised as JSON strings by default. Supplying
+  ``--list-format pipe`` switches to a pipe-delimited representation with
+  deterministic escaping for embedded ``|`` characters.
+
+### Missing values
+
+- Normalisation layers convert missing collections into empty lists and map
+  absent scalars to ``NaN``. When written to CSV these appear as empty cells
+  rather than the literal string ``NA``. This ensures downstream consumers can
+  distinguish between an empty value and a textual placeholder.
+
+### Determinism tooling
+
+The ``scripts/check_determinism.py`` utility exercises the low-level CSV writer
+twice and verifies that the recorded hashes and metadata agree. Use it as a
+sanity check when making changes to serialisation logic.
+
+
 ## Testing and quality checks
 
 After making changes, run the following tools:

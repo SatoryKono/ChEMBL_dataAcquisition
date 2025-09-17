@@ -111,6 +111,7 @@ def test_write_cli_metadata_produces_expected_yaml(tmp_path: Path) -> None:
     assert "output" not in payload["config"]
     assert payload["rows"] == 1
     assert payload["columns"] == 1
+ 
 
 
 def test_write_cli_metadata_defaults_to_sys_argv(
@@ -140,3 +141,10 @@ def test_write_cli_metadata_defaults_to_sys_argv(
 
     payload = yaml.safe_load(meta_file.read_text(encoding="utf-8"))
     assert payload["command"] == "chembl-cli --flag value"
+ 
+    determinism = payload["determinism"]
+    assert determinism["baseline_sha256"] == payload["sha256"]
+    assert determinism["previous_sha256"] is None
+    assert determinism["matches_previous"] is None
+    assert determinism["check_count"] == 1
+ 
