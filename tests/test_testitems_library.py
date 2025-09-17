@@ -106,10 +106,14 @@ def test_add_pubchem_data_handles_invalid_json(
         text="not-json",
         status_code=200,
     )
+    requests_mock.get(
+        f"{PUBCHEM_BASE_URL}/compound/smiles/C/cids/JSON",
+        json={"IdentifierList": {"CID": []}},
+    )
 
     enriched = add_pubchem_data(df, http_client_config={"max_retries": 1, "rps": 0.0})
 
-    assert requests_mock.call_count == 1
+    assert requests_mock.call_count == 2
     assert pd.isna(enriched.loc[0, "pubchem_cid"])
 
 
@@ -127,10 +131,14 @@ def test_add_pubchem_data_handles_network_errors(
         "CID,MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
         exc=requests.exceptions.ConnectTimeout,
     )
+    requests_mock.get(
+        f"{PUBCHEM_BASE_URL}/compound/smiles/C/cids/JSON",
+        json={"IdentifierList": {"CID": []}},
+    )
 
     enriched = add_pubchem_data(df, http_client_config={"max_retries": 1, "rps": 0.0})
 
-    assert requests_mock.call_count == 1
+    assert requests_mock.call_count == 2
     assert pd.isna(enriched.loc[0, "pubchem_cid"])
 
 

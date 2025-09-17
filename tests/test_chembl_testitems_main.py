@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import pandas as pd
 import pytest
@@ -82,12 +82,15 @@ def test_run_pipeline_passes_pubchem_http_client_config(
         row_count: int,
         column_count: int,
         namespace: Any,
-        command_parts: Any,
-        meta_path: Path | None,
-    ) -> Path:
+ 
+        command_parts: Sequence[str] | None = None,
+        meta_path: Path | None = None,
+    ) -> None:
         captured["meta_output_path"] = output_path
-        captured["meta_command"] = command_parts
-        captured["meta_config"] = prepare_cli_config(namespace)
+        captured["meta_command"] = " ".join(command_parts or [])
+        captured["meta_config"] = vars(namespace)
+ 
+ 
         captured["meta_row_count"] = row_count
         captured["meta_column_count"] = column_count
         captured["meta_path"] = meta_path
@@ -98,7 +101,9 @@ def test_run_pipeline_passes_pubchem_http_client_config(
     monkeypatch.setattr(module, "normalize_testitems", fake_normalize)
     monkeypatch.setattr(module, "add_pubchem_data", fake_add_pubchem_data)
     monkeypatch.setattr(module, "validate_testitems", fake_validate)
+ 
     monkeypatch.setattr(module, "write_cli_metadata", fake_write_cli_metadata)
+ 
     monkeypatch.setattr(module, "analyze_table_quality", lambda *_, **__: None)
 
     argv = [

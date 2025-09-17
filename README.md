@@ -37,6 +37,22 @@ The primary goal of this project is to provide a deterministic and configurable 
 *   types-requests >= 2.31.0.10
 *   types-jsonschema >= 4.17.0
 
+## Testing
+
+The project ships with an extensive pytest suite that exercises the library
+modules and command-line entry points. To run all tests locally use:
+
+```bash
+pytest -q
+```
+
+During development it can be helpful to abort quickly on the first failure and
+inspect the slowest tests:
+
+```bash
+pytest --maxfail=1 --durations=10
+```
+
 ## Installation
 
 1.  Create and activate a virtual environment:
