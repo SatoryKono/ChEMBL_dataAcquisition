@@ -8,7 +8,7 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterator, Sequence, cast
 
 import pandas as pd
 
@@ -47,6 +47,35 @@ def _default_output_name(input_path: str) -> str:
     stem = Path(input_path).stem or "output"
     date_suffix = datetime.now().strftime("%Y%m%d")
     return f"output_{stem}_{date_suffix}.csv"
+
+
+def _serialise_value(value: object, list_format: str) -> object:
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if isinstance(value, list):
+        if list_format == "pipe":
+            return "|".join(
+                json.dumps(item, ensure_ascii=False, sort_keys=True) for item in value
+            )
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return value
+
+
+def _configure_logging(level: str) -> None:
+    logging.basicConfig(
+        level=getattr(logging, level.upper(), logging.INFO),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+
+def _serialise_complex_columns(df: pd.DataFrame, list_format: str) -> pd.DataFrame:
+    result = df.copy()
+    for column in result.columns:
+        result[column] = result[column].map(
+            lambda value: serialise_cell(value, list_format)
+        )
+    return result
+
 
 
 def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
@@ -173,8 +202,8 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
 
 def _limited_ids(
     path: Path, column: str, cfg: CsvConfig, limit: int | None
-) -> Iterable[str]:
-    return read_ids(path, column, cfg, limit=limit)
+) -> Iterator[str]:
+    return cast(Iterator[str], read_ids(path, column, cfg, limit=limit))
 
 
 def run_pipeline(

@@ -219,7 +219,9 @@ def test_run_all_merges_chembl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         error=None,
     )
 
-    def fake_get_documents(ids: Sequence[str], *, cfg: Any, client: Any, chunk_size: int, timeout: float) -> pd.DataFrame:  # type: ignore[override]
+    def fake_get_documents(
+        ids: Sequence[str], *, cfg: Any, client: Any, chunk_size: int, timeout: float
+    ) -> pd.DataFrame:  # type: ignore[override]
         return chembl_df
 
     def fake_gather(

@@ -29,9 +29,13 @@ The primary goal of this project is to provide a deterministic and configurable 
 
 *   pytest >= 7.4
 *   requests-mock >= 1.11
+*   hypothesis >= 6.0
 *   black >= 23.0
 *   ruff >= 0.1
 *   mypy >= 1.4
+*   types-PyYAML >= 6.0.12
+*   types-requests >= 2.31.0.10
+*   types-jsonschema >= 4.17.0
 
 ## Installation
 
@@ -191,17 +195,25 @@ pytest
 
 To ensure code quality, the following tools are used:
 
-*   `black` for code formatting
+*   `ruff format` (compatible with the Black profile) for code formatting
 *   `ruff` for linting
-*   `mypy` for static type checking
+*   `mypy` for static type checking in strict mode
 
 You can run these checks with the following commands:
 
 ```bash
-black --check .
+ruff format --check .
 ruff check .
-mypy .
+mypy --strict
 ```
+
+The formatting and linting configuration is centralised in `pyproject.toml`. Both
+`black` and `ruff` use a line length of 88 characters and target Python 3.10
+syntax, ensuring the same limits apply regardless of which tool is run.
+
+Strict type checking is being rolled out incrementally. The `mypy --strict`
+invocation currently validates the `scripts/chembl_testitems_main.py` entry
+point, providing a template for migrating additional modules to strict typing.
 
 ## License
 
