@@ -184,7 +184,9 @@ class _PubChemRequest:
 
     @property
     def session(self) -> requests.Session:
-        """Expose the underlying :class:`requests.Session` used by the client."""
+
+        """Expose the underlying :class:`requests.Session` for convenience."""
+
 
         return self.http_client.session
 
