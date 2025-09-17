@@ -64,15 +64,18 @@ def test_openalex_parses_fields():
             json={
                 "id": "https://openalex.org/W1",
                 "doi": "https://doi.org/10.1/doi1",
-                "publication_types": ["journal-article"],
+                "type": "article",
                 "type_crossref": "journal-article",
-                "genre": "journal-article",
-                "host_venue": {"display_name": "Journal"},
+                "primary_location": {
+                    "source": {"display_name": "Journal"},
+                },
             },
         )
         client = HttpClient(timeout=1.0, max_retries=1, rps=0)
         recs = fetch_openalex_records(["1"], client=client)
     assert recs[0].doi == "10.1/doi1"
+    assert recs[0].publication_types == ["article", "journal-article"]
+    assert recs[0].genre == "article"
     assert recs[0].venue == "Journal"
 
 
@@ -84,13 +87,17 @@ def test_crossref_parses_fields():
             json={
                 "message": {
                     "type": "journal-article",
-                    "subtype": "",
+                    "subtype": " clinical-trial ",
                     "title": ["Title"],
-                    "subject": ["Biology"],
+                    "subject": [
+                        {"name": "Biology"},
+                        " Chemistry ",
+                    ],
                 }
             },
         )
         client = HttpClient(timeout=1.0, max_retries=1, rps=0)
         recs = fetch_crossref_records([doi], client=client)
     assert recs[0].title == "Title"
-    assert recs[0].subject == ["Biology"]
+    assert recs[0].subtype == "clinical-trial"
+    assert recs[0].subject == ["Biology", "Chemistry"]
