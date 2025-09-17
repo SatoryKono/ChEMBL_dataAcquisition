@@ -208,23 +208,20 @@ class _PubChemRequest:
 
         headers = {"Accept": "application/json", "User-Agent": self.user_agent}
         try:
- 
-            response = self.session.get(url, timeout=self.timeout, headers=headers)
-            if response.status_code == 404:
+            response = self.http_client.request("get", url, headers=headers)
+        except requests.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            if status_code == 404:
                 LOGGER.debug(
                     "PubChem returned 404 for %s while fetching %s", smiles, context
                 )
                 return None
-            response.raise_for_status()
-        except requests.HTTPError:
             LOGGER.warning(
                 "HTTP error when requesting PubChem %s for %s", context, smiles
- 
             )
             return None
         except requests.RequestException:
             LOGGER.warning(
- 
                 "Network error when requesting PubChem %s for %s", context, smiles
             )
             return None
