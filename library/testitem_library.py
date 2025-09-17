@@ -182,6 +182,12 @@ class _PubChemRequest:
     properties: Sequence[str]
     http_client: HttpClient
 
+    @property
+    def session(self) -> requests.Session:
+        """Expose the underlying :class:`requests.Session` used by the client."""
+
+        return self.http_client.session
+
     def _get_json(
         self,
         url: str,
@@ -208,7 +214,7 @@ class _PubChemRequest:
 
         headers = {"Accept": "application/json", "User-Agent": self.user_agent}
         try:
- 
+
             response = self.session.get(url, timeout=self.timeout, headers=headers)
             if response.status_code == 404:
                 LOGGER.debug(
@@ -219,12 +225,10 @@ class _PubChemRequest:
         except requests.HTTPError:
             LOGGER.warning(
                 "HTTP error when requesting PubChem %s for %s", context, smiles
- 
             )
             return None
         except requests.RequestException:
             LOGGER.warning(
- 
                 "Network error when requesting PubChem %s for %s", context, smiles
             )
             return None
@@ -243,7 +247,7 @@ class _PubChemRequest:
         encoded = quote(smiles, safe="")
         results: dict[str, object] = {}
 
-        property_fields = [prop for prop in self.properties if prop != "CID"]
+        property_fields = list(dict.fromkeys(self.properties))
         if property_fields:
             url = (
                 f"{self.base_url.rstrip('/')}/compound/smiles/{encoded}/property/"
@@ -257,7 +261,7 @@ class _PubChemRequest:
                     for prop in property_fields:
                         results[prop] = _normalise_numeric(prop, record.get(prop))
 
-        if "CID" in self.properties:
+        if "CID" in self.properties and results.get("CID") is None:
             cid_url = f"{self.base_url.rstrip('/')}/compound/smiles/{encoded}/cids/JSON"
             payload = self._get_json(cid_url, smiles=smiles, context="CID list")
             if payload is not None:
@@ -266,7 +270,6 @@ class _PubChemRequest:
                     results["CID"] = _normalise_numeric("CID", identifiers[0])
 
         return results
- 
 
 
 def _unique_smiles(values: Iterable[object]) -> list[str]:

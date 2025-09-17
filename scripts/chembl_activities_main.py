@@ -9,7 +9,6 @@ if __package__ in {None, ""}:
 
 import argparse
 import logging
-import shlex
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -17,13 +16,17 @@ from typing import Iterable, Sequence
 
 import pandas as pd
 
+from library.cli_common import (
+    ensure_output_dir,
+    serialise_dataframe,
+    write_cli_metadata,
+)
 from library.activity_validation import ActivitiesSchema, validate_activities
 from library.chembl_client import ChemblClient
 from library.chembl_library import get_activities
 from library.data_profiling import analyze_table_quality
 from library.io import read_ids
-from library.io_utils import CsvConfig, serialise_cell
-from library.metadata import write_meta_yaml
+from library.io_utils import CsvConfig
 from library.normalize_activities import normalize_activities
 from library.logging_utils import configure_logging
 
@@ -35,15 +38,6 @@ def _default_output_name(input_path: str) -> str:
     stem = Path(input_path).stem or "output"
     date_suffix = datetime.now().strftime("%Y%m%d")
     return f"output_{stem}_{date_suffix}.csv"
-
-
-def _serialise_complex_columns(df: pd.DataFrame, list_format: str) -> pd.DataFrame:
-    result = df.copy()
-    for column in result.columns:
-        result[column] = result[column].map(
-            lambda value: serialise_cell(value, list_format)
-        )
-    return result
 
 
 def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
@@ -123,18 +117,6 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(args)
 
 
-def _prepare_configuration(namespace: argparse.Namespace) -> dict[str, object]:
-    config: dict[str, object] = {}
-    for key, value in vars(namespace).items():
-        if key in {"output", "errors_output", "meta_output"}:
-            continue
-        if isinstance(value, Path):
-            config[key] = str(value)
-        else:
-            config[key] = value
-    return config
-
-
 def _limited_ids(
     path: Path, column: str, cfg: CsvConfig, limit: int | None
 ) -> Iterable[str]:
@@ -212,19 +194,16 @@ def run_pipeline(
     if sort_columns:
         validated = validated.sort_values(sort_columns).reset_index(drop=True)
 
-    serialised = _serialise_complex_columns(validated, args.list_format)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    serialised = serialise_dataframe(validated, args.list_format)
+    ensure_output_dir(output_path)
     serialised.to_csv(output_path, index=False, sep=args.sep, encoding=args.encoding)
 
-    if command_parts is None:
-        command_parts = sys.argv
-
-    write_meta_yaml(
+    write_cli_metadata(
         output_path,
-        command=" ".join(shlex.quote(part) for part in command_parts),
-        config=_prepare_configuration(args),
         row_count=int(len(serialised)),
         column_count=int(len(serialised.columns)),
+        namespace=args,
+        command_parts=command_parts,
         meta_path=meta_path,
     )
 
