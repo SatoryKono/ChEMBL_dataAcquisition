@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from pathlib import Path
 
 from typing import Any, Callable, Dict, Iterable, List, Sequence
@@ -34,9 +35,13 @@ from library.uniprot_enrich.enrich import (
 )
 from library.logging_utils import configure_logging
 
+from library.cli_common import (
+    analyze_table_quality,
+    ensure_output_dir,
+    write_cli_metadata,
+)
 
 from library.protein_classifier import classify_protein
-from library.data_profiling import analyze_table_quality
 
 
 from library.pipeline_targets import (
@@ -650,44 +655,6 @@ def build_clients(
     return uni, hgnc, gtop, ens_client, oma_client, target_species
 
 
-def save_output(
-    df: pd.DataFrame,
-    output: str | Path,
-    *,
-    sep: str = ",",
-    encoding: str = "utf-8",
-) -> Path:
-    """Persist ``df`` to ``output`` ensuring the path is valid.
-
-    The user-provided path may include a tilde (``~``) to reference the home
-    directory or point to a location in a non-existent folder.  This helper
-    expands user references and creates any missing parent directories before
-    writing the CSV file.
-
-    Parameters
-    ----------
-    df:
-        Data frame to serialise.
-    output:
-        Destination file path.  ``"~"`` and ``".."`` segments are resolved.
-    sep:
-        Column delimiter for ``pandas.DataFrame.to_csv``.
-    encoding:
-        Text encoding for the resulting file.
-
-    Returns
-    -------
-    pathlib.Path
-        Absolute path to the written file.
-    """
-
-    out_path = Path(output).expanduser().resolve()
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(out_path, index=False, sep=sep, encoding=encoding)
-    analyze_table_quality(df, table_name=str(out_path.with_suffix("")))
-    return out_path
-
-
 def main() -> None:
     """Main entry point for the unified target data pipeline."""
 
@@ -831,7 +798,28 @@ def main() -> None:
     cols = [c for c in out_df.columns if c not in IUPHAR_CLASS_COLUMNS]
     out_df = out_df[cols + IUPHAR_CLASS_COLUMNS]
 
-    out_df.to_csv(args.output, index=False, sep=args.sep, encoding=args.encoding)
+    sort_candidates = [
+        "target_chembl_id",
+        "uniprot_id_primary",
+        "gene_symbol",
+        "hgnc_id",
+    ]
+    sort_columns = [column for column in sort_candidates if column in out_df.columns]
+    if sort_columns:
+        out_df = out_df.sort_values(sort_columns).reset_index(drop=True)
+
+    output_path = ensure_output_dir(Path(args.output).expanduser().resolve())
+    out_df.to_csv(output_path, index=False, sep=args.sep, encoding=args.encoding)
+
+    write_cli_metadata(
+        output_path,
+        row_count=int(len(out_df)),
+        column_count=int(len(out_df.columns)),
+        namespace=args,
+        command_parts=tuple(sys.argv),
+    )
+
+    analyze_table_quality(out_df, table_name=str(output_path.with_suffix("")))
 
 
 if __name__ == "__main__":
