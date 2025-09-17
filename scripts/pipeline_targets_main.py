@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Sequence
 
 import pandas as pd
+import requests
 import yaml  # type: ignore[import]
 from tqdm.auto import tqdm
 
@@ -207,11 +208,21 @@ def add_protein_classification(
     ]
 
     ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str)).astype(str)
-    try:
-        entry_map = fetch_entries([i for i in ids if i])
-    except Exception as exc:  # pragma: no cover - logging side effect
-        logging.getLogger(__name__).warning("Failed to fetch UniProt entries: %s", exc)
-        entry_map = {}
+    unique_ids = [acc for acc in dict.fromkeys(ids) if acc]
+    logger = logging.getLogger(__name__)
+    entry_map: Dict[str, Any] = {}
+    for acc in unique_ids:
+        try:
+            fetched = fetch_entries([acc])
+        except requests.RequestException as exc:
+            msg = f"Network error while fetching UniProt entry for {acc}"
+            raise RuntimeError(msg) from exc
+        except Exception as exc:  # pragma: no cover - logging side effect
+            logger.warning("Failed to fetch UniProt entry for %s: %s", acc, exc)
+            continue
+        entry = (fetched or {}).get(acc)
+        if entry is not None:
+            entry_map[acc] = entry
 
     def _classify(acc: str) -> pd.Series:
         entry = entry_map.get(acc)
