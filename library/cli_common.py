@@ -11,8 +11,17 @@ from typing import Any
 
 import pandas as pd
 
+from library.data_profiling import analyze_table_quality
 from library.io_utils import serialise_cell
 from library.metadata import write_meta_yaml
+
+__all__ = [
+    "ensure_output_dir",
+    "serialise_dataframe",
+    "prepare_cli_config",
+    "write_cli_metadata",
+    "analyze_table_quality",
+]
 
 _EXCLUDED_CONFIG_KEYS = frozenset({"output", "errors_output", "meta_output"})
 

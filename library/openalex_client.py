@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from html import unescape
 import logging
+import re
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 import requests
@@ -38,6 +40,67 @@ def _dedupe_preserve_order(values: Iterable[str]) -> List[str]:
         seen.add(value)
         ordered.append(value)
     return ordered
+
+
+def _strip_html(value: str) -> str:
+    """Return a compact representation of ``value`` with HTML markup removed."""
+
+    if not value:
+        return ""
+    # Replace HTML tags with whitespace before normalising consecutive spaces.
+    without_tags = re.sub(r"<[^>]+>", " ", unescape(value))
+    compact = re.sub(r"\s+", " ", without_tags).strip()
+    return compact[:200]
+
+
+def _extract_text(value: Any) -> str | None:
+    """Extract the first meaningful text snippet from ``value``."""
+
+    if isinstance(value, str):
+        candidate = value.strip()
+        if candidate:
+            return candidate
+        return None
+    if isinstance(value, Mapping):
+        for key in ("message", "error", "detail", "description", "title", "reason"):
+            text = _extract_text(value.get(key))
+            if text:
+                return text
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        for item in value:
+            text = _extract_text(item)
+            if text:
+                return text
+    return None
+
+
+def _format_error_message(response: requests.Response) -> str:
+    """Return a human readable summary of an erroneous HTTP ``response``."""
+
+    status = response.status_code
+    raw_reason = response.reason
+    reason = raw_reason or "Unknown error"
+
+    message: str | None = None
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    else:
+        message = _extract_text(payload)
+
+    if not message:
+        message = _strip_html(response.text)
+
+    if status == 404:
+        fallback = raw_reason or "Not Found"
+        if not message or message.lower().startswith("not found"):
+            message = fallback
+
+    if not message:
+        message = reason
+
+    return f"HTTP {status}: {message}"
 
 
 def _extract_publication_types(item: Mapping[str, Any]) -> List[str]:
@@ -199,8 +262,10 @@ def fetch_openalex_records(
         try:
             resp = client.request("get", url)
         except requests.HTTPError as exc:  # pragma: no cover
-            status = exc.response.status_code if exc.response is not None else "N/A"
-            msg = f"HTTP error {status}"
+            if exc.response is not None:
+                msg = _format_error_message(exc.response)
+            else:
+                msg = f"HTTP error {getattr(exc.response, 'status_code', 'N/A')}"
             LOGGER.warning("OpenAlex request failed for PMID %s: %s", pmid, msg)
             records[pmid] = OpenAlexRecord.from_error(pmid, msg)
             continue
@@ -211,7 +276,7 @@ def fetch_openalex_records(
             continue
 
         if resp.status_code >= 400:
-            msg = f"HTTP {resp.status_code}: {resp.text[:200]}"
+            msg = _format_error_message(resp)
             LOGGER.warning("OpenAlex returned error for PMID %s: %s", pmid, msg)
             records[pmid] = OpenAlexRecord.from_error(pmid, msg)
             continue
