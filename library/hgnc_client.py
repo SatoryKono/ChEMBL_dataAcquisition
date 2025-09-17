@@ -333,7 +333,12 @@ def map_uniprot_to_hgnc(
     """
 
     cfg = load_config(config_path, section=config_section)
-    logging.basicConfig(level=getattr(logging, log_level.upper(), logging.INFO))
+    level_name = log_level.upper()
+    level_value = logging.getLevelName(level_name)
+    if isinstance(level_value, str):
+        msg = f"Unknown log level: {log_level!r}"
+        raise ValueError(msg)
+    LOGGER.setLevel(int(level_value))
     sep = sep or cfg.output.sep
     encoding = encoding or cfg.output.encoding
 

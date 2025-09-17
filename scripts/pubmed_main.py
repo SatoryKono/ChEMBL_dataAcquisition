@@ -37,8 +37,10 @@ from library.pubmed_client import fetch_pubmed_records
 from library.semantic_scholar_client import fetch_semantic_scholar_records
 from library.openalex_client import fetch_openalex_records
 from library.crossref_client import fetch_crossref_records
+from library.logging_utils import configure_logging
 
 LOGGER = logging.getLogger("pubmed_main")
+DEFAULT_LOG_FORMAT = "human"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "io": {"sep": ",", "encoding": "utf-8"},
@@ -207,6 +209,12 @@ def _build_global_parser(
     parser.add_argument(
         "--log-level",
         default=("INFO" if include_defaults else argparse.SUPPRESS),
+    )
+    parser.add_argument(
+        "--log-format",
+        choices=("human", "json"),
+        default=(DEFAULT_LOG_FORMAT if include_defaults else argparse.SUPPRESS),
+        help="Logging output format (human or json)",
     )
     parser.add_argument(
         "--print-config",
@@ -612,7 +620,7 @@ def apply_cli_overrides(args: argparse.Namespace, config: Dict[str, Any]) -> Non
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
+    configure_logging(args.log_level, log_format=args.log_format)
     config = load_config(args.config)
     apply_cli_overrides(args, config)
 

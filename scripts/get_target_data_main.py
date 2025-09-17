@@ -18,6 +18,7 @@ from library.logging_utils import configure_logging  # noqa: E402
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_SEP = ","
 DEFAULT_ENCODING = "utf-8-sig"
+DEFAULT_LOG_FORMAT = "human"
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -36,11 +37,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         "--column", default="target_chembl_id", help="Column with target IDs"
     )
     parser.add_argument("--log-level", default=DEFAULT_LOG_LEVEL)
+    parser.add_argument(
+        "--log-format",
+        default=DEFAULT_LOG_FORMAT,
+        choices=("human", "json"),
+        help="Logging output format (human or json)",
+    )
     parser.add_argument("--sep", default=DEFAULT_SEP)
     parser.add_argument("--encoding", default=DEFAULT_ENCODING)
     args = parser.parse_args(argv)
 
-    configure_logging(args.log_level)
+    configure_logging(args.log_level, log_format=args.log_format)
 
     import pandas as pd
 
