@@ -1,15 +1,10 @@
 {
   "error_counts": {
-    "OpenAlex.Error": 0,
-    "PubMed.Error": 0,
-    "crossref.Error": 0,
-    "scholar.Error": 0
+    "scholar.Error": 67
   },
-  "file_sha256": "d0aa0f8c821979f3b9051ac6b99e8dc402f0470fde41c1aa4fce0ae2ede8bf48",
-  "missing_doi": 0,
+  "file_sha256": "e5a5fc323f4c0f51e0658d5932280d10946855ee0225af0cd88493a3cd945060",
+  "missing_doi": 233,
   "output": "data\\output\\output.document_shcolar.csv",
-  "publication_class_distribution": {
-    "experimental": 6
-  },
-  "row_count": 6
+  "publication_class_distribution": {},
+  "row_count": 15675
 }
