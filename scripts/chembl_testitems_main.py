@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import shlex
 import sys
@@ -24,7 +25,14 @@ from library.io import read_ids
 from library.io_utils import CsvConfig, serialise_cell
 from library.metadata import write_meta_yaml
 from library.normalize_testitems import normalize_testitems
-from library.testitem_library import PUBCHEM_BASE_URL, add_pubchem_data
+from library.testitem_library import (
+    PUBCHEM_BASE_URL,
+    PUBCHEM_DEFAULT_BACKOFF,
+    PUBCHEM_DEFAULT_MAX_RETRIES,
+    PUBCHEM_DEFAULT_RETRY_PENALTY,
+    PUBCHEM_DEFAULT_RPS,
+    add_pubchem_data,
+)
 from library.testitem_validation import TestitemsSchema, validate_testitems
 from library.logging_utils import configure_logging
 
@@ -148,6 +156,30 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         help="PubChem HTTP timeout in seconds",
     )
     parser.add_argument(
+        "--pubchem-max-retries",
+        type=int,
+        default=PUBCHEM_DEFAULT_MAX_RETRIES,
+        help="Maximum retry attempts for PubChem requests",
+    )
+    parser.add_argument(
+        "--pubchem-rps",
+        type=float,
+        default=PUBCHEM_DEFAULT_RPS,
+        help="Maximum PubChem requests per second",
+    )
+    parser.add_argument(
+        "--pubchem-backoff",
+        type=float,
+        default=PUBCHEM_DEFAULT_BACKOFF,
+        help="Exponential backoff multiplier for PubChem retries",
+    )
+    parser.add_argument(
+        "--pubchem-retry-penalty",
+        type=float,
+        default=PUBCHEM_DEFAULT_RETRY_PENALTY,
+        help="Additional sleep in seconds applied after PubChem retries",
+    )
+    parser.add_argument(
         "--pubchem-base-url",
         default=PUBCHEM_BASE_URL,
         help="PubChem PUG REST base URL",
@@ -232,12 +264,23 @@ def run_pipeline(
         molecules_df = pd.DataFrame(columns=TestitemsSchema.ordered_columns())
 
     normalised = normalize_testitems(molecules_df)
+    pubchem_http_client_config = {
+        "max_retries": args.pubchem_max_retries,
+        "rps": args.pubchem_rps,
+        "backoff_multiplier": args.pubchem_backoff,
+        "retry_penalty_seconds": args.pubchem_retry_penalty,
+    }
+    LOGGER.debug(
+        "Using PubChem HTTP client configuration: %s", pubchem_http_client_config
+    )
+
     enriched = add_pubchem_data(
         normalised,
         smiles_column=args.smiles_column,
         timeout=args.pubchem_timeout,
         base_url=args.pubchem_base_url,
         user_agent=args.pubchem_user_agent,
+        http_client_config=pubchem_http_client_config,
     )
     validated = validate_testitems(enriched, errors_path=errors_path)
 

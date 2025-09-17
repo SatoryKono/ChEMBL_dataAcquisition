@@ -182,6 +182,12 @@ class _PubChemRequest:
     properties: Sequence[str]
     http_client: HttpClient
 
+    @property
+    def session(self) -> requests.Session:
+        """Expose the underlying :class:`requests.Session` for convenience."""
+
+        return self.http_client.session
+
     def _get_json(
         self,
         url: str,
