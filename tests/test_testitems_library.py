@@ -46,12 +46,11 @@ def test_add_pubchem_data_enriches_dataframe(
         ]
     )
 
-    def _pubchem_response(cid: int, formula: str) -> dict[str, object]:
+    def _pubchem_properties_response(formula: str, cid: int) -> dict[str, object]:
         return {
             "PropertyTable": {
                 "Properties": [
                     {
-                        "CID": cid,
                         "MolecularFormula": formula,
                         "MolecularWeight": 42.0 + cid,
                         "TPSA": 12.3,
@@ -66,17 +65,25 @@ def test_add_pubchem_data_enriches_dataframe(
 
     requests_mock.get(
         f"{PUBCHEM_BASE_URL}/compound/smiles/C/property/"
-        "CID,MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
-        json=_pubchem_response(10, "CH4"),
+        "MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
+        json=_pubchem_properties_response("CH4", 10),
     )
     requests_mock.get(
         f"{PUBCHEM_BASE_URL}/compound/smiles/CC/property/"
-        "CID,MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
-        json=_pubchem_response(20, "C2H6"),
+        "MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
+        json=_pubchem_properties_response("C2H6", 20),
+    )
+    requests_mock.get(
+        f"{PUBCHEM_BASE_URL}/compound/smiles/C/cids/JSON",
+        json={"IdentifierList": {"CID": [10]}},
+    )
+    requests_mock.get(
+        f"{PUBCHEM_BASE_URL}/compound/smiles/CC/cids/JSON",
+        json={"IdentifierList": {"CID": [20]}},
     )
 
     enriched = add_pubchem_data(df)
-    assert requests_mock.call_count == 2
+    assert requests_mock.call_count == 4
 
     assert enriched.loc[0, "pubchem_cid"] == 10
     assert enriched.loc[1, "pubchem_cid"] == 10  # cached duplicate

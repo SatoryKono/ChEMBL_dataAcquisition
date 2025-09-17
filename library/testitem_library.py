@@ -182,66 +182,91 @@ class _PubChemRequest:
     properties: Sequence[str]
     http_client: HttpClient
 
-    def fetch(self, smiles: str) -> Mapping[str, object]:
-        encoded = quote(smiles, safe="")
-        url = (
-            f"{self.base_url.rstrip('/')}/compound/smiles/{encoded}/property/"
-            f"{','.join(self.properties)}/JSON"
-        )
+    def _get_json(
+        self,
+        url: str,
+        *,
+        smiles: str,
+        context: str,
+    ) -> Mapping[str, Any] | None:
+        """Perform a GET request and decode the JSON payload.
+
+        Parameters
+        ----------
+        url:
+            Fully qualified PubChem endpoint.
+        smiles:
+            SMILES string used for logging.
+        context:
+            Short description of the request type (e.g. ``"properties"``).
+
+        Returns
+        -------
+        Mapping[str, Any] | None
+            Parsed JSON payload or ``None`` when the request fails.
+        """
+
         headers = {"Accept": "application/json", "User-Agent": self.user_agent}
         try:
-            response = self.http_client.request(
-                "get", url, headers=headers, timeout=(self.timeout, self.timeout)
-            )
-        except requests.HTTPError as exc:
-            status = exc.response.status_code if exc.response is not None else None
-            if status == 404:
-                LOGGER.debug("PubChem returned 404 for SMILES %s", smiles)
-                return {}
-            LOGGER.warning(
-                "HTTP error when requesting PubChem properties for %s",
-                smiles,
-                exc_info=True,
-            )
-            return {}
-        except requests.RequestException:
-            LOGGER.warning(
-                "Network error when requesting PubChem properties for %s",
-                smiles,
-                exc_info=True,
-            )
-            return {}
-
-        if response.status_code == 404:
-            LOGGER.debug("PubChem returned 404 for SMILES %s", smiles)
-            return {}
-
-        try:
+ 
+            response = self.session.get(url, timeout=self.timeout, headers=headers)
+            if response.status_code == 404:
+                LOGGER.debug(
+                    "PubChem returned 404 for %s while fetching %s", smiles, context
+                )
+                return None
             response.raise_for_status()
         except requests.HTTPError:
             LOGGER.warning(
-                "HTTP error when requesting PubChem properties for %s",
-                smiles,
-                exc_info=True,
+                "HTTP error when requesting PubChem %s for %s", context, smiles
+ 
             )
-            return {}
+            return None
+        except requests.RequestException:
+            LOGGER.warning(
+ 
+                "Network error when requesting PubChem %s for %s", context, smiles
+            )
+            return None
 
         try:
-            payload = response.json()
+            return response.json()
         except ValueError:
             LOGGER.warning(
-                "Invalid JSON when requesting PubChem properties for %s",
+                "Failed to decode JSON response from PubChem %s for %s",
+                context,
                 smiles,
-                exc_info=True,
             )
-            return {}
-        properties = payload.get("PropertyTable", {}).get("Properties", [])
-        if not properties:
-            return {}
-        record = properties[0]
-        return {
-            prop: _normalise_numeric(prop, record.get(prop)) for prop in self.properties
-        }
+            return None
+
+    def fetch(self, smiles: str) -> Mapping[str, object]:
+        encoded = quote(smiles, safe="")
+        results: dict[str, object] = {}
+
+        property_fields = [prop for prop in self.properties if prop != "CID"]
+        if property_fields:
+            url = (
+                f"{self.base_url.rstrip('/')}/compound/smiles/{encoded}/property/"
+                f"{','.join(property_fields)}/JSON"
+            )
+            payload = self._get_json(url, smiles=smiles, context="properties")
+            if payload is not None:
+                properties = payload.get("PropertyTable", {}).get("Properties", [])
+                if properties:
+                    record = properties[0]
+                    for prop in property_fields:
+                        results[prop] = _normalise_numeric(prop, record.get(prop))
+
+        if "CID" in self.properties:
+            cid_url = f"{self.base_url.rstrip('/')}/compound/smiles/{encoded}/cids/JSON"
+            payload = self._get_json(cid_url, smiles=smiles, context="CID list")
+            if payload is not None:
+                identifiers = payload.get("IdentifierList", {}).get("CID", [])
+                if identifiers:
+                    results["CID"] = _normalise_numeric("CID", identifiers[0])
+
+        return results
+ 
 
 
 def _unique_smiles(values: Iterable[object]) -> list[str]:
