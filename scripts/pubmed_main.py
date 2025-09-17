@@ -34,12 +34,12 @@ from library.document_pipeline import (
     save_quality_report,
 )
 from library.http_client import HttpClient
-from library.pubmed_client import fetch_pubmed_records
+from library.pubmed_client import PubMedRecord, fetch_pubmed_records
 from library.semantic_scholar_client import (
     SemanticScholarRecord,
     fetch_semantic_scholar_records,
 )
-from library.openalex_client import fetch_openalex_records
+from library.openalex_client import OpenAlexRecord, fetch_openalex_records
 from library.crossref_client import fetch_crossref_records
 from library.logging_utils import configure_logging
 
@@ -86,6 +86,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "status_forcelist": [408, 409, 429, 500, 502, 503, 504],
     },
 }
+
+
+OPENALEX_ONLY_PLACEHOLDER_ERROR = "PubMed metadata not requested (OpenAlex-only run)"
 
 
 def _build_semantic_scholar_dataframe(
@@ -267,6 +270,44 @@ def _read_identifier_column(
     return [value for value in values if value]
 
 
+def _build_openalex_pubmed_placeholders(
+    records: Sequence[OpenAlexRecord],
+    *,
+    error_message: str = OPENALEX_ONLY_PLACEHOLDER_ERROR,
+) -> List[PubMedRecord]:
+    """Create minimal PubMed records acting as OpenAlex merge anchors."""
+
+    placeholders: List[PubMedRecord] = []
+    for record in records:
+        placeholders.append(
+            PubMedRecord(
+                pmid=record.pmid,
+                doi=record.doi,
+                title=None,
+                abstract=None,
+                journal=None,
+                journal_abbrev=None,
+                volume=None,
+                issue=None,
+                start_page=None,
+                end_page=None,
+                issn=None,
+                publication_types=[],
+                mesh_descriptors=[],
+                mesh_qualifiers=[],
+                chemical_list=[],
+                year_completed=None,
+                month_completed=None,
+                day_completed=None,
+                year_revised=None,
+                month_revised=None,
+                day_revised=None,
+                error=error_message,
+            )
+        )
+    return placeholders
+
+
 def _gather_pubmed_sources(
     pmids: Sequence[str],
     *,
@@ -316,6 +357,33 @@ def _gather_pubmed_sources(
     return pubmed_records, scholar_records, openalex_records, crossref_records
 
 
+def _gather_openalex_sources(
+    pmids: Sequence[str],
+    *,
+    cfg: Dict[str, Any],
+) -> tuple[List[PubMedRecord], List[OpenAlexRecord], List[Any]]:
+    """Collect OpenAlex metadata and Crossref enrichments for ``pmids``."""
+
+    if not pmids:
+        return [], [], []
+
+    openalex_cfg = cfg["openalex"]
+    openalex_client = _create_http_client(openalex_cfg)
+    openalex_records = fetch_openalex_records(pmids, client=openalex_client)
+
+    dois = sorted({record.doi for record in openalex_records if record.doi})
+    crossref_records: List[Any]
+    if dois:
+        crossref_cfg = cfg["crossref"]
+        crossref_client = _create_http_client(crossref_cfg)
+        crossref_records = fetch_crossref_records(dois, client=crossref_client)
+    else:
+        crossref_records = []
+
+    placeholders = _build_openalex_pubmed_placeholders(openalex_records)
+    return placeholders, openalex_records, crossref_records
+
+
 def _write_output(
     df: pd.DataFrame,
     *,
@@ -334,6 +402,45 @@ def _write_output(
     LOGGER.info("Wrote %d rows to %s", len(df), output_path)
     LOGGER.info("Metadata report saved to %s", meta_path)
     return report
+
+
+def run_openalex_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    """Write OpenAlex and Crossref metadata for the provided PMIDs to disk."""
+
+    io_cfg = config["io"]
+    column = args.column or config["pipeline"].get("column_pubmed", "PMID")
+    pmids = _read_identifier_column(
+        args.input, column, sep=io_cfg["sep"], encoding=io_cfg["encoding"]
+    )
+    LOGGER.info("Loaded %d unique PMIDs", len(pmids))
+    (
+        placeholder_pubmed,
+        openalex_records,
+        crossref_records,
+    ) = _gather_openalex_sources(pmids, cfg=config)
+    workers = int(args.workers or config["pipeline"].get("workers", 1))
+    rows = merge_metadata(
+        placeholder_pubmed,
+        [],
+        openalex_records,
+        crossref_records,
+        max_workers=workers,
+    )
+    df = build_dataframe(rows)
+    schema = DocumentsSchema(DOCUMENT_SCHEMA_COLUMNS)
+    errors = schema.validate(df)
+    if errors:
+        error_path = Path(str(args.output) + ".schema_errors.json")
+        error_path.parent.mkdir(parents=True, exist_ok=True)
+        error_path.write_text(
+            json.dumps({"errors": errors}, indent=2), encoding="utf-8"
+        )
+        raise SystemExit("Schema validation failed; see error report")
+    df = dataframe_to_strings(df)
+    df = df.sort_values("PubMed.PMID", na_position="last").reset_index(drop=True)
+    _write_output(
+        df, output_path=args.output, sep=io_cfg["sep"], encoding=io_cfg["encoding"]
+    )
 
 
 def run_pubmed_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
@@ -607,6 +714,15 @@ def build_parser() -> argparse.ArgumentParser:
     pubmed_parser.add_argument("--semantic-scholar-chunk-size", type=int, default=None)
     pubmed_parser.add_argument("--semantic-scholar-timeout", type=float, default=None)
 
+    openalex_parser = subparsers.add_parser(
+        "openalex",
+        help="Fetch OpenAlex metadata with Crossref enrichment",
+        parents=[common_parser],
+    )
+    openalex_parser.add_argument("--workers", type=int, default=None)
+    openalex_parser.add_argument("--openalex-rps", type=float, default=None)
+    openalex_parser.add_argument("--crossref-rps", type=float, default=None)
+
     chembl_parser = subparsers.add_parser(
         "chembl",
         help="Download ChEMBL document metadata",
@@ -666,6 +782,7 @@ def apply_cli_overrides(args: argparse.Namespace, config: Dict[str, Any]) -> Non
         sleep = _cli_option(args, "sleep", "global_sleep")
         if sleep is not None:
             config["pubmed"]["sleep"] = float(sleep)
+    if args.command in {"pubmed", "all", "openalex"}:
         openalex_rps = _cli_option(args, "openalex_rps", "global_openalex_rps")
         if openalex_rps is not None:
             config["openalex"]["rps"] = float(openalex_rps)
@@ -749,6 +866,8 @@ def main() -> None:
 
     if args.command == "pubmed":
         run_pubmed_command(args, config)
+    elif args.command == "openalex":
+        run_openalex_command(args, config)
     elif args.command == "chembl":
         run_chembl_command(args, config)
     elif args.command == "scholar":
