@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import json
-from typing import Dict, List
+import sys
+from pathlib import Path
+from typing import Dict, Iterable, List
 
 import pandas as pd
+import pytest
+import requests
 
 from hgnc_client import HGNCRecord
 from pipeline_targets import PipelineConfig, run_pipeline
+
+sys.path.insert(0, str(Path("scripts")))
+from pipeline_targets_main import add_protein_classification
 
 
 def make_uniprot(
@@ -269,3 +276,15 @@ def test_pipeline_respects_config_columns(monkeypatch):
         gtop_client=gtop,
     )
     assert list(df.columns) == ["target_chembl_id", "uniprot_id_primary"]
+
+
+def test_add_protein_classification_network_error() -> None:
+    df = pd.DataFrame({"uniprot_id_primary": ["P12345"]})
+
+    def failing_fetch(_: Iterable[str]) -> Dict[str, dict]:
+        raise requests.RequestException("boom")
+
+    with pytest.raises(RuntimeError) as excinfo:
+        add_protein_classification(df, failing_fetch)
+
+    assert "P12345" in str(excinfo.value)

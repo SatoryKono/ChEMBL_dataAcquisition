@@ -7,19 +7,25 @@ Algorithm Notes
 ---------------
 1. Read and validate the YAML configuration file to obtain column names,
    network settings and batching parameters.
-2. Load the input CSV, normalise and deduplicate the ChEMBL identifiers and
-   split them into batches.
+2. Stream the input CSV lazily, normalise and deduplicate the ChEMBL
+   identifiers and split them into batches without materialising the full
+   dataset in memory.
 3. For each batch, submit an ID mapping job to the UniProt service, polling
    for completion when necessary and fetching the resulting mapping.
-4. Combine all retrieved mappings, merge them back into the original DataFrame
-   and emit a CSV with an additional column containing the UniProt IDs.
+4. Combine all retrieved mappings and write the augmented CSV row by row while
+   appending the UniProt identifiers as an additional column.
 """
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence, cast, Literal
+
+from urllib.parse import urljoin
+ 
+from typing import Any, Dict, Iterable, Iterator, List, Set, cast, Literal,  Sequence
+
 import hashlib
 import json
 import logging
@@ -45,29 +51,85 @@ except ModuleNotFoundError:  # pragma: no cover
 LOGGER = logging.getLogger(__name__)
 
 
+FAILED_IDS_ERROR_THRESHOLD = 100
+"""Maximum acceptable number of failed identifiers per UniProt job."""
+
+
 # ---------------------------------------------------------------------------
 # Helper classes and functions
 
 
-def _chunked(seq: Sequence[str], size: int) -> Iterable[List[str]]:
-    """Yield ``seq`` in chunks of ``size``.
+def _chunked(seq: Iterable[str], size: int) -> Iterator[List[str]]:
+    """Yield ``seq`` in lists containing at most ``size`` elements.
 
     Parameters
     ----------
     seq:
-        The sequence to chunk.
+        The iterable to chunk. The iterable is consumed lazily which makes the
+        helper suitable for generators.
     size:
-        The size of each chunk.
+        The maximum size of each chunk. ``size`` must be a positive integer.
 
     Returns
     -------
-    Iterable[List[str]]
-        An iterable of lists, where each list is a chunk of the original
-        sequence.
+    Iterator[List[str]]
+        An iterator over lists containing up to ``size`` elements from
+        ``seq``.
     """
 
-    for i in range(0, len(seq), size):
-        yield list(seq[i : i + size])
+    if size <= 0:
+        raise ValueError("size must be positive")
+
+    chunk: List[str] = []
+    for item in seq:
+        chunk.append(item)
+        if len(chunk) == size:
+            yield chunk
+            chunk = []
+    if chunk:
+        yield chunk
+
+
+def _stream_unique_ids(
+    path: Path, column: str, *, sep: str, encoding: str
+) -> Iterator[str]:
+    """Yield trimmed, unique identifiers from a CSV column lazily.
+
+    Parameters
+    ----------
+    path:
+        CSV file that stores the raw identifiers.
+    column:
+        Name of the column containing the identifier values.
+    sep:
+        Column separator used in the CSV file.
+    encoding:
+        Text encoding used to decode the CSV file.
+
+    Yields
+    ------
+    Iterator[str]
+        Unique identifier strings in order of appearance with surrounding
+        whitespace removed. Empty values and case-insensitive ``"nan"``
+        literals are skipped.
+    """
+
+    with path.open("r", encoding=encoding, newline="") as handle:
+        reader = csv.DictReader(handle, delimiter=sep)
+        if reader.fieldnames is None or column not in reader.fieldnames:
+            msg = f"Missing required column '{column}'"
+            raise KeyError(msg)
+
+        seen: Set[str] = set()
+        for row in reader:
+            raw_value = row.get(column)
+            if raw_value is None:
+                continue
+            value = str(raw_value).strip()
+            if not value or value.lower() == "nan" or value in seen:
+                continue
+            seen.add(value)
+            yield value
 
 
 @dataclass
@@ -103,6 +165,72 @@ class RateLimiter:
         if delta < interval:
             time.sleep(interval - delta)
         self.last_call = time.monotonic()
+
+
+@dataclass
+class BatchMappingResult:
+    """Container for the mapping output of a single batch.
+
+    Attributes
+    ----------
+    mapping:
+        Mapping from the original ChEMBL identifiers to the resolved UniProt
+        accessions.
+    failed_ids:
+        Identifiers reported by UniProt in the ``failedIds`` field or inferred
+        as unresolved when the job could not be completed.
+    """
+
+    mapping: Dict[str, List[str]]
+    failed_ids: List[str]
+
+
+def _normalise_failed_ids(raw_failed: Any) -> List[str]:
+    """Normalise the content of a ``failedIds`` payload to a list of strings."""
+
+    if not raw_failed:
+        return []
+
+    if isinstance(raw_failed, list):
+        items = raw_failed
+    else:
+        items = [raw_failed]
+
+    normalised: List[str] = []
+    for item in items:
+        if item is None:
+            continue
+        if isinstance(item, dict):
+            candidate = (
+                item.get("from")
+                or item.get("id")
+                or item.get("identifier")
+                or str(item)
+            )
+        else:
+            candidate = str(item)
+        text = str(candidate).strip()
+        if text:
+            normalised.append(text)
+    return normalised
+
+
+def _log_and_maybe_raise_failed_ids(job_id: str, failed_ids: Sequence[str]) -> None:
+    """Emit diagnostics about failed identifiers and enforce the threshold."""
+
+    if not failed_ids:
+        return
+    LOGGER.warning(
+        "UniProt job %s reported %d failed identifiers: %s",
+        job_id,
+        len(failed_ids),
+        list(failed_ids),
+    )
+    if len(failed_ids) > FAILED_IDS_ERROR_THRESHOLD:
+        raise RuntimeError(
+            "UniProt job %s reported %d failed identifiers (threshold %d)"
+            % (job_id, len(failed_ids), FAILED_IDS_ERROR_THRESHOLD)
+        )
 
 
 def get_ids_from_dataframe(df: pd.DataFrame, column: str) -> List[str]:
@@ -309,7 +437,7 @@ def _fetch_results(
     rate_limiter: RateLimiter,
     timeout: float,
     retry_cfg: RetryConfig,
-) -> Dict[str, List[str]]:
+) -> BatchMappingResult:
     """Fetch the results of a completed UniProt ID mapping job.
 
     Parameters
@@ -327,8 +455,8 @@ def _fetch_results(
 
     Returns
     -------
-    Dict[str, List[str]]
-        A dictionary mapping the original ChEMBL IDs to lists of UniProt IDs.
+    BatchMappingResult
+        Combined mapping information and failed identifiers for the job.
     """
     results_url = (
         cfg.base_url.rstrip("/")
@@ -336,27 +464,40 @@ def _fetch_results(
         + "/"
         + job_id
     )
-    resp = _request_with_retry(
-        "get",
-        results_url,
-        timeout=timeout,
-        rate_limiter=rate_limiter,
-        max_attempts=retry_cfg.max_attempts,
-        backoff=retry_cfg.backoff_sec,
-    )
-    try:
-        payload = resp.json()
-    except json.JSONDecodeError:
-        LOGGER.debug("Unparseable results response: %s", resp.text)
-        raise
-
     mapping: Dict[str, List[str]] = {}
-    for item in payload.get("results", []):
-        frm = item.get("from")
-        to = item.get("to")
-        if frm and to:
-            mapping.setdefault(frm, []).append(to)
-    return mapping
+    failed_ids: List[str] = []
+    next_url: str | None = results_url
+
+    while next_url:
+        resp = _request_with_retry(
+            "get",
+            next_url,
+            timeout=timeout,
+            rate_limiter=rate_limiter,
+            max_attempts=retry_cfg.max_attempts,
+            backoff=retry_cfg.backoff_sec,
+        )
+        try:
+            payload = resp.json()
+        except json.JSONDecodeError:
+            LOGGER.debug("Unparseable results response: %s", resp.text)
+            raise
+
+        for item in payload.get("results", []):
+            frm = item.get("from")
+            to = item.get("to")
+            if frm and to:
+                mapping.setdefault(frm, []).append(to)
+        failed_ids.extend(_normalise_failed_ids(payload.get("failedIds")))
+
+        next_link = payload.get("next")
+        if next_link:
+            next_url = urljoin(results_url, next_link)
+        else:
+            next_url = None
+
+    _log_and_maybe_raise_failed_ids(job_id, failed_ids)
+    return BatchMappingResult(mapping=mapping, failed_ids=failed_ids)
 
 
 def _map_batch(
@@ -365,7 +506,7 @@ def _map_batch(
     rate_limiter: RateLimiter,
     timeout: float,
     retry_cfg: RetryConfig,
-) -> Dict[str, List[str]]:
+) -> BatchMappingResult:
     """Map a batch of ChEMBL IDs to UniProt IDs.
 
     This function handles both synchronous and asynchronous UniProt API
@@ -386,14 +527,14 @@ def _map_batch(
 
     Returns
     -------
-    Dict[str, List[str]]
-        A dictionary mapping ChEMBL IDs to lists of UniProt IDs for the batch.
+    BatchMappingResult
+        Structured information about the resolved mappings and failed IDs.
     """
     try:
         job_payload = _start_job(ids, cfg, rate_limiter, timeout, retry_cfg)
     except Exception as exc:
         LOGGER.warning("Failed to start mapping job for batch %s: %s", ids, exc)
-        return {}
+        return BatchMappingResult(mapping={}, failed_ids=list(ids))
 
     if "jobId" in job_payload:
         job_id = job_payload["jobId"]
@@ -402,7 +543,7 @@ def _map_batch(
             return _fetch_results(job_id, cfg, rate_limiter, timeout, retry_cfg)
         except Exception as exc:  # broad but logged
             LOGGER.warning("Job %s failed: %s", job_id, exc)
-            return {}
+            return BatchMappingResult(mapping={}, failed_ids=list(ids))
 
     # Synchronous result
     if "results" in job_payload:
@@ -412,10 +553,12 @@ def _map_batch(
             to = item.get("to")
             if frm and to:
                 mapping.setdefault(frm, []).append(to)
-        return mapping
+        failed_ids = _normalise_failed_ids(job_payload.get("failedIds"))
+        _log_and_maybe_raise_failed_ids("synchronous", failed_ids)
+        return BatchMappingResult(mapping=mapping, failed_ids=failed_ids)
 
     LOGGER.warning("Unexpected response payload: %s", job_payload)
-    return {}
+    return BatchMappingResult(mapping={}, failed_ids=list(ids))
 
 
 def map_chembl_to_uniprot(
@@ -501,18 +644,14 @@ def map_chembl_to_uniprot(
     delimiter = cfg.io.csv.multivalue_delimiter
 
     # Compute SHA256 of input file for logging purposes
+    hasher = hashlib.sha256()
     with input_csv_path.open("rb") as fh:
-        file_hash = hashlib.sha256(fh.read()).hexdigest()
+        for chunk in iter(lambda: fh.read(8192), b""):
+            if not chunk:
+                break
+            hasher.update(chunk)
+    file_hash = hasher.hexdigest()
     LOGGER.info("Input file checksum (sha256): %s", file_hash)
-
-    df = pd.read_csv(input_csv_path, sep=sep, encoding=encoding_in)
-    if chembl_col not in df.columns:
-        raise ValueError(f"Missing required column '{chembl_col}' in input CSV")
-
-    # Normalise and deduplicate identifiers
-    unique_ids = get_ids_from_dataframe(df, chembl_col)
-
-    LOGGER.info("Processing %d unique ChEMBL IDs", len(unique_ids))
 
     batch_size = cfg.batch.size
     timeout = cfg.network.timeout_sec
@@ -520,45 +659,84 @@ def map_chembl_to_uniprot(
     rate_limiter = RateLimiter(cfg.uniprot.rate_limit.rps)
 
     mapping: Dict[str, List[str]] = {}
+ 
+    failed_identifiers: List[str] = []
     for batch in _chunked(unique_ids, batch_size):
-        batch_mapping = _map_batch(batch, cfg.uniprot, rate_limiter, timeout, retry_cfg)
-        mapping.update(batch_mapping)
+        batch_result = _map_batch(batch, cfg.uniprot, rate_limiter, timeout, retry_cfg)
+        mapping.update(batch_result.mapping)
+        failed_identifiers.extend(batch_result.failed_ids)
+
+    if failed_identifiers:
+        LOGGER.warning(
+            "UniProt mapping reported %d failed identifiers: %s",
+            len(failed_identifiers),
+            failed_identifiers,
+        )
+    unique_count = 0
+    try:
+        id_iter = _stream_unique_ids(
+            input_csv_path, chembl_col, sep=sep, encoding=encoding_in
+        )
+        for batch in _chunked(id_iter, batch_size):
+            unique_count += len(batch)
+            batch_mapping = _map_batch(
+                batch, cfg.uniprot, rate_limiter, timeout, retry_cfg
+            )
+            for key, value in batch_mapping.items():
+                if not key:
+                    continue
+                normalised_key = str(key).strip()
+                if not normalised_key:
+                    continue
+                mapping[normalised_key] = value
+    except KeyError as exc:
+        msg = f"Missing required column '{chembl_col}' in input CSV"
+        raise ValueError(msg) from exc
+
+    LOGGER.info("Processing %d unique ChEMBL IDs", unique_count)
+
 
     mapped = sum(1 for v in mapping.values() if v)
-    no_match = len(unique_ids) - mapped
+    no_match = unique_count - mapped
     multi = sum(1 for v in mapping.values() if len(v) > 1)
     LOGGER.info(
         "Summary: unique=%d mapped=%d no_match=%d multi=%d",
-        len(unique_ids),
+        unique_count,
         mapped,
         no_match,
         multi,
     )
 
-    def _join_ids(x: str | float | None) -> str | None:
-        """Join a list of UniProt IDs into a single delimited string.
+    with (
+        input_csv_path.open("r", encoding=encoding_in, newline="") as src,
+        output_csv_path.open("w", encoding=encoding_out, newline="") as dst,
+    ):
+        reader = csv.DictReader(src, delimiter=sep)
+        if reader.fieldnames is None or chembl_col not in reader.fieldnames:
+            msg = f"Missing required column '{chembl_col}' in input CSV"
+            raise ValueError(msg)
 
-        This function is designed to be used with `pandas.Series.map`.
+        fieldnames = list(reader.fieldnames)
+        if out_col not in fieldnames:
+            fieldnames.append(out_col)
 
-        Parameters
-        ----------
-        x:
-            The ChEMBL ID to look up in the mapping.
+        writer = csv.DictWriter(dst, fieldnames=fieldnames, delimiter=sep)
+        writer.writeheader()
 
-        Returns
-        -------
-        str | None
-            A delimited string of UniProt IDs, or None if no mapping exists.
-        """
-        if x is None or x != x:  # NaN check
-            return None
-        ids = mapping.get(str(x).strip())
-        if not ids:
-            return None
-        return delimiter.join(ids)
+        for row in reader:
+            raw_value = row.get(chembl_col)
+            if raw_value is None:
+                row[out_col] = ""
+            else:
+                stripped = str(raw_value).strip()
+                if not stripped or stripped.lower() == "nan":
+                    row[out_col] = ""
+                else:
+                    ids = mapping.get(stripped)
+                    row[out_col] = delimiter.join(ids) if ids else ""
+            writer.writerow(row)
 
-    df[out_col] = df[chembl_col].map(_join_ids)
-
-    df.to_csv(output_csv_path, sep=sep, encoding=encoding_out, index=False)
-    analyze_table_quality(df, table_name=str(Path(output_csv_path).with_suffix("")))
+    analyze_table_quality(
+        output_csv_path, table_name=str(Path(output_csv_path).with_suffix(""))
+    )
     return output_csv_path

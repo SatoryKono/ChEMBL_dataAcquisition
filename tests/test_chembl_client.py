@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import requests  # type: ignore[import-untyped]
 import requests_mock
@@ -74,3 +75,53 @@ def test_fetch_assay_handles_http_error_without_response() -> None:
     client = ChemblClient(http_client=_RaisingClient())
 
     assert client.fetch_assay("CHEMBL999") is None
+
+
+def test_get_documents_batches_requests_and_filters_duplicates() -> None:
+    cfg = ApiCfg()
+
+    class _Recorder:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def request_json(self, url: str, *, cfg: ApiCfg, timeout: float) -> dict[str, Any]:
+            self.calls.append(url)
+            ids_part = url.split("document_chembl_id__in=")[1]
+            identifiers = ids_part.split(",")
+            return {
+                "documents": [
+                    {
+                        "document_chembl_id": doc_id,
+                        "title": f"Title {doc_id}",
+                        "abstract": f"Abstract {doc_id}",
+                        "doi": f"10.{doc_id}/doi{doc_id}",
+                        "year": 2024,
+                        "journal_full_title": "Journal",
+                        "journal": "J",
+                        "volume": "1",
+                        "issue": "1",
+                        "first_page": "1",
+                        "last_page": "2",
+                        "pubmed_id": doc_id,
+                        "authors": "Author",
+                    }
+                    for doc_id in identifiers
+                ]
+            }
+
+    recorder = _Recorder()
+    client = ChemblClient(http_client=HttpClient(timeout=1.0, max_retries=1, rps=0))
+    client.request_json = recorder.request_json  # type: ignore[assignment]
+
+    df = get_documents(
+        ["DOC1", "DOC2", "DOC3", "DOC1", "", "#N/A"],
+        cfg=cfg,
+        client=client,
+        chunk_size=2,
+    )
+
+    assert [call.split("document_chembl_id__in=")[1] for call in recorder.calls] == [
+        "DOC1,DOC2",
+        "DOC3",
+    ]
+    assert df["document_chembl_id"].tolist() == ["DOC1", "DOC2", "DOC3"]
