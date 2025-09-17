@@ -115,6 +115,60 @@ def test_run_pubmed_creates_output_directory(
     assert output_path.exists()
 
 
+def test_run_openalex_command_exports_openalex_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_openalex_command should export OpenAlex and Crossref data only."""
+
+    input_csv = tmp_path / "input.csv"
+    pd.DataFrame({"PMID": ["1"]}).to_csv(input_csv, index=False)
+
+    openalex_record = OpenAlexRecord(
+        pmid="1",
+        doi="10.1/doi1",
+        publication_types=["journal-article"],
+        type_crossref="journal-article",
+        genre="journal-article",
+        venue="Venue",
+        mesh_descriptors=[],
+        mesh_qualifiers=[],
+        work_id="W1",
+        error=None,
+    )
+    crossref_record = CrossrefRecord(
+        doi="10.1/doi1",
+        type="journal-article",
+        subtype=None,
+        title="Title",
+        subtitle=None,
+        subject=["Biology"],
+        error=None,
+    )
+
+    placeholders = pm._build_openalex_pubmed_placeholders([openalex_record])
+
+    def fake_gather(
+        pmids: Sequence[str], *, cfg: dict[str, Any]
+    ) -> tuple[list[PubMedRecord], list[OpenAlexRecord], list[CrossrefRecord]]:
+        assert pmids == ["1"]
+        return placeholders, [openalex_record], [crossref_record]
+
+    monkeypatch.setattr(pm, "_gather_openalex_sources", fake_gather)
+
+    output_path = tmp_path / "out" / "openalex.csv"
+    args = _make_args(
+        "openalex", input_path=input_csv, output_path=output_path, column="PMID"
+    )
+    config = deepcopy(pm.DEFAULT_CONFIG)
+
+    pm.run_openalex_command(args, config)
+
+    df = pd.read_csv(output_path)
+    assert df.loc[0, "OpenAlex.DOI"] == "10.1/doi1"
+    assert df.loc[0, "crossref.DOI"] == "10.1/doi1"
+    assert df.loc[0, "PubMed.Error"] == pm.OPENALEX_ONLY_PLACEHOLDER_ERROR
+
+
 def test_run_all_merges_chembl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """run_all_command should merge ChEMBL data into the output."""
 
