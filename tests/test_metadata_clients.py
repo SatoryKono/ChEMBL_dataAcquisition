@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 from library.http_client import HttpClient  # type: ignore  # noqa: E402
 from library.semantic_scholar_client import (  # type: ignore  # noqa: E402
     API_URL as SS_URL,
+    DEFAULT_FIELDS,
     fetch_semantic_scholar_records,
 )
 from library.openalex_client import (  # type: ignore  # noqa: E402
@@ -30,13 +31,13 @@ def test_semantic_scholar_parses_fields():
     sample = [
         {
             "paperId": "S1",
-            "externalIds": {"PMID": "1", "DOI": "10.1/doi1"},
+            "externalIds": {"PubMed": "1", "DOI": "10.1/doi1", "CorpusId": 42},
             "publicationTypes": ["JournalArticle"],
             "venue": "Venue1",
         },
         {
             "paperId": "S2",
-            "externalIds": {"PMID": "2"},
+            "externalIds": {"PubMed": "2"},
             "publicationTypes": ["Review"],
             "venue": "Venue2",
         },
@@ -45,8 +46,13 @@ def test_semantic_scholar_parses_fields():
         m.post(SS_URL, json=sample)
         client = HttpClient(timeout=1.0, max_retries=1, rps=0)
         recs = fetch_semantic_scholar_records(["1", "2"], client=client)
+        assert m.last_request
+        fields_param = m.last_request.qs.get("fields")
+        assert fields_param is not None
+        assert fields_param[0].lower() == ",".join(DEFAULT_FIELDS).lower()
     assert recs[0].doi == "10.1/doi1"
     assert recs[1].publication_types == ["Review"]
+    assert recs[0].external_ids.get("CorpusId") == 42
 
 
 def test_semantic_scholar_handles_string_error():
