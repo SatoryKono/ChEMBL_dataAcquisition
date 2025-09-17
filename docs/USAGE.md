@@ -3,13 +3,16 @@
 ## get_target_data_main.py
 
 Download target metadata from ChEMBL for identifiers listed in a CSV file:
+All scripts accept `--log-format` to switch between human-readable and JSON log
+outputs in addition to the `--log-level` control shown in the examples below.
 
 ```bash
 python scripts/get_target_data_main.py \
     --input data/targets.csv \
     --output out/targets_dump.csv \
     --column target_chembl_id \
-    --log-level INFO
+    --log-level INFO \
+    --log-format json
 ```
 
 The input file must contain a column with ChEMBL target identifiers. Duplicate
@@ -28,7 +31,8 @@ python scripts/dump_gtop_target.py \
     --id-column uniprot_id \
     --affinity-parameter pKi \
     --affinity-ge 7 \
-    --log-level INFO
+    --log-level INFO \
+    --log-format json
 ```
 
 This command creates ``targets.csv`` together with related tables such as

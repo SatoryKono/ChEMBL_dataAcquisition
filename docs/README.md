@@ -70,6 +70,7 @@ python scripts/chembl2uniprot_main.py \
     --input input.csv \
     --output output.csv \
     --log-level INFO \
+    --log-format json \
     --sep , \
     --encoding utf-8
 ```
@@ -84,8 +85,9 @@ python scripts/chembl2uniprot_main.py \
 ```
 
 
-Flags ``--log-level``, ``--sep`` and ``--encoding`` are optional and default to
-``INFO``, ``,``, and ``utf-8`` respectively.  When ``--output`` is omitted the
+Flags ``--log-level``, ``--log-format``, ``--sep`` and ``--encoding`` are optional
+and default to ``INFO``, ``human``, ``,``, and ``utf-8`` respectively.  When
+``--output`` is omitted the
 result is written next to ``input.csv`` with the suffix ``_with_uniprot.csv``.
 The mapped UniProt identifiers are stored in a new column defined by the
 configuration file.

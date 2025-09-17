@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 from typing import Iterable, List
 
+import requests  # type: ignore[import-untyped]
 import pandas as pd
 import requests_mock as requests_mock_lib
 
@@ -88,6 +89,49 @@ def test_add_pubchem_data_enriches_dataframe(
     assert enriched.loc[1, "pubchem_cid"] == 10  # cached duplicate
     assert enriched.loc[2, "pubchem_cid"] == 20
     assert enriched.loc[2, "pubchem_molecular_formula"] == "C2H6"
+
+
+def test_add_pubchem_data_handles_invalid_json(
+    requests_mock: requests_mock_lib.Mocker,
+) -> None:
+    df = pd.DataFrame(
+        [
+            {"molecule_chembl_id": "CHEMBL1", "canonical_smiles": "C"},
+        ]
+    )
+
+    requests_mock.get(
+        f"{PUBCHEM_BASE_URL}/compound/smiles/C/property/"
+        "CID,MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
+        text="not-json",
+        status_code=200,
+    )
+
+    enriched = add_pubchem_data(df, http_client_config={"max_retries": 1, "rps": 0.0})
+
+    assert requests_mock.call_count == 1
+    assert pd.isna(enriched.loc[0, "pubchem_cid"])
+
+
+def test_add_pubchem_data_handles_network_errors(
+    requests_mock: requests_mock_lib.Mocker,
+) -> None:
+    df = pd.DataFrame(
+        [
+            {"molecule_chembl_id": "CHEMBL1", "canonical_smiles": "C"},
+        ]
+    )
+
+    requests_mock.get(
+        f"{PUBCHEM_BASE_URL}/compound/smiles/C/property/"
+        "CID,MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
+        exc=requests.exceptions.ConnectTimeout,
+    )
+
+    enriched = add_pubchem_data(df, http_client_config={"max_retries": 1, "rps": 0.0})
+
+    assert requests_mock.call_count == 1
+    assert pd.isna(enriched.loc[0, "pubchem_cid"])
 
 
 def test_add_pubchem_data_handles_missing_smiles() -> None:

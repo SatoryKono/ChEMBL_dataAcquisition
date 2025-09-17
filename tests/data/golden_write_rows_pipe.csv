@@ -1,0 +1,3 @@
+id,names,meta
+1,alpha\|beta|gamma,"{""id"": ""x\|y"", ""name"": ""value\|with\|pipes""}"
+2,delta|epsilon\|zeta,

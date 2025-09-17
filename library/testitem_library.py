@@ -16,14 +16,19 @@ Algorithm Notes
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Mapping, MutableMapping, Sequence
 from urllib.parse import quote
 
 import pandas as pd
 import requests  # type: ignore[import-untyped]
+
+try:  # pragma: no cover - импорт для тестовых окружений без пакета
+    from .http_client import HttpClient
+except ImportError:  # pragma: no cover
+    from http_client import HttpClient  # type: ignore[no-redef]
 
 LOGGER = logging.getLogger(__name__)
 
@@ -42,6 +47,20 @@ PUBCHEM_INT_FIELDS: frozenset[str] = frozenset(
     ["CID", "HBondDonorCount", "HBondAcceptorCount", "RotatableBondCount"]
 )
 PUBCHEM_FLOAT_FIELDS: frozenset[str] = frozenset(["MolecularWeight", "TPSA", "XLogP"])
+
+PUBCHEM_DEFAULT_MAX_RETRIES = 3
+PUBCHEM_DEFAULT_RPS = 5.0
+PUBCHEM_DEFAULT_BACKOFF = 1.0
+PUBCHEM_DEFAULT_RETRY_PENALTY = 5.0
+PUBCHEM_STATUS_FORCELIST: tuple[int, ...] = (
+    408,
+    409,
+    429,
+    500,
+    502,
+    503,
+    504,
+)
 
 
 def _to_snake_case(value: str) -> str:
@@ -87,13 +106,81 @@ def _prepare_columns(properties: Sequence[str]) -> Dict[str, str]:
     return {prop: f"pubchem_{_to_snake_case(prop)}" for prop in properties}
 
 
+def _int_from_config(config: Mapping[str, Any], key: str, default: int) -> int:
+    value = config.get(key, default)
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:  # pragma: no cover - defensive branch
+        raise ValueError(f"{key} must be an integer, got {value!r}") from exc
+
+
+def _float_from_config(config: Mapping[str, Any], key: str, default: float) -> float:
+    value = config.get(key, default)
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:  # pragma: no cover - defensive branch
+        raise ValueError(f"{key} must be a float, got {value!r}") from exc
+
+
+def _status_forcelist_from_config(
+    config: Mapping[str, Any], key: str, default: tuple[int, ...]
+) -> tuple[int, ...]:
+    value = config.get(key)
+    if value is None:
+        return default
+    if isinstance(value, (str, bytes)):
+        raise TypeError("status_forcelist must be an iterable of integers")
+    try:
+        iterator = iter(value)
+    except TypeError as exc:  # pragma: no cover - defensive branch
+        raise TypeError("status_forcelist must be an iterable of integers") from exc
+    result: list[int] = []
+    for item in iterator:
+        try:
+            result.append(int(item))
+        except (TypeError, ValueError) as exc:  # pragma: no cover - defensive branch
+            raise ValueError("status_forcelist entries must be integers") from exc
+    return tuple(result)
+
+
+def _build_http_client(
+    *,
+    timeout: float,
+    http_client: HttpClient | None,
+    http_client_config: Mapping[str, Any] | None,
+    session: requests.Session | None,
+) -> HttpClient:
+    if http_client is not None:
+        return http_client
+    config = http_client_config or {}
+    max_retries = _int_from_config(config, "max_retries", PUBCHEM_DEFAULT_MAX_RETRIES)
+    rps = _float_from_config(config, "rps", PUBCHEM_DEFAULT_RPS)
+    backoff = _float_from_config(config, "backoff_multiplier", PUBCHEM_DEFAULT_BACKOFF)
+    penalty = _float_from_config(
+        config, "retry_penalty_seconds", PUBCHEM_DEFAULT_RETRY_PENALTY
+    )
+    status_forcelist = _status_forcelist_from_config(
+        config, "status_forcelist", PUBCHEM_STATUS_FORCELIST
+    )
+
+    return HttpClient(
+        timeout=(timeout, timeout),
+        max_retries=max_retries,
+        rps=rps,
+        backoff_multiplier=backoff,
+        retry_penalty_seconds=penalty,
+        status_forcelist=status_forcelist,
+        session=session,
+    )
+
+
 @dataclass(slots=True)
 class _PubChemRequest:
     base_url: str
     user_agent: str
     timeout: float
-    session: requests.Session
     properties: Sequence[str]
+    http_client: HttpClient
 
     def _get_json(
         self,
@@ -121,6 +208,7 @@ class _PubChemRequest:
 
         headers = {"Accept": "application/json", "User-Agent": self.user_agent}
         try:
+ 
             response = self.session.get(url, timeout=self.timeout, headers=headers)
             if response.status_code == 404:
                 LOGGER.debug(
@@ -131,10 +219,12 @@ class _PubChemRequest:
         except requests.HTTPError:
             LOGGER.warning(
                 "HTTP error when requesting PubChem %s for %s", context, smiles
+ 
             )
             return None
         except requests.RequestException:
             LOGGER.warning(
+ 
                 "Network error when requesting PubChem %s for %s", context, smiles
             )
             return None
@@ -176,6 +266,7 @@ class _PubChemRequest:
                     results["CID"] = _normalise_numeric("CID", identifiers[0])
 
         return results
+ 
 
 
 def _unique_smiles(values: Iterable[object]) -> list[str]:
@@ -199,9 +290,11 @@ def add_pubchem_data(
     smiles_column: str = "canonical_smiles",
     properties: Sequence[str] = PUBCHEM_PROPERTIES,
     timeout: float = 10.0,
-    session: requests.Session | None = None,
     base_url: str = PUBCHEM_BASE_URL,
     user_agent: str = "ChEMBLDataAcquisition/1.0",
+    http_client: HttpClient | None = None,
+    http_client_config: Mapping[str, Any] | None = None,
+    session: requests.Session | None = None,
 ) -> pd.DataFrame:
     """Augment ``df`` with PubChem descriptors based on SMILES strings.
 
@@ -218,13 +311,23 @@ def add_pubchem_data(
         ``PUBCHEM_PROPERTIES`` tuple defined in this module.
     timeout:
         Socket timeout for PubChem HTTP requests in seconds.
-    session:
-        Optional :class:`requests.Session` to reuse connections during testing.
-        When omitted a temporary session is created and closed automatically.
     base_url:
         Base URL of the PubChem PUG REST API.
     user_agent:
         Custom ``User-Agent`` header sent with each HTTP request.
+    http_client:
+        Optional :class:`~library.http_client.HttpClient` used for outbound
+        requests. When omitted a new client is created with sensible defaults
+        for retry and rate limiting.
+    http_client_config:
+        Optional mapping overriding the HTTP client defaults. Supported keys are
+        ``max_retries``, ``rps``, ``backoff_multiplier``,
+        ``retry_penalty_seconds`` and ``status_forcelist``. Ignored when
+        ``http_client`` is provided.
+    session:
+        Optional :class:`requests.Session` reused when a new
+        :class:`HttpClient` is instantiated internally. Retained for backwards
+        compatibility with older code paths.
 
     Returns
     -------
@@ -245,14 +348,18 @@ def add_pubchem_data(
         LOGGER.debug("No PubChem properties requested; returning original DataFrame")
         return df
 
-    owns_session = session is None
-    http = session or requests.Session()
+    http = _build_http_client(
+        timeout=timeout,
+        http_client=http_client,
+        http_client_config=http_client_config,
+        session=session,
+    )
     request = _PubChemRequest(
         base_url=base_url,
         user_agent=user_agent,
         timeout=timeout,
-        session=http,
         properties=properties,
+        http_client=http,
     )
 
     columns_map = _prepare_columns(properties)
@@ -262,22 +369,18 @@ def add_pubchem_data(
             enriched[column] = pd.NA
 
     cache: MutableMapping[str, Mapping[str, object]] = {}
-    try:
-        for smiles in _unique_smiles(enriched[smiles_column].tolist()):
-            cache[smiles] = request.fetch(smiles)
+    for smiles in _unique_smiles(enriched[smiles_column].tolist()):
+        cache[smiles] = request.fetch(smiles)
 
-        for idx, raw_smiles in enriched[smiles_column].items():
-            smiles_value = None if raw_smiles is None else str(raw_smiles).strip()
-            if not smiles_value:
-                continue
-            data = cache.get(smiles_value, {})
-            for prop, column in columns_map.items():
-                value = data.get(prop)
-                if value is not None:
-                    enriched.at[idx, column] = value
-    finally:
-        if owns_session:
-            http.close()
+    for idx, raw_smiles in enriched[smiles_column].items():
+        smiles_value = None if raw_smiles is None else str(raw_smiles).strip()
+        if not smiles_value:
+            continue
+        data = cache.get(smiles_value, {})
+        for prop, column in columns_map.items():
+            value = data.get(prop)
+            if value is not None:
+                enriched.at[idx, column] = value
 
     return enriched
 

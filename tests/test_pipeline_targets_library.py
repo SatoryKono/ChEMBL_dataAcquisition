@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import json
 from typing import Any, Dict, List
 
 import pandas as pd
 
+from library.io_utils import serialise_cell
 from pipeline_targets import (
     PipelineConfig,
     _load_serialised_list,
@@ -15,9 +15,7 @@ from pipeline_targets import (
 def _pipe_encode(items: List[Any]) -> str:
     """Return a pipe-serialised string compatible with the pipeline helpers."""
 
-    return "|".join(
-        json.dumps(item, ensure_ascii=False, sort_keys=True) for item in items
-    )
+    return str(serialise_cell(items, "pipe"))
 
 
 def test_load_serialised_list_pipe_json_roundtrip() -> None:
@@ -29,6 +27,14 @@ def test_load_serialised_list_pipe_json_roundtrip() -> None:
 def test_load_serialised_list_pipe_plain_strings() -> None:
     serialised = "alpha|beta|gamma"
     assert _load_serialised_list(serialised, "pipe") == ["alpha", "beta", "gamma"]
+
+
+def test_load_serialised_list_pipe_with_escaped_pipes() -> None:
+    serialised = _pipe_encode(["alpha|beta", {"name": "value|with|pipes"}])
+    assert _load_serialised_list(serialised, "pipe") == [
+        "alpha|beta",
+        {"name": "value|with|pipes"},
+    ]
 
 
 class _DummyUniProt:
