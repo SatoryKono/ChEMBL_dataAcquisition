@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import logging
-from typing import Any, Dict, Iterable, List, Optional, cast
+from typing import Any, Dict, Iterable, List, Optional
 
 import requests  # type: ignore[import-untyped]
 from typing import TYPE_CHECKING
@@ -34,9 +34,9 @@ else:  # pragma: no cover - allow package or top-level imports
         from uniprot_client import NetworkConfig, RateLimitConfig
 
 try:  # pragma: no cover - optional import paths for tests
-    from .http_client import CacheConfig, create_http_session
+    from .http_client import CacheConfig, HttpClient
 except ImportError:  # pragma: no cover
-    from http_client import CacheConfig, create_http_session  # type: ignore[no-redef]
+    from http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
 
 LOGGER = logging.getLogger(__name__)
 
@@ -132,45 +132,37 @@ class EnsemblHomologyClient:
         Rate limiting parameters enforcing polite API usage.
     cache:
         Optional HTTP cache configuration applied to all requests.
-    session:
-        Optional :class:`requests.Session` instance. When ``None`` a new session
-        honouring ``cache`` is created automatically.
+    http_client:
+        Optional :class:`HttpClient` instance. When ``None`` the client is
+        created automatically using ``network`` and ``rate_limit`` parameters.
     """
 
     base_url: str
     network: NetworkConfig
     rate_limit: RateLimitConfig
     cache: CacheConfig | None = None
-    session: requests.Session | None = None
+    http_client: HttpClient | None = None
 
-    _last_call: float = 0.0
     _symbol_cache: Dict[str, str] = field(default_factory=dict)
     _uniprot_cache: Dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:  # pragma: no cover - simple initialisation
-        if self.session is None:
-            self.session = create_http_session(self.cache)
-        assert self.session is not None
+        self.base_url = self.base_url.rstrip("/")
+        if self.http_client is None:
+            self.http_client = HttpClient(
+                timeout=self.network.timeout_sec,
+                max_retries=self.network.max_retries,
+                rps=self.rate_limit.rps,
+                backoff_multiplier=self.network.backoff_sec,
+                cache_config=self.cache,
+            )
 
-    def _get_session(self) -> requests.Session:
-        """Return the HTTP session used for outbound requests."""
+    def _get_http_client(self) -> HttpClient:
+        """Return the configured :class:`HttpClient` instance."""
 
-        if self.session is None:  # pragma: no cover - defensive
-            raise RuntimeError("HTTP session is not initialised")
-        return cast(requests.Session, self.session)
-
-    def _wait_rate_limit(self) -> None:
-        """Sleep if necessary to enforce the configured rate limit."""
-        if self.rate_limit.rps <= 0:
-            return
-        import time
-
-        interval = 1.0 / self.rate_limit.rps
-        now = time.monotonic()
-        delta = now - self._last_call
-        if delta < interval:
-            time.sleep(interval - delta)
-        self._last_call = time.monotonic()
+        if self.http_client is None:  # pragma: no cover - defensive
+            raise RuntimeError("HTTP client is not initialised")
+        return self.http_client
 
     def _request(
         self, url: str, params: Iterable[tuple[str, str]]
@@ -191,22 +183,32 @@ class EnsemblHomologyClient:
         Optional[requests.Response]
             The response object, or None if an error occurred.
         """
-        self._wait_rate_limit()
-        session = self._get_session()
+
+        client = self._get_http_client()
+        query_params = list(params)
         try:
-            resp = session.get(
+            resp = client.request(
+                "get",
                 url,
-                params=params,
-                timeout=self.network.timeout_sec,
+                params=query_params,
                 headers={"Accept": "application/json"},
             )
-        except requests.RequestException as exc:  # pragma: no cover - network
-            LOGGER.warning("Request failed for %s: %s", url, exc)
+        except requests.HTTPError as exc:
+            status: int | str = "N/A"
+            if exc.response is not None and exc.response.status_code:
+                status = exc.response.status_code
+                if status == 404:
+                    return None
+            LOGGER.warning("HTTP error %s for %s", status, url)
             return None
+        except requests.RequestException as exc:
+            LOGGER.warning("Request error for %s: %s", url, exc)
+            return None
+
         if resp.status_code == 404:
             return None
-        if resp.status_code >= 500:
-            LOGGER.warning("Server error %s for %s", resp.status_code, url)
+        if resp.status_code >= 400:
+            LOGGER.warning("Unexpected status %s for %s", resp.status_code, url)
             return None
         return resp
 
@@ -359,27 +361,33 @@ class OmaClient:
         Rate limiting applied to outbound requests.
     cache:
         Optional HTTP cache configuration applied to all requests.
-    session:
-        Optional :class:`requests.Session` instance reused across calls.
+    http_client:
+        Optional :class:`HttpClient` instance reused across calls.
     """
 
     base_url: str
     network: NetworkConfig
     rate_limit: RateLimitConfig
     cache: CacheConfig | None = None
-    session: requests.Session | None = None
+    http_client: HttpClient | None = None
 
     def __post_init__(self) -> None:  # pragma: no cover - simple initialisation
-        if self.session is None:
-            self.session = create_http_session(self.cache)
-        assert self.session is not None
+        self.base_url = self.base_url.rstrip("/")
+        if self.http_client is None:
+            self.http_client = HttpClient(
+                timeout=self.network.timeout_sec,
+                max_retries=self.network.max_retries,
+                rps=self.rate_limit.rps,
+                backoff_multiplier=self.network.backoff_sec,
+                cache_config=self.cache,
+            )
 
-    def _get_session(self) -> requests.Session:
-        """Return the HTTP session used for outbound requests."""
+    def _get_http_client(self) -> HttpClient:
+        """Return the configured :class:`HttpClient` instance."""
 
-        if self.session is None:  # pragma: no cover - defensive
-            raise RuntimeError("HTTP session is not initialised")
-        return cast(requests.Session, self.session)
+        if self.http_client is None:  # pragma: no cover - defensive
+            raise RuntimeError("HTTP client is not initialised")
+        return self.http_client
 
     def get_orthologs_by_uniprot(self, uniprot_id: str) -> List[Ortholog]:
         """Return orthologs for ``uniprot_id``.
@@ -388,14 +396,19 @@ class OmaClient:
         list if the request fails or the endpoint is not available."""
 
         url = f"{self.base_url}/orthologs/{uniprot_id}/"
-        session = self._get_session()
+        client = self._get_http_client()
         try:
-            resp = session.get(
+            resp = client.request(
+                "get",
                 url,
-                timeout=self.network.timeout_sec,
                 headers={"Accept": "application/json"},
             )
+        except requests.HTTPError as exc:  # pragma: no cover - network failure
+            status = exc.response.status_code if exc.response is not None else "N/A"
+            LOGGER.warning("OMA HTTP error %s for %s", status, url)
+            return []
         except requests.RequestException:  # pragma: no cover - network failure
+            LOGGER.warning("OMA request error for %s", url)
             return []
         if resp.status_code != 200:
             return []
