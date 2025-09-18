@@ -1,12 +1,15 @@
 import logging
-import random
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 from pathlib import Path
 
 import pandas as pd
 import requests  # type: ignore[import-untyped]
+
+try:  # pragma: no cover - optional import for package vs. script execution
+    from ..http_client import CacheConfig, HttpClient
+except ImportError:  # pragma: no cover
+    from http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
 
 try:
     from data_profiling import analyze_table_quality
@@ -88,80 +91,95 @@ def _serialize_list(values: Iterable[str], sep: str) -> str:
     return sep.join(items)
 
 
-class UniProtClient:
-    """A lightweight client for the UniProt REST API.
-
-    This client provides methods to fetch and parse protein data from UniProt,
-    with support for batching, caching, and retries.
-
-    Attributes
-    ----------
-    session:
-        A `requests.Session` object for making HTTP requests.
-    max_workers:
-        The maximum number of threads to use for concurrent requests.
-    base_url:
-        The base URL for the UniProt API.
-    cache:
-        A dictionary to cache fetched UniProt entries.
-    list_sep:
-        The separator to use for joining list values in the output.
-    """
+class UniProtEnrichClient:
+    """Client used to fetch UniProt annotations with retry and caching support."""
 
     def __init__(
         self,
-        session: Optional[requests.Session] = None,
+        *,
+        http_client: HttpClient | None = None,
+        cache_config: CacheConfig | None = None,
+        rate_limit: float = 3.0,
         max_workers: int = 4,
         base_url: str = "https://rest.uniprot.org/uniprotkb",
         list_sep: str = "|",
+        timeout_sec: float = 30.0,
+        max_retries: int = 5,
+        backoff_multiplier: float = 1.0,
     ) -> None:
-        self.session = session or requests.Session()
-        self.max_workers = max_workers
-        self.base_url = base_url.rstrip("/")
-        self.cache: Dict[str, Dict[str, str]] = {}
-        self.list_sep = list_sep
-
-    # Retry logic with exponential backoff
-    def _request(self, method: str, url: str, **kwargs) -> Optional[requests.Response]:
-        """Perform an HTTP request with exponential backoff.
-
-        This method attempts a request up to 5 times, with an increasing delay
-        between attempts. It retries on network errors and specific HTTP status
-        codes (429, 500, 502, 503, 504).
+        """Initialise the enrichment client.
 
         Parameters
         ----------
-        method:
-            The HTTP method to use (e.g., "GET", "POST").
-        url:
-            The URL to request.
-        **kwargs:
-            Additional keyword arguments to pass to `requests.request`.
-
-        Returns
-        -------
-        Optional[requests.Response]
-            The HTTP response object if the request is successful, otherwise None.
+        http_client:
+            Optional :class:`~library.http_client.HttpClient` instance. When not
+            provided a new client is created honouring ``cache_config`` and
+            ``rate_limit``.
+        cache_config:
+            Optional HTTP cache configuration forwarded to
+            :class:`~library.http_client.HttpClient`.
+        rate_limit:
+            Maximum number of requests per second applied to the lazily created
+            :class:`~library.http_client.HttpClient` instance.
+        max_workers:
+            Upper bound for worker threads used to parallelise record retrieval.
+        base_url:
+            Base UniProt REST endpoint.
+        list_sep:
+            Delimiter used when serialising list-like values.
+        timeout_sec:
+            Timeout applied to outbound HTTP requests when the client is created
+            internally.
+        max_retries:
+            Number of retry attempts for transient failures when the client is
+            created internally.
+        backoff_multiplier:
+            Multiplier controlling the exponential backoff used between retries.
         """
-        last_exc: Optional[Exception] = None
-        for attempt in range(5):
-            try:
-                resp = self.session.request(method, url, timeout=30, **kwargs)
-            except requests.RequestException as exc:  # network errors
-                last_exc = exc
-                wait = (2**attempt) + random.random()
-                time.sleep(wait)
-                continue
-            if resp.status_code == 200:
-                return resp
-            if resp.status_code in {429, 500, 502, 503, 504}:
-                wait = (2**attempt) + random.random()
-                time.sleep(wait)
-                continue
-            return resp
-        if last_exc:
-            raise RuntimeError(f"Failed to fetch {url}: {last_exc}")
-        return None
+
+        self._http_client = http_client or HttpClient(
+            timeout=timeout_sec,
+            max_retries=max_retries,
+            rps=rate_limit,
+            backoff_multiplier=backoff_multiplier,
+            cache_config=cache_config,
+        )
+        self.max_workers = max_workers
+        self.base_url = base_url.rstrip('/')
+        self.cache: Dict[str, Dict[str, str]] = {}
+        self.list_sep = list_sep
+        self.cache_config = cache_config
+
+    @property
+    def backoff(self) -> float:
+        """Return the exponential backoff multiplier configured for requests."""
+
+        return self._http_client.backoff_multiplier
+
+    @property
+    def rps(self) -> float:
+        """Return the configured requests-per-second limit."""
+
+        return self._http_client.rate_limiter.rps
+
+    def _request(
+        self, method: str, url: str, **kwargs: Any
+    ) -> Optional[requests.Response]:
+        """Perform an HTTP request while handling common error cases."""
+
+        try:
+            response = self._http_client.request(method, url, **kwargs)
+        except requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 404:
+                LOGGER.debug("UniProt entry not found at %s", url)
+                return None
+            status = exc.response.status_code if exc.response else "?"
+            LOGGER.warning("HTTP error %s for %s %s", status, method, url)
+            return None
+        except requests.RequestException as exc:  # pragma: no cover - network failure
+            LOGGER.warning("Request failed for %s %s: %s", method, url, exc)
+            return None
+        return response
 
     def _fetch_single(self, accession: str) -> Optional[dict]:
         """Fetch a single UniProt entry by its accession number.
@@ -279,6 +297,12 @@ class UniProtClient:
                 parsed["secondary_accession_names"] = ""
         self.cache[accession] = parsed
         return parsed
+
+
+# Backwards compatibility ----------------------------------------------------
+
+
+UniProtClient = UniProtEnrichClient
 
 
 # Helper functions ---------------------------------------------------------
@@ -631,7 +655,7 @@ def enrich_uniprot(input_csv_path: str, list_sep: str = "|") -> None:
     ids = df["uniprot_id"].astype(str).tolist()
     unique_ids = list(dict.fromkeys(ids))
     LOGGER.info("Unique UniProt IDs: %d", len(unique_ids))
-    client = UniProtClient(list_sep=list_sep)
+    client = UniProtEnrichClient(list_sep=list_sep)
     id_map = client.fetch_all(unique_ids)
     success = sum(1 for v in id_map.values() if any(v.values()))
     LOGGER.info("Fetched %d records, %d failures", success, len(id_map) - success)

@@ -1,5 +1,5 @@
 """UniProt enrichment utilities."""
 
-from .enrich import enrich_uniprot
+from .enrich import UniProtEnrichClient, enrich_uniprot
 
-__all__ = ["enrich_uniprot"]
+__all__ = ["enrich_uniprot", "UniProtEnrichClient"]

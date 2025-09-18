@@ -148,3 +148,18 @@ def test_enrich_uniprot(data_file: Path) -> None:
         enrich_uniprot.__globals__["OUTPUT_COLUMNS"]
     )
     assert list(df.columns) == expected_cols
+
+
+def test_enrich_client_uses_provided_http_client() -> None:
+    http_client_cls = enrich_uniprot.__globals__["HttpClient"]
+    client_cls = enrich_uniprot.__globals__["UniProtEnrichClient"]
+    http_client = http_client_cls(
+        timeout=1.0,
+        max_retries=2,
+        rps=7.5,
+        backoff_multiplier=2.5,
+    )
+    client = client_cls(http_client=http_client)
+    assert client.backoff == pytest.approx(http_client.backoff_multiplier)
+    assert client.rps == pytest.approx(http_client.rate_limiter.rps)
+    assert client._http_client is http_client
