@@ -258,6 +258,7 @@ class _PubChemRequest:
 
         property_fields = list(dict.fromkeys(self.properties))
         property_success = False
+        requested_cid = "CID" in self.properties
         if property_fields:
             url = (
                 f"{self.base_url.rstrip('/')}/compound/smiles/{encoded}/property/"
@@ -272,7 +273,7 @@ class _PubChemRequest:
                         results[prop] = _normalise_numeric(prop, record.get(prop))
                     property_success = True
 
-        if "CID" in self.properties and results.get("CID") is None:
+        if requested_cid and results.get("CID") is None:
             if not property_success:
                 LOGGER.debug(
                     "Retrying PubChem CID lookup for %s after property request failed",
