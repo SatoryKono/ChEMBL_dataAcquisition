@@ -639,11 +639,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--sep", default=",")
     parser.add_argument("--encoding", default="utf-8-sig")
-    parser.add_argument("--list-format", default="json")
-    parser.add_argument("--species", default="Human")
+    parser.add_argument("--list-format", default=None)
+    parser.add_argument("--species", default=None)
     parser.add_argument("--affinity-parameter", default="pKi")
-    parser.add_argument("--approved-only", default="false")
-    parser.add_argument("--primary-target-only", default="true")
+    parser.add_argument("--approved-only", default=None)
+    parser.add_argument("--primary-target-only", default=None)
     parser.add_argument("--with-isoforms", action="store_true")
     parser.add_argument("--with-orthologs", action="store_true")
     parser.add_argument("--iuphar-target", help="Path to _IUPHAR_target.csv")
@@ -766,15 +766,20 @@ def main() -> None:
     args = parse_args()
     configure_logging(args.log_level, log_format=args.log_format)
     pipeline_cfg = load_pipeline_config(args.config)
-    pipeline_cfg.list_format = args.list_format
-    pipeline_cfg.species_priority = [args.species]
+    if args.list_format is not None:
+        pipeline_cfg.list_format = args.list_format
+    if args.species is not None:
+        pipeline_cfg.species_priority = [args.species]
     pipeline_cfg.iuphar.affinity_parameter = args.affinity_parameter
-    pipeline_cfg.iuphar.approved_only = (
-        None
-        if args.approved_only.lower() == "null"
-        else args.approved_only.lower() == "true"
-    )
-    pipeline_cfg.iuphar.primary_target_only = args.primary_target_only.lower() == "true"
+    if args.approved_only is not None:
+        approved_only = args.approved_only.lower()
+        pipeline_cfg.iuphar.approved_only = (
+            None if approved_only == "null" else approved_only == "true"
+        )
+    if args.primary_target_only is not None:
+        pipeline_cfg.iuphar.primary_target_only = (
+            args.primary_target_only.lower() == "true"
+        )
     pipeline_cfg.include_isoforms = pipeline_cfg.include_isoforms or args.with_isoforms
     use_isoforms = pipeline_cfg.include_isoforms
 
@@ -918,7 +923,9 @@ def main() -> None:
         out_df = out_df.sort_values(sort_columns).reset_index(drop=True)
 
     output_path = ensure_output_dir(Path(args.output).expanduser().resolve())
-    serialised_df = serialise_dataframe(out_df, list_format=args.list_format)
+    serialised_df = serialise_dataframe(
+        out_df, list_format=pipeline_cfg.list_format
+    )
     serialised_df.to_csv(
         output_path,
         index=False,
