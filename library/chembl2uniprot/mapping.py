@@ -41,7 +41,14 @@ from tenacity import (
     wait_exponential,
 )
 
-from .config import Config, RetryConfig, UniprotConfig, load_and_validate_config
+from .config import (
+    Config,
+    ResolvedRuntimeOptions,
+    RetryConfig,
+    UniprotConfig,
+    load_and_validate_config,
+    resolve_runtime_options,
+)
 from .logging_utils import configure_logging
 
 try:  # pragma: no cover - import resolution varies between runtime contexts
@@ -647,17 +654,17 @@ def map_chembl_to_uniprot(
     cfg: Config = load_and_validate_config(
         config_path, schema_path, section=config_section
     )
-
-    # Allow overriding the configuration with function arguments
-    log_level = log_level or cfg.logging.level
-    resolved_format = log_format or cfg.logging.format
-    sep = sep or cfg.io.csv.separator
-    encoding_in = encoding or cfg.io.input.encoding
-    encoding_out = encoding or cfg.io.output.encoding
+    runtime_options: ResolvedRuntimeOptions = resolve_runtime_options(
+        cfg,
+        cli_log_level=log_level,
+        cli_log_format=log_format,
+        cli_sep=sep,
+        cli_encoding=encoding,
+    )
 
     configure_logging(
-        log_level,
-        log_format=cast(Literal["human", "json"], resolved_format),
+        runtime_options.log_level,
+        log_format=runtime_options.log_format,
     )
     logging.getLogger("urllib3").setLevel(logging.INFO)  # Reduce HTTP verbosity
 
@@ -671,6 +678,9 @@ def map_chembl_to_uniprot(
     chembl_col = cfg.columns.chembl_id
     out_col = cfg.columns.uniprot_out
     delimiter = cfg.io.csv.multivalue_delimiter
+    separator = runtime_options.separator
+    encoding_in = runtime_options.input_encoding
+    encoding_out = runtime_options.output_encoding
 
     # Compute SHA256 of input file for logging purposes
     hasher = hashlib.sha256()
@@ -693,7 +703,7 @@ def map_chembl_to_uniprot(
     unique_count = 0
     try:
         id_iter = _stream_unique_ids(
-            input_csv_path, chembl_col, sep=sep, encoding=encoding_in
+            input_csv_path, chembl_col, sep=separator, encoding=encoding_in
         )
         for batch in _chunked(id_iter, batch_size):
             unique_count += len(batch)
@@ -736,7 +746,7 @@ def map_chembl_to_uniprot(
         input_csv_path.open("r", encoding=encoding_in, newline="") as src,
         output_csv_path.open("w", encoding=encoding_out, newline="") as dst,
     ):
-        reader = csv.DictReader(src, delimiter=sep)
+        reader = csv.DictReader(src, delimiter=separator)
         if reader.fieldnames is None or chembl_col not in reader.fieldnames:
             msg = f"Missing required column '{chembl_col}' in input CSV"
             raise ValueError(msg)
@@ -745,7 +755,7 @@ def map_chembl_to_uniprot(
         if out_col not in fieldnames:
             fieldnames.append(out_col)
 
-        writer = csv.DictWriter(dst, fieldnames=fieldnames, delimiter=sep)
+        writer = csv.DictWriter(dst, fieldnames=fieldnames, delimiter=separator)
         writer.writeheader()
 
         for row in reader:

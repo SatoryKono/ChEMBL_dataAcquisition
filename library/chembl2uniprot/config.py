@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Literal, cast
 
@@ -138,6 +139,66 @@ class Config(BaseModel):
     network: NetworkConfig
     batch: BatchConfig
     logging: LoggingConfig
+
+
+@dataclass(frozen=True)
+class ResolvedRuntimeOptions:
+    """Effective runtime options derived from YAML and CLI inputs."""
+
+    log_level: str
+    log_format: Literal["human", "json"]
+    separator: str
+    input_encoding: str
+    output_encoding: str
+
+
+def resolve_runtime_options(
+    cfg: Config,
+    *,
+    cli_log_level: str | None = None,
+    cli_log_format: Literal["human", "json"] | None = None,
+    cli_sep: str | None = None,
+    cli_encoding: str | None = None,
+) -> ResolvedRuntimeOptions:
+    """Merge CLI overrides with the YAML configuration values.
+
+    Parameters
+    ----------
+    cfg:
+        Parsed configuration obtained from :func:`load_and_validate_config`.
+    cli_log_level:
+        Optional log level supplied via the command line interface.  When
+        ``None`` the YAML value is used.
+    cli_log_format:
+        Optional log format specified via CLI.  ``None`` falls back to the
+        configuration file.
+    cli_sep:
+        CSV column separator provided through CLI.  ``None`` preserves the
+        separator from the configuration file.
+    cli_encoding:
+        Text encoding supplied by the CLI.  ``None`` keeps the input and output
+        encodings defined in the configuration file.
+
+    Returns
+    -------
+    ResolvedRuntimeOptions
+        Object containing the effective runtime options for logging and CSV I/O.
+    """
+
+    log_level = cli_log_level if cli_log_level is not None else cfg.logging.level
+    log_format = cli_log_format if cli_log_format is not None else cfg.logging.format
+    separator = cli_sep if cli_sep is not None else cfg.io.csv.separator
+    input_encoding = cli_encoding if cli_encoding is not None else cfg.io.input.encoding
+    output_encoding = (
+        cli_encoding if cli_encoding is not None else cfg.io.output.encoding
+    )
+    return ResolvedRuntimeOptions(
+        log_level=log_level,
+        log_format=log_format,
+        separator=separator,
+        input_encoding=input_encoding,
+        output_encoding=output_encoding,
+    )
 
 
 def _normalise_column_aliases(

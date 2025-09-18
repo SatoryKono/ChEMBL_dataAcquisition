@@ -19,11 +19,11 @@ SCHEMA_SOURCE = Path(__file__).parent / "data" / "config" / "config.schema.json"
 CONFIG_TEMPLATE = """
 io:
   input:
-    encoding: "utf-8"
+    encoding: "{input_encoding}"
   output:
-    encoding: "utf-8"
+    encoding: "{output_encoding}"
   csv:
-    separator: ","
+    separator: "{separator}"
     multivalue_delimiter: "|"
 columns:
   chembl_id: "target_chembl_id"
@@ -53,6 +53,26 @@ logging:
 """
 
 
+def render_config(
+    *,
+    batch_size: int,
+    separator: str = ",",
+    input_encoding: str = "utf-8",
+    output_encoding: str | None = None,
+) -> str:
+    """Return a formatted configuration snippet for the CLI tests."""
+
+    effective_output = (
+        output_encoding if output_encoding is not None else input_encoding
+    )
+    return CONFIG_TEMPLATE.format(
+        batch_size=batch_size,
+        separator=separator,
+        input_encoding=input_encoding,
+        output_encoding=effective_output,
+    )
+
+
 def test_cli_handles_large_input_without_memory_spikes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -66,9 +86,7 @@ def test_cli_handles_large_input_without_memory_spikes(
     config_path = tmp_path / "config.yaml"
     schema_path = tmp_path / "config.schema.json"
 
-    config_path.write_text(
-        CONFIG_TEMPLATE.format(batch_size=batch_size), encoding="utf-8"
-    )
+    config_path.write_text(render_config(batch_size=batch_size), encoding="utf-8")
     schema_path.write_text(SCHEMA_SOURCE.read_text(encoding="utf-8"), encoding="utf-8")
 
     with input_path.open("w", encoding="utf-8", newline="") as handle:
@@ -152,7 +170,7 @@ def test_cli_success_runs_mapping(
     config_path = tmp_path / "config.yaml"
     schema_path = tmp_path / "config.schema.json"
 
-    config_path.write_text(CONFIG_TEMPLATE.format(batch_size=10), encoding="utf-8")
+    config_path.write_text(render_config(batch_size=10), encoding="utf-8")
     schema_path.write_text(SCHEMA_SOURCE.read_text(encoding="utf-8"), encoding="utf-8")
 
     with input_path.open("w", encoding="utf-8", newline="") as handle:
@@ -206,6 +224,74 @@ def test_cli_success_runs_mapping(
     ]
 
 
+def test_cli_uses_yaml_separator_and_encoding_when_not_overridden(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify the CLI respects YAML separator and encoding without overrides."""
+
+    input_path = tmp_path / "input.csv"
+    output_path = tmp_path / "output.csv"
+    config_path = tmp_path / "config.yaml"
+    schema_path = tmp_path / "config.schema.json"
+
+    custom_sep = ";"
+    custom_encoding = "iso-8859-1"
+
+    config_path.write_text(
+        render_config(
+            batch_size=10,
+            separator=custom_sep,
+            input_encoding=custom_encoding,
+            output_encoding=custom_encoding,
+        ),
+        encoding="utf-8",
+    )
+    schema_path.write_text(SCHEMA_SOURCE.read_text(encoding="utf-8"), encoding="utf-8")
+
+    with input_path.open("w", encoding=custom_encoding, newline="") as handle:
+        writer = csv.writer(handle, delimiter=custom_sep)
+        writer.writerow(["target_chembl_id"])
+        writer.writerow(["CHEMBLÉ"])
+
+    def fake_map_batch(ids, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return BatchMappingResult(
+            mapping={identifier: [f"UP_{identifier}"] for identifier in ids},
+            failed_ids=[],
+        )
+
+    import chembl2uniprot.mapping as mapping_module
+
+    monkeypatch.setattr(mapping_module, "_map_batch", fake_map_batch)
+    monkeypatch.setattr(
+        mapping_module,
+        "analyze_table_quality",
+        lambda *args, **kwargs: (None, None),
+    )
+
+    chembl2uniprot_main.main(
+        [
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--config",
+            str(config_path),
+        ]
+    )
+
+    raw_bytes = output_path.read_bytes()
+    assert b";" in raw_bytes
+    assert "CHEMBLÉ".encode(custom_encoding) in raw_bytes
+    assert "UP_CHEMBLÉ".encode(custom_encoding) in raw_bytes
+
+    with pytest.raises(UnicodeDecodeError):
+        output_path.read_text(encoding="utf-8")
+
+    decoded = output_path.read_text(encoding=custom_encoding)
+    assert "CHEMBLÉ" in decoded
+    assert "UP_CHEMBLÉ" in decoded
+
+
 def test_cli_empty_input_skips_mapping(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -214,7 +300,7 @@ def test_cli_empty_input_skips_mapping(
     config_path = tmp_path / "config.yaml"
     schema_path = tmp_path / "config.schema.json"
 
-    config_path.write_text(CONFIG_TEMPLATE.format(batch_size=5), encoding="utf-8")
+    config_path.write_text(render_config(batch_size=5), encoding="utf-8")
     schema_path.write_text(SCHEMA_SOURCE.read_text(encoding="utf-8"), encoding="utf-8")
 
     with input_path.open("w", encoding="utf-8", newline="") as handle:
