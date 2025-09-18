@@ -34,6 +34,7 @@ from library.testitem_library import (
     PUBCHEM_DEFAULT_MAX_RETRIES,
     PUBCHEM_DEFAULT_RETRY_PENALTY,
     PUBCHEM_DEFAULT_RPS,
+    PUBCHEM_PROPERTY_COLUMNS,
     add_pubchem_data,
 )
 from library.testitem_validation import TestitemsSchema, validate_testitems
@@ -41,6 +42,12 @@ from library.logging_utils import configure_logging
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_LOG_FORMAT = "human"
+
+REQUIRED_ENRICHED_COLUMNS: tuple[str, ...] = (
+    "salt_chembl_id",
+    "parent_chembl_id",
+    *PUBCHEM_PROPERTY_COLUMNS,
+)
 
 
 def _default_output_name(input_path: str) -> str:
@@ -75,6 +82,26 @@ def _serialise_complex_columns(df: pd.DataFrame, list_format: str) -> pd.DataFra
             lambda value: serialise_cell(value, list_format)
         )
     return result
+
+
+def _ensure_output_columns(df: pd.DataFrame, columns: Sequence[str]) -> pd.DataFrame:
+    """Ensure ``df`` exposes ``columns`` by filling missing ones with ``pd.NA``.
+
+    The helper returns the original ``DataFrame`` when all requested columns are
+    already present; otherwise it returns a shallow copy where the missing
+    columns have been initialised with ``pd.NA`` values.  This behaviour keeps
+    downstream validation deterministic by guaranteeing that optional
+    descriptors such as ``salt_chembl_id`` and the PubChem enrichment fields
+    always exist, even if the upstream APIs did not return data for them.
+    """
+
+    missing = [column for column in columns if column not in df.columns]
+    if not missing:
+        return df
+    enriched = df.copy()
+    for column in missing:
+        enriched[column] = pd.NA
+    return enriched
 
 
 def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
@@ -272,7 +299,9 @@ def run_pipeline(
         user_agent=args.pubchem_user_agent,
         http_client_config=pubchem_http_client_config,
     )
+    enriched = _ensure_output_columns(enriched, REQUIRED_ENRICHED_COLUMNS)
     validated = validate_testitems(enriched, errors_path=errors_path)
+    validated = _ensure_output_columns(validated, REQUIRED_ENRICHED_COLUMNS)
 
     schema_columns = [
         column
