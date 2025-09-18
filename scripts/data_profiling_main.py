@@ -1,4 +1,9 @@
-"""Command line interface for generating data profiling reports."""
+"""Command line interface for generating data profiling reports.
+
+The script wraps :func:`library.data_profiling.analyze_table_quality` and
+exposes common CSV parsing parameters such as the field separator and
+encoding.  Use ``--help`` to see the supported options.
+"""
 
 from __future__ import annotations
 
@@ -22,7 +27,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     """Run the profiling utility on a CSV file."""
 
     parser = argparse.ArgumentParser(
-        description="Generate quality and correlation reports for a table"
+        description="Generate quality and correlation reports for a table",
+        epilog=(
+            "Examples:\n"
+            "  data_profiling_main.py --input data.csv --sep ';'\n"
+            "  data_profiling_main.py --input data.csv --encoding utf-8"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--input", default="input.csv", help="Path to input CSV file")
     parser.add_argument(
@@ -30,6 +41,18 @@ def main(argv: Sequence[str] | None = None) -> None:
         help=(
             "Prefix for output reports. Defaults to the input file stem in the current"
             " directory"
+        ),
+    )
+    parser.add_argument(
+        "--sep",
+        default=",",
+        help="Column separator used to parse the input CSV (default: ',')",
+    )
+    parser.add_argument(
+        "--encoding",
+        help=(
+            "Encoding of the input CSV file. When omitted the tool attempts several"
+            " common encodings."
         ),
     )
     parser.add_argument(
@@ -46,7 +69,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     configure_logging(args.log_level, log_format=args.log_format)
 
     table_name = args.output_prefix or str(Path(args.input).with_suffix(""))
-    analyze_table_quality(args.input, table_name=table_name)
+    analyze_table_quality(
+        args.input,
+        table_name=table_name,
+        separator=args.sep,
+        encoding=args.encoding,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover
