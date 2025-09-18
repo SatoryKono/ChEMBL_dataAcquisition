@@ -8,11 +8,10 @@ Examples
 from __future__ import annotations
 
 import argparse
-import json
 import logging
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 import yaml
@@ -268,7 +267,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             row: dict[str, Any] = {c: "" for c in cols}
             row["uniprot_id"] = acc
             if ensembl_client:
-                row["orthologs_json"] = "[]"
+                row["orthologs_json"] = []
                 row["orthologs_count"] = 0
             rows.append(row)
             continue
@@ -288,29 +287,21 @@ def main(argv: Sequence[str] | None = None) -> None:
                         "parent_uniprot_id": acc,
                         "isoform_uniprot_id": iso["isoform_uniprot_id"],
                         "isoform_name": iso["isoform_name"],
-                        "isoform_synonyms": json.dumps(
-                            iso["isoform_synonyms"],
-                            ensure_ascii=False,
-                            sort_keys=True,
-                        ),
-                        "is_canonical": str(iso["is_canonical"]).lower(),
+                        "isoform_synonyms": iso["isoform_synonyms"],
+                        "is_canonical": iso["is_canonical"],
                     }
                 )
 
         row = normalize_entry(data, include_seq, isoforms)
 
-        orthologs_json = "[]"
+        orthologs_json: list[dict[str, Any]] = []
         orthologs_count = 0
         if ensembl_client and gene_ids:
             gene_id = gene_ids[0]
             orthologs = ensembl_client.get_orthologs(gene_id, target_species)
             if not orthologs and oma_client:
                 orthologs = oma_client.get_orthologs_by_uniprot(acc)
-            orthologs_json = json.dumps(
-                [o.to_ordered_dict() for o in orthologs],
-                separators=(",", ":"),
-                sort_keys=True,
-            )
+            orthologs_json = [o.to_ordered_dict() for o in orthologs]
             orthologs_count = len(orthologs)
             for o in orthologs:
                 orth_rows.append(
@@ -339,11 +330,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
             if oma_client:
                 orthologs = oma_client.get_orthologs_by_uniprot(acc)
-                orthologs_json = json.dumps(
-                    [o.to_ordered_dict() for o in orthologs],
-                    separators=(",", ":"),
-                    sort_keys=True,
-                )
+                orthologs_json = [o.to_ordered_dict() for o in orthologs]
                 orthologs_count = len(orthologs)
                 for o in orthologs:
                     orth_rows.append(
