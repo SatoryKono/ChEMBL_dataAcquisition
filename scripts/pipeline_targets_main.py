@@ -39,13 +39,11 @@ from library.logging_utils import configure_logging
 from library.cli_common import (
     analyze_table_quality,
     ensure_output_dir,
+    serialise_dataframe,
     write_cli_metadata,
 )
 
 from library.protein_classifier import classify_protein
-
-from library.data_profiling import analyze_table_quality
-from library.cli_common import write_cli_metadata
 
 
 
@@ -830,25 +828,21 @@ def main() -> None:
         out_df = out_df.sort_values(sort_columns).reset_index(drop=True)
 
     output_path = ensure_output_dir(Path(args.output).expanduser().resolve())
-    out_df.to_csv(output_path, index=False, sep=args.sep, encoding=args.encoding)
-
-    write_cli_metadata(
+    serialised_df = serialise_dataframe(out_df, list_format=args.list_format)
+    serialised_df.to_csv(
         output_path,
-        row_count=int(len(out_df)),
-        column_count=int(len(out_df.columns)),
-        namespace=args,
-        command_parts=tuple(sys.argv),
+        index=False,
+        sep=args.sep,
+        encoding=args.encoding,
     )
 
-    analyze_table_quality(out_df, table_name=str(output_path.with_suffix("")))
- 
-    output_path = save_output(out_df, args.output, sep=args.sep, encoding=args.encoding)
+    analyze_table_quality(serialised_df, table_name=str(output_path.with_suffix("")))
 
     meta_path = Path(args.meta_output) if args.meta_output else None
     write_cli_metadata(
         output_path,
-        row_count=int(out_df.shape[0]),
-        column_count=int(out_df.shape[1]),
+        row_count=int(serialised_df.shape[0]),
+        column_count=int(serialised_df.shape[1]),
         namespace=args,
         command_parts=tuple(sys.argv),
         meta_path=meta_path,
