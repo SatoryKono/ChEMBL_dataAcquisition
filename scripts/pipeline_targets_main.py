@@ -217,16 +217,22 @@ def add_protein_classification(
     unique_ids = [acc for acc in dict.fromkeys(ids) if acc]
     logger = logging.getLogger(__name__)
     entry_map: Dict[str, Any] = {}
-    for acc in unique_ids:
+    fetched_entries: Dict[str, Any] = {}
+    if unique_ids:
         try:
-            fetched = fetch_entries([acc])
+            fetched_entries = fetch_entries(unique_ids) or {}
         except requests.RequestException as exc:
-            msg = f"Network error while fetching UniProt entry for {acc}"
+            msg = (
+                "Network error while fetching UniProt entries "
+                f"for {len(unique_ids)} accessions"
+            )
             raise RuntimeError(msg) from exc
         except Exception as exc:  # pragma: no cover - logging side effect
-            logger.warning("Failed to fetch UniProt entry for %s: %s", acc, exc)
-            continue
-        entry = (fetched or {}).get(acc)
+            logger.warning("Failed to fetch UniProt entries: %s", exc)
+            fetched_entries = {}
+
+    for acc in unique_ids:
+        entry = fetched_entries.get(acc)
         if entry is not None:
             entry_map[acc] = entry
 
