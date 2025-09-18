@@ -82,15 +82,13 @@ def test_run_pipeline_passes_pubchem_http_client_config(
         row_count: int,
         column_count: int,
         namespace: Any,
- 
         command_parts: Sequence[str] | None = None,
         meta_path: Path | None = None,
     ) -> None:
         captured["meta_output_path"] = output_path
         captured["meta_command"] = " ".join(command_parts or [])
         captured["meta_config"] = vars(namespace)
- 
- 
+
         captured["meta_row_count"] = row_count
         captured["meta_column_count"] = column_count
         captured["meta_path"] = meta_path
@@ -101,9 +99,9 @@ def test_run_pipeline_passes_pubchem_http_client_config(
     monkeypatch.setattr(module, "normalize_testitems", fake_normalize)
     monkeypatch.setattr(module, "add_pubchem_data", fake_add_pubchem_data)
     monkeypatch.setattr(module, "validate_testitems", fake_validate)
- 
+
     monkeypatch.setattr(module, "write_cli_metadata", fake_write_cli_metadata)
- 
+
     monkeypatch.setattr(module, "analyze_table_quality", lambda *_, **__: None)
 
     argv = [
@@ -140,3 +138,76 @@ def test_run_pipeline_passes_pubchem_http_client_config(
     assert captured["meta_config"]["pubchem_backoff"] == 2.0
     assert captured["meta_config"]["pubchem_retry_penalty"] == 7.5
     assert captured["chunk_size"] == args.chunk_size
+
+
+def test_run_pipeline_adds_required_columns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = chembl_testitems_main
+
+    input_csv = tmp_path / "input.csv"
+    input_csv.write_text("molecule_chembl_id\nCHEMBL1\n", encoding="utf-8")
+
+    output_csv = tmp_path / "out.csv"
+
+    class DummyClient:  # pragma: no cover - simple stub
+        def __init__(self, **_: Any) -> None:  # noqa: D401 - signature compatibility
+            """Ignore initialisation arguments for the dummy client."""
+
+    def fake_get_testitems(
+        _client: Any, molecule_ids: Any, *, chunk_size: int
+    ) -> pd.DataFrame:
+        _ = chunk_size
+        ids = list(molecule_ids)
+        return pd.DataFrame({"molecule_chembl_id": ids})
+
+    def fake_normalize(df: pd.DataFrame) -> pd.DataFrame:
+        return df
+
+    def fake_add_pubchem_data(
+        df: pd.DataFrame,
+        *,
+        smiles_column: str,
+        timeout: float,
+        base_url: str,
+        user_agent: str,
+        http_client_config: dict[str, Any] | None = None,
+        **_: Any,
+    ) -> pd.DataFrame:
+        _ = smiles_column, timeout, base_url, user_agent, http_client_config
+        return df
+
+    def fake_validate(
+        df: pd.DataFrame,
+        schema: Any = None,
+        *,
+        errors_path: Path,
+    ) -> pd.DataFrame:
+        _ = schema, errors_path
+        return df
+
+    monkeypatch.setattr(module, "ChemblClient", DummyClient)
+    monkeypatch.setattr(module, "get_testitems", fake_get_testitems)
+    monkeypatch.setattr(module, "normalize_testitems", fake_normalize)
+    monkeypatch.setattr(module, "add_pubchem_data", fake_add_pubchem_data)
+    monkeypatch.setattr(module, "validate_testitems", fake_validate)
+    monkeypatch.setattr(module, "analyze_table_quality", lambda *_, **__: None)
+    monkeypatch.setattr(module, "write_cli_metadata", lambda *_, **__: None)
+
+    exit_code = module.run_pipeline(
+        module.parse_args(
+            [
+                "--input",
+                str(input_csv),
+                "--output",
+                str(output_csv),
+            ]
+        ),
+        command_parts=["chembl_testitems_main.py", "--input", str(input_csv)],
+    )
+
+    assert exit_code == 0
+    assert output_csv.exists()
+    df = pd.read_csv(output_csv)
+    for column in module.REQUIRED_ENRICHED_COLUMNS:
+        assert column in df.columns

@@ -24,6 +24,34 @@ def test_pipeline_targets_cli_writes_outputs(
 
     module: Any = importlib.import_module("scripts.pipeline_targets_main")
 
+    original_serialise = module.serialise_dataframe
+    serialise_stats: dict[str, Any] = {"calls": 0}
+
+    def tracking_serialise_dataframe(
+        df: pd.DataFrame, list_format: str
+    ) -> pd.DataFrame:
+        serialise_stats["calls"] += 1
+        serialise_stats["list_format"] = list_format
+        serialise_stats["columns"] = list(df.columns)
+        return original_serialise(df, list_format)
+
+    monkeypatch.setattr(
+        module, "serialise_dataframe", tracking_serialise_dataframe
+    )
+
+    original_write_metadata = module.write_cli_metadata
+    metadata_stats: dict[str, Any] = {"calls": 0}
+
+    def tracking_write_cli_metadata(*args: Any, **kwargs: Any) -> Path:
+        metadata_stats["calls"] += 1
+        metadata_stats["args"] = args
+        metadata_stats["kwargs"] = kwargs
+        return original_write_metadata(*args, **kwargs)
+
+    monkeypatch.setattr(
+        module, "write_cli_metadata", tracking_write_cli_metadata
+    )
+
     input_csv = tmp_path / "input.csv"
     input_csv.write_text(
         "target_chembl_id\nCHEMBL2\nCHEMBL1\nCHEMBL2\n",
@@ -68,6 +96,16 @@ def test_pipeline_targets_cli_writes_outputs(
                 "target_chembl_id": ["CHEMBL2", "CHEMBL1", "CHEMBL2"],
                 "uniprot_id_primary": ["P200", "P100", "P010"],
                 "gene_symbol": ["BBB", "AAA", "AAC"],
+                "synonyms_all": [
+                    ["z-last"],
+                    ["a-first", "b-first"],
+                    ["m-middle"],
+                ],
+                "cross_references": [
+                    {"source": "last"},
+                    {"source": "first"},
+                    {"source": "middle"},
+                ],
             }
         )
         for column in module.IUPHAR_CLASS_COLUMNS:
@@ -77,9 +115,10 @@ def test_pipeline_targets_cli_writes_outputs(
     def fake_build_clients(*_args: Any, **_kwargs: Any) -> tuple[Any, ...]:
         return DummyUniClient(), object(), object(), None, None, []
 
-    captured: dict[str, Any] = {}
+    captured: dict[str, Any] = {"call_count": 0}
 
     def fake_analyze_table_quality(table: pd.DataFrame, table_name: str) -> None:
+        captured["call_count"] = captured.get("call_count", 0) + 1
         captured["table"] = table.copy()
         captured["table_name"] = table_name
 
@@ -112,6 +151,16 @@ def test_pipeline_targets_cli_writes_outputs(
     result_df = pd.read_csv(output_path)
     assert list(result_df["target_chembl_id"]) == ["CHEMBL1", "CHEMBL2", "CHEMBL2"]
     assert list(result_df["uniprot_id_primary"]) == ["P100", "P010", "P200"]
+    assert result_df["synonyms_all"].tolist() == [
+        "[\"a-first\",\"b-first\"]",
+        "[\"m-middle\"]",
+        "[\"z-last\"]",
+    ]
+    assert result_df["cross_references"].tolist() == [
+        '{"source": "first"}',
+        '{"source": "middle"}',
+        '{"source": "last"}',
+    ]
 
     meta_path = output_path.with_suffix(f"{output_path.suffix}.meta.yaml")
     assert meta_path.exists()
@@ -131,3 +180,8 @@ def test_pipeline_targets_cli_writes_outputs(
         "CHEMBL2",
         "CHEMBL2",
     ]
+    assert captured["call_count"] == 1
+    assert serialise_stats["calls"] == 1
+    assert serialise_stats["list_format"] == "json"
+    assert metadata_stats["calls"] == 1
+    assert metadata_stats["kwargs"].get("meta_path") is None

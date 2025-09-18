@@ -103,7 +103,16 @@ def _normalise_numeric(property_name: str, value: Any) -> Any:
 
 
 def _prepare_columns(properties: Sequence[str]) -> Dict[str, str]:
-    return {prop: f"pubchem_{_to_snake_case(prop)}" for prop in properties}
+    """Return a mapping from PubChem property names to column headers."""
+
+    unique_properties = list(dict.fromkeys(properties))
+    return {prop: f"pubchem_{_to_snake_case(prop)}" for prop in unique_properties}
+
+
+PUBCHEM_PROPERTY_COLUMN_MAP: Dict[str, str] = _prepare_columns(PUBCHEM_PROPERTIES)
+PUBCHEM_PROPERTY_COLUMNS: tuple[str, ...] = tuple(
+    PUBCHEM_PROPERTY_COLUMN_MAP[prop] for prop in PUBCHEM_PROPERTIES
+)
 
 
 def _int_from_config(config: Mapping[str, Any], key: str, default: int) -> int:
@@ -249,6 +258,7 @@ class _PubChemRequest:
 
         property_fields = list(dict.fromkeys(self.properties))
         property_success = False
+        requested_cid = "CID" in self.properties
         if property_fields:
             url = (
                 f"{self.base_url.rstrip('/')}/compound/smiles/{encoded}/property/"
@@ -263,7 +273,12 @@ class _PubChemRequest:
                         results[prop] = _normalise_numeric(prop, record.get(prop))
                     property_success = True
 
-        if property_success and "CID" in self.properties and results.get("CID") is None:
+        if requested_cid and results.get("CID") is None:
+            if not property_success:
+                LOGGER.debug(
+                    "Retrying PubChem CID lookup for %s after property request failed",
+                    smiles,
+                )
             cid_url = f"{self.base_url.rstrip('/')}/compound/smiles/{encoded}/cids/JSON"
             payload = self._get_json(cid_url, smiles=smiles, context="CID list")
             if payload is not None:
@@ -390,4 +405,8 @@ def add_pubchem_data(
     return enriched
 
 
-__all__ = ["add_pubchem_data", "PUBCHEM_PROPERTIES"]
+__all__ = [
+    "add_pubchem_data",
+    "PUBCHEM_PROPERTIES",
+    "PUBCHEM_PROPERTY_COLUMNS",
+]
