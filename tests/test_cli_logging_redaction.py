@@ -165,7 +165,9 @@ CLI_SPECS: list[CliSpec] = [
         expect_exit=True,
         exit_code=0,
         prepare=lambda module, monkeypatch, tmp_path: monkeypatch.setattr(
-            module, "load_pipeline_config", _make_stub(module, exit_code=0)
+            module,
+            "load_pipeline_config_with_sections",
+            _make_stub(module, exit_code=0),
         ),
     ),
     CliSpec(

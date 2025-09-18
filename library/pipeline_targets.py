@@ -5,7 +5,8 @@ import logging
 from math import isnan
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Callable, Dict, List, Sequence
+import os
+from typing import Any, Callable, Dict, List, Mapping, Sequence
 
 import pandas as pd
 from typing import TYPE_CHECKING
@@ -164,40 +165,174 @@ class PipelineConfig:
     )
 
 
+@dataclass(frozen=True)
+class PipelineConfigBundle:
+    """Aggregate structure returned by :func:`load_pipeline_config`.
+
+    Attributes
+    ----------
+    pipeline:
+        Parsed :class:`PipelineConfig` object used throughout the pipeline.
+    sections:
+        Mapping representation of the YAML configuration. Environment variable
+        overrides are applied prior to exposure through this attribute. The
+        mapping can be queried to obtain settings for ancillary services such as
+        UniProt or HGNC without re-reading the original YAML file.
+    """
+
+    pipeline: PipelineConfig
+    sections: Mapping[str, Any]
+
+    def section(self, name: str, default: Any | None = None) -> Any:
+        """Return configuration subsection ``name`` if present."""
+
+        return self.sections.get(name, default)
+
+
 # ---------------------------------------------------------------------------
 # Configuration helpers
 
 
-def load_pipeline_config(path: str) -> PipelineConfig:
-    """Load ``PipelineConfig`` from a YAML file."""
+def load_pipeline_config(path: str) -> PipelineConfigBundle:
+    """Load ``PipelineConfig`` and accompanying sections from ``path``."""
+
+    return load_pipeline_config_with_sections(path)
+
+
+def load_pipeline_config_with_sections(path: str) -> PipelineConfigBundle:
+    """Load pipeline configuration and expose raw configuration sections."""
 
     import yaml  # type: ignore[import]
 
     with open(path, "r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh) or {}
-    cfg = data.get("pipeline", {})
-    iuphar = cfg.get("iuphar", {})
+        raw_data = yaml.safe_load(fh) or {}
+    data: Dict[str, Any] = dict(raw_data)
+    _apply_env_overrides(data)
+    pipeline_cfg = _build_pipeline_config(data.get("pipeline", {}))
+    return PipelineConfigBundle(pipeline_cfg, data)
+
+
+def _apply_env_overrides(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply ``CHEMBL_DA__``/``CHEMBL_`` environment overrides to ``data``."""
+
+    prefixes = ("CHEMBL_DA__", "CHEMBL_")
+    for raw_key, value in os.environ.items():
+        prefix = next((p for p in prefixes if raw_key.startswith(p)), None)
+        if prefix is None:
+            continue
+        tail = raw_key[len(prefix) :]
+        if not tail:
+            continue
+        path = [part.lower() for part in tail.split("__") if part]
+        if not path:
+            continue
+        ref: Dict[str, Any] | Any = data
+        valid_path = True
+        for part in path[:-1]:
+            if not isinstance(ref, dict):
+                valid_path = False
+                break
+            ref = ref.setdefault(part, {})
+        if not valid_path or not isinstance(ref, dict):
+            continue
+        ref[path[-1]] = value
+    return data
+
+
+def _build_pipeline_config(cfg: Mapping[str, Any]) -> PipelineConfig:
+    """Construct :class:`PipelineConfig` from the ``pipeline`` section."""
+
+    iuphar = cfg.get("iuphar", {}) if isinstance(cfg, Mapping) else {}
+    rate_limit_rps = _coerce_float(cfg.get("rate_limit_rps"), 2.0)
+    retries = _coerce_int(cfg.get("retries"), 3)
+    timeout_sec = _coerce_float(cfg.get("timeout_sec"), 30.0)
+    species_priority = list(cfg.get("species_priority", ["Human", "Homo sapiens"]))
+    list_format = str(cfg.get("list_format", "json"))
+    include_sequence = _coerce_bool(cfg.get("include_sequence"), False)
+    include_isoforms = _coerce_bool(cfg.get("include_isoforms"), False)
+    columns = list(cfg.get("columns", DEFAULT_COLUMNS))
+    affinity_parameter = str(iuphar.get("affinity_parameter", "pKi"))
+    approved_only = _coerce_optional_bool(iuphar.get("approved_only"))
+    primary_target_only = _coerce_bool(iuphar.get("primary_target_only"), True)
     cfg_kwargs: Dict[str, Any] = {
-        "rate_limit_rps": cfg.get("rate_limit_rps", 2.0),
-        "retries": cfg.get("retries", 3),
-        "timeout_sec": cfg.get("timeout_sec", 30.0),
-        "species_priority": list(
-            cfg.get("species_priority", ["Human", "Homo sapiens"])
-        ),
-        "list_format": cfg.get("list_format", "json"),
-        "include_sequence": cfg.get("include_sequence", False),
-        "include_isoforms": cfg.get("include_isoforms", False),
-        "columns": list(cfg.get("columns", DEFAULT_COLUMNS)),
+        "rate_limit_rps": rate_limit_rps,
+        "retries": retries,
+        "timeout_sec": timeout_sec,
+        "species_priority": species_priority,
+        "list_format": list_format,
+        "include_sequence": include_sequence,
+        "include_isoforms": include_isoforms,
+        "columns": columns,
         "iuphar": IupharConfig(
-            affinity_parameter=iuphar.get("affinity_parameter", "pKi"),
-            approved_only=iuphar.get("approved_only"),
-            primary_target_only=iuphar.get("primary_target_only", True),
+            affinity_parameter=affinity_parameter,
+            approved_only=approved_only,
+            primary_target_only=primary_target_only,
         ),
     }
     timestamp_cfg = cfg.get("timestamp_utc")
     if isinstance(timestamp_cfg, str):
         cfg_kwargs["timestamp_utc"] = timestamp_cfg
     return PipelineConfig(**cfg_kwargs)
+
+
+def _coerce_float(value: Any, default: float) -> float:
+    """Return ``value`` coerced to ``float`` with ``default`` fallback."""
+
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            return float(value)
+        except ValueError as exc:  # pragma: no cover - defensive programming
+            raise ValueError(f"Cannot convert {value!r} to float") from exc
+    return default
+
+
+def _coerce_int(value: Any, default: int) -> int:
+    """Return ``value`` coerced to ``int`` with ``default`` fallback."""
+
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            return int(float(value))
+        except ValueError as exc:  # pragma: no cover - defensive programming
+            raise ValueError(f"Cannot convert {value!r} to int") from exc
+    return default
+
+
+def _coerce_bool(value: Any, default: bool) -> bool:
+    """Coerce ``value`` to ``bool`` honouring truthy string representations."""
+
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "y"}:
+            return True
+        if normalized in {"false", "0", "no", "n"}:
+            return False
+    return default
+
+
+def _coerce_optional_bool(value: Any) -> bool | None:
+    """Coerce ``value`` to ``bool`` or ``None`` when possible."""
+
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"", "null", "none"}:
+            return None
+        if normalized in {"true", "1", "yes", "y"}:
+            return True
+        if normalized in {"false", "0", "no", "n"}:
+            return False
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -693,4 +828,11 @@ def run_pipeline(
     return df
 
 
-__all__ = ["PipelineConfig", "IupharConfig", "load_pipeline_config", "run_pipeline"]
+__all__ = [
+    "PipelineConfig",
+    "IupharConfig",
+    "PipelineConfigBundle",
+    "load_pipeline_config",
+    "load_pipeline_config_with_sections",
+    "run_pipeline",
+]
