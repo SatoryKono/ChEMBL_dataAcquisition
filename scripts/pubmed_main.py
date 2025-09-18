@@ -133,6 +133,29 @@ def _deep_update(
     return base
 
 
+def _normalise_crossref_doi(doi: str | None) -> str | None:
+    """Return a canonical DOI representation suitable for Crossref lookups."""
+
+    if not doi:
+        return None
+    value = doi.strip()
+    if not value:
+        return None
+    lowered = value.lower()
+    prefixes = (
+        "urn:doi:",
+        "doi:",
+        "https://doi.org/",
+        "http://doi.org/",
+    )
+    for prefix in prefixes:
+        if lowered.startswith(prefix):
+            value = value[len(prefix) :]
+            lowered = value.lower()
+    cleaned = value.strip()
+    return cleaned.lower() or None
+
+
 def load_config(path: str | None) -> Dict[str, Any]:
     config = deepcopy(DEFAULT_CONFIG)
     if path:
@@ -336,17 +359,20 @@ def _gather_pubmed_sources(
     openalex_client = _create_http_client(openalex_cfg)
     openalex_records = fetch_openalex_records(pmids, client=openalex_client)
 
-    dois: List[str] = []
+    doi_set: set[str] = set()
+
+    def _collect_doi(candidate: str | None) -> None:
+        normalised = _normalise_crossref_doi(candidate)
+        if normalised:
+            doi_set.add(normalised)
+
     for pubmed_record in pubmed_records:
-        if pubmed_record.doi:
-            dois.append(pubmed_record.doi)
+        _collect_doi(pubmed_record.doi)
     for scholar_record in scholar_records:
-        if scholar_record.doi:
-            dois.append(scholar_record.doi)
+        _collect_doi(scholar_record.doi)
     for openalex_record in openalex_records:
-        if openalex_record.doi:
-            dois.append(openalex_record.doi)
-    unique_dois = sorted({doi for doi in dois if doi})
+        _collect_doi(openalex_record.doi)
+    unique_dois = sorted(doi_set)
 
     crossref_cfg = cfg["crossref"]
     crossref_client = _create_http_client(crossref_cfg)
@@ -369,7 +395,12 @@ def _gather_openalex_sources(
     openalex_client = _create_http_client(openalex_cfg)
     openalex_records = fetch_openalex_records(pmids, client=openalex_client)
 
-    dois = sorted({record.doi for record in openalex_records if record.doi})
+    doi_set: set[str] = set()
+    for record in openalex_records:
+        normalised = _normalise_crossref_doi(record.doi)
+        if normalised:
+            doi_set.add(normalised)
+    dois = sorted(doi_set)
     crossref_records: List[Any]
     if dois:
         crossref_cfg = cfg["crossref"]
