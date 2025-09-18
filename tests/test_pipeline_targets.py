@@ -152,6 +152,51 @@ def test_pipeline_single_target(monkeypatch):
     assert "Syn1" in syns_all
 
 
+def test_pipeline_fetches_isoforms_when_enabled(monkeypatch):
+    def chembl_fetch(ids, cfg=None):
+        return make_chembl_df(["P12345"])
+
+    class RecordingUniProt(DummyUniProt):
+        def __init__(self, records: Dict[str, Dict]):
+            super().__init__(records)
+            self.isoform_calls: List[str] = []
+
+        def fetch_entry_json(self, acc: str) -> Dict | None:
+            return self.records.get(acc)
+
+        def fetch_isoforms_fasta(self, acc: str) -> List[str]:
+            self.isoform_calls.append(acc)
+            return [f">sp|{acc}-1|"]
+
+    uni = RecordingUniProt(
+        {
+            "P12345": make_uniprot(
+                "P12345",
+                "Homo sapiens",
+                9606,
+                ["Eukaryota", "Chordata", "Mammalia", "Primates", "Hominidae"],
+                hgnc="HGNC:1",
+            )
+        }
+    )
+    hgnc = DummyHGNC({"P12345": HGNCRecord("P12345", "HGNC:1", "SYMB", "Name", "Prot")})
+    gtop = DummyGtoP({})
+    monkeypatch.setattr("pipeline_targets.resolve_target", fake_resolve)
+    cfg = PipelineConfig(include_isoforms=True)
+
+    df = run_pipeline(
+        ["CHEMBL1"],
+        cfg,
+        chembl_fetcher=chembl_fetch,
+        uniprot_client=uni,
+        hgnc_client=hgnc,
+        gtop_client=gtop,
+    )
+
+    assert not df.empty
+    assert uni.isoform_calls == ["P12345"]
+
+
 def test_pipeline_selects_human_uniprot(monkeypatch):
     def chembl_fetch(ids, cfg=None):
         return make_chembl_df(["Q11111", "Q22222"])

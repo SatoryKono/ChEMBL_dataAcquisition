@@ -46,7 +46,6 @@ from library.cli_common import (
 from library.protein_classifier import classify_protein
 
 
-
 from library.pipeline_targets import (
     PipelineConfig,
     load_pipeline_config,
@@ -688,8 +687,8 @@ def main() -> None:
         else args.approved_only.lower() == "true"
     )
     pipeline_cfg.iuphar.primary_target_only = args.primary_target_only.lower() == "true"
-    use_isoforms = args.with_isoforms
-    pipeline_cfg.include_isoforms = False
+    pipeline_cfg.include_isoforms = pipeline_cfg.include_isoforms or args.with_isoforms
+    use_isoforms = pipeline_cfg.include_isoforms
 
     # Load optional ChEMBL column configuration and ensure required fields
     with open(args.config, "r", encoding="utf-8") as fh:
@@ -816,7 +815,6 @@ def main() -> None:
     cols = [c for c in out_df.columns if c not in IUPHAR_CLASS_COLUMNS]
     out_df = out_df[cols + IUPHAR_CLASS_COLUMNS]
 
- 
     sort_candidates = [
         "target_chembl_id",
         "uniprot_id_primary",
@@ -847,7 +845,7 @@ def main() -> None:
         command_parts=tuple(sys.argv),
         meta_path=meta_path,
     )
- 
+
 
 if __name__ == "__main__":
     main()
