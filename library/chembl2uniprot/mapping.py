@@ -23,8 +23,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from urllib.parse import urljoin
- 
-from typing import Any, Dict, Iterable, Iterator, List, Set, cast, Literal,  Sequence
+
+from typing import Any, Dict, Iterable, Iterator, List, Set, cast, Literal, Sequence
 
 import hashlib
 import json
@@ -34,6 +34,7 @@ import time
 import pandas as pd
 import requests
 from tenacity import (
+    RetryCallState,
     retry,
     retry_if_exception_type,
     stop_after_attempt,
@@ -42,6 +43,21 @@ from tenacity import (
 
 from .config import Config, RetryConfig, UniprotConfig, load_and_validate_config
 from .logging_utils import configure_logging
+
+try:  # pragma: no cover - import resolution varies between runtime contexts
+    from http_client import (  # type: ignore[import-not-found]
+        DEFAULT_STATUS_FORCELIST,
+        RateLimiter,
+        RetryAfterWaitStrategy,
+        retry_after_from_response,
+    )
+except ImportError:  # pragma: no cover - fallback when executed as a package
+    from ..http_client import (
+        DEFAULT_STATUS_FORCELIST,
+        RateLimiter,
+        RetryAfterWaitStrategy,
+        retry_after_from_response,
+    )
 
 try:
     from data_profiling import analyze_table_quality
@@ -130,41 +146,6 @@ def _stream_unique_ids(
                 continue
             seen.add(value)
             yield value
-
-
-@dataclass
-class RateLimiter:
-    """Simple rate limiter based on sleep intervals.
-
-    Parameters
-    ----------
-    rps:
-        Maximum allowed requests per second.  When set to ``0`` the limiter is
-        effectively disabled.
-    last_call:
-        Timestamp of the last recorded call in seconds as returned by
-        :func:`time.monotonic`.
-    """
-
-    rps: float
-    last_call: float = 0.0
-
-    def wait(self) -> None:
-        """Sleep as necessary to honour the configured rate limit.
-
-        Returns
-        -------
-        None
-        """
-
-        if self.rps <= 0:
-            return
-        interval = 1.0 / self.rps
-        now = time.monotonic()
-        delta = now - self.last_call
-        if delta < interval:
-            time.sleep(interval - delta)
-        self.last_call = time.monotonic()
 
 
 @dataclass
@@ -307,18 +288,66 @@ def _request_with_retry(
         The HTTP response object.
     """
 
+    wait_strategy = RetryAfterWaitStrategy(wait_exponential(multiplier=backoff))
+
+    def _log_retry(retry_state: RetryCallState) -> None:
+        if retry_state.outcome is None:
+            return
+        sleep_seconds = 0.0
+        if (
+            retry_state.next_action is not None
+            and retry_state.next_action.sleep is not None
+        ):
+            sleep_seconds = float(retry_state.next_action.sleep)
+        exception = retry_state.outcome.exception()
+        reason = "unknown"
+        if isinstance(exception, requests.HTTPError) and exception.response is not None:
+            status_code = exception.response.status_code
+            reason = f"HTTP {status_code}"
+            if status_code in {408, 429} and sleep_seconds > 0:
+                rate_limiter.apply_penalty(sleep_seconds)
+        elif exception is not None:
+            reason = repr(exception)
+        next_attempt = retry_state.attempt_number + 1
+        LOGGER.warning(
+            "Retrying %s %s (attempt %d/%d) after %.2f seconds due to %s",
+            method.upper(),
+            url,
+            next_attempt,
+            max_attempts,
+            sleep_seconds,
+            reason,
+        )
+
     @retry(
         reraise=True,
         retry=retry_if_exception_type(requests.RequestException),
         stop=stop_after_attempt(max_attempts),
-        wait=wait_exponential(multiplier=backoff),
+        wait=wait_strategy,
+        before_sleep=_log_retry,
     )
     def _do_request() -> requests.Response:
         # Honour the rate limit before each network call, including retries.
         rate_limiter.wait()
         resp = requests.request(method, url, timeout=timeout, **kwargs)
-        if resp.status_code >= 500:
-            # Trigger retry by raising for 5xx responses
+        if resp.status_code in DEFAULT_STATUS_FORCELIST:
+            retry_after = retry_after_from_response(resp)
+            if retry_after is not None and retry_after > 0:
+                LOGGER.warning(
+                    "Transient HTTP %s for %s %s; server requested %.2f seconds pause",
+                    resp.status_code,
+                    method.upper(),
+                    url,
+                    retry_after,
+                )
+                rate_limiter.apply_penalty(retry_after)
+            else:
+                LOGGER.warning(
+                    "Transient HTTP %s for %s %s; retrying with backoff",
+                    resp.status_code,
+                    method.upper(),
+                    url,
+                )
             resp.raise_for_status()
         return resp
 
@@ -691,7 +720,6 @@ def map_chembl_to_uniprot(
         )
 
     LOGGER.info("Processing %d unique ChEMBL IDs", unique_count)
-
 
     mapped = sum(1 for v in mapping.values() if v)
     no_match = unique_count - mapped

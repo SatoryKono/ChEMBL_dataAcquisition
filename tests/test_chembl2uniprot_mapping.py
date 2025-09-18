@@ -6,8 +6,10 @@ import json
 import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Iterator, List
+from unittest import mock
 
 import pytest
+import requests
 
 from chembl2uniprot.config import (
     IdMappingConfig,
@@ -16,7 +18,12 @@ from chembl2uniprot.config import (
     RetryConfig,
     UniprotConfig,
 )
-from chembl2uniprot.mapping import RateLimiter, _fetch_results, _map_batch
+from chembl2uniprot.mapping import (
+    RateLimiter,
+    _fetch_results,
+    _map_batch,
+    _request_with_retry,
+)
 
 
 @dataclass
@@ -192,3 +199,82 @@ def test_map_batch_returns_failed_ids(
 
     assert result.mapping == {"CHEMBL1": ["P1"]}
     assert result.failed_ids == ["CHEMBL2"]
+
+
+def test_request_with_retry_honours_retry_after(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """429 responses should trigger retries and rate limiter penalties."""
+
+    monkeypatch.setattr("tenacity.nap.sleep", lambda _: None)
+    monkeypatch.setattr("library.http_client.time.sleep", lambda _: None)
+
+    class _StubResponse:
+        def __init__(
+            self,
+            status_code: int,
+            *,
+            headers: Dict[str, str] | None = None,
+            payload: Dict[str, Any] | None = None,
+        ) -> None:
+            self.status_code = status_code
+            self.headers = headers or {}
+            self._payload = payload or {}
+            self.text = json.dumps(self._payload)
+
+        def json(self) -> Dict[str, Any]:
+            return self._payload
+
+        def raise_for_status(self) -> None:
+            if self.status_code >= 400:
+                err = requests.HTTPError(f"HTTP {self.status_code}")
+                err.response = self
+                raise err
+
+    responses = iter(
+        [
+            _StubResponse(429, headers={"Retry-After": "0.2"}),
+            _StubResponse(200, payload={"ok": True}),
+        ]
+    )
+    call_log: List[str] = []
+
+    def _request_stub(
+        method: str, url: str, *, timeout: float, **kwargs: Any
+    ) -> _StubResponse:
+        call_log.append(f"{method}:{url}:{timeout}")
+        try:
+            return next(responses)
+        except StopIteration:  # pragma: no cover - defensive guard
+            raise AssertionError("Unexpected extra request") from None
+
+    monkeypatch.setattr("chembl2uniprot.mapping.requests.request", _request_stub)
+
+    rate_limiter = RateLimiter(1000.0)
+
+    with (
+        mock.patch.object(
+            rate_limiter,
+            "apply_penalty",
+            wraps=rate_limiter.apply_penalty,
+        ) as penalty_mock,
+        caplog.at_level(logging.WARNING),
+    ):
+        response = _request_with_retry(
+            "get",
+            "https://rest.uniprot.org/test",
+            timeout=1.0,
+            rate_limiter=rate_limiter,
+            max_attempts=3,
+            backoff=0.1,
+        )
+
+    assert response.json() == {"ok": True}
+    assert len(call_log) == 2
+    assert penalty_mock.call_count >= 1
+    assert any(
+        call.args and pytest.approx(0.2, rel=0.05) == call.args[0]
+        for call in penalty_mock.call_args_list
+    )
+    assert any("attempt" in record.message for record in caplog.records)

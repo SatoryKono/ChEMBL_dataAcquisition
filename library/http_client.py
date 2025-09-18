@@ -72,13 +72,8 @@ def _parse_retry_after(value: str | None) -> float | None:
         return max(0.0, seconds)
 
 
-def _retry_after_from_response(response: requests.Response) -> float | None:
-    """Extract the retry delay from ``response`` when advertised by the server.
-
-    The helper honours both the standard ``Retry-After`` header and Semantic
-    Scholar's ``X-RateLimit-Reset`` field which returns a UNIX timestamp for the
-    next available window.
-    """
+def retry_after_from_response(response: requests.Response) -> float | None:
+    """Extract the retry delay advertised by ``response`` when available."""
 
     retry_after = _parse_retry_after(response.headers.get("Retry-After"))
     if retry_after is not None:
@@ -95,6 +90,12 @@ def _retry_after_from_response(response: requests.Response) -> float | None:
     if delay <= 0:
         return None
     return delay
+
+
+def _retry_after_from_response(response: requests.Response) -> float | None:
+    """Backward compatible wrapper for :func:`retry_after_from_response`."""
+
+    return retry_after_from_response(response)
 
 
 class RetryAfterWaitStrategy(wait_base):
@@ -122,7 +123,7 @@ class RetryAfterWaitStrategy(wait_base):
             return None
         exception = retry_state.outcome.exception()
         if isinstance(exception, requests.HTTPError) and exception.response is not None:
-            return _retry_after_from_response(exception.response)
+            return retry_after_from_response(exception.response)
         return None
 
 
@@ -399,7 +400,7 @@ class HttpClient:
             LOGGER.debug("HTTP %s %s (timeout=%s)", method.upper(), url, timeout)
             resp = self.session.request(method, url, timeout=timeout, **kwargs)
             if resp.status_code in self.status_forcelist:
-                retry_after = _retry_after_from_response(resp)
+                retry_after = retry_after_from_response(resp)
                 if retry_after is not None:
                     LOGGER.warning(
                         "Transient HTTP %s for %s %s; retrying after %.2f seconds",
@@ -429,5 +430,7 @@ __all__ = [
     "DEFAULT_STATUS_FORCELIST",
     "HttpClient",
     "RateLimiter",
+    "RetryAfterWaitStrategy",
+    "retry_after_from_response",
     "create_http_session",
 ]
