@@ -16,7 +16,6 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Dict, List
 import logging
-import time
 
 import pandas as pd
 import requests
@@ -28,9 +27,9 @@ except ModuleNotFoundError:  # pragma: no cover
     from .data_profiling import analyze_table_quality
 
 try:  # pragma: no cover - support package and script imports
-    from .http_client import CacheConfig, create_http_session
+    from .http_client import CacheConfig, HttpClient
 except ImportError:  # pragma: no cover
-    from http_client import CacheConfig, create_http_session  # type: ignore[no-redef]
+    from http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
 
 LOGGER = logging.getLogger(__name__)
 
@@ -125,26 +124,6 @@ def load_config(path: str | Path, *, section: str | None = None) -> Config:
 # Rate limiting and HTTP helpers
 
 
-@dataclass
-class RateLimiter:
-    """Simple time-based rate limiter."""
-
-    rps: float
-    last_call: float = 0.0
-
-    def wait(self) -> None:
-        """Sleep as necessary to satisfy the configured rate limit."""
-
-        if self.rps <= 0:
-            return
-        interval = 1.0 / self.rps
-        now = time.monotonic()
-        delta = now - self.last_call
-        if delta < interval:
-            time.sleep(interval - delta)
-        self.last_call = time.monotonic()
-
-
 # ---------------------------------------------------------------------------
 # HGNC and UniProt clients
 
@@ -165,8 +144,12 @@ class HGNCClient:
 
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
-        self.rate_limiter = RateLimiter(cfg.rate_limit.rps)
-        self.session = create_http_session(cfg.cache)
+        self.http = HttpClient(
+            timeout=cfg.network.timeout_sec,
+            max_retries=cfg.network.max_retries,
+            rps=cfg.rate_limit.rps,
+            cache_config=cfg.cache,
+        )
 
     def _request(self, url: str) -> requests.Response:
         """Perform a GET request with retry and rate limiting.
@@ -187,27 +170,11 @@ class HGNCClient:
             If the request fails after all retries.
         """
 
-        last_exc: Exception | None = None
-        for attempt in range(self.cfg.network.max_retries):
-            self.rate_limiter.wait()
-            try:
-                resp = self.session.get(
-                    url,
-                    timeout=self.cfg.network.timeout_sec,
-                    headers={"Accept": "application/json"},
-                )
-            except requests.RequestException as exc:  # network error
-                last_exc = exc
-            else:
-                if resp.status_code >= 500:
-                    last_exc = requests.HTTPError(
-                        f"Server error {resp.status_code} for {url}"
-                    )
-                else:
-                    return resp
-            time.sleep(2**attempt)
-        assert last_exc is not None
-        raise last_exc
+        return self.http.request(
+            "get",
+            url,
+            headers={"Accept": "application/json"},
+        )
 
     def _fetch_protein_name(self, uniprot_id: str) -> str:
         """Fetch the recommended protein name from UniProt for a given ID.

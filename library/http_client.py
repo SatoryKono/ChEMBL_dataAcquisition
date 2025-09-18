@@ -411,14 +411,25 @@ class HttpClient:
                     )
                     self.rate_limiter.apply_penalty(retry_after)
                 else:
-                    LOGGER.warning(
-                        "Transient HTTP %s for %s %s",
-                        resp.status_code,
-                        method.upper(),
-                        url,
-                    )
+                    penalty = None
                     if resp.status_code == 429 and self.retry_penalty_seconds > 0:
-                        self.rate_limiter.apply_penalty(self.retry_penalty_seconds)
+                        penalty = self.retry_penalty_seconds
+                        self.rate_limiter.apply_penalty(penalty)
+                    if penalty:
+                        LOGGER.warning(
+                            "Transient HTTP %s for %s %s; retrying after %.2f seconds",
+                            resp.status_code,
+                            method.upper(),
+                            url,
+                            penalty,
+                        )
+                    else:
+                        LOGGER.warning(
+                            "Transient HTTP %s for %s %s",
+                            resp.status_code,
+                            method.upper(),
+                            url,
+                        )
                 resp.raise_for_status()
             return resp
 
