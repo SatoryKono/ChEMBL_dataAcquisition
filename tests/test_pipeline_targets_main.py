@@ -6,7 +6,7 @@ from typing import Dict, Iterable
 import pandas as pd
 import yaml
 import pytest
- 
+
 sys.path.insert(0, str(Path("scripts")))
 from pipeline_targets_main import (
     _merge_species_lists,
@@ -243,6 +243,18 @@ def test_build_clients_infers_uniprot_fields() -> None:
     assert set(uniprot_columns).issubset(field_set)
 
 
+def test_build_clients_uses_uniprot_rate_limit_from_config() -> None:
+    pipeline_cfg = PipelineConfig()
+    pipeline_cfg.rate_limit_rps = 0.25
+
+    uni_client, *_ = build_clients("config.yaml", pipeline_cfg)
+
+    config = yaml.safe_load(Path("config.yaml").read_text())
+    configured_rps = float(config["uniprot"]["rps"])
+
+    assert uni_client.rate_limit.rps == configured_rps
+
+
 def test_parse_species_argument_splits_and_deduplicates() -> None:
     result = _parse_species_argument("Human , ,Mouse , Human ")
     assert result == ["Human", "Mouse"]
@@ -253,7 +265,9 @@ def test_merge_species_lists_prioritises_cli_values() -> None:
     assert combined == ["Mouse", "Human", "Rat"]
 
 
-def test_parse_args_with_orthologs_flag(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_parse_args_with_orthologs_flag(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text("orthologs:\n  enabled: true\n", encoding="utf-8")
 
@@ -326,4 +340,5 @@ def test_parse_args_rejects_non_positive_batch_size(
     )
     with pytest.raises(SystemExit):
         parse_args()
+
 
