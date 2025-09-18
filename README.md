@@ -153,6 +153,14 @@ export CHEMBL_BATCH__SIZE=10  # Equivalent to CHEMBL_DA__BATCH__SIZE
 python scripts/chembl2uniprot_main.py --config my_config.yaml
 ```
 
+The unified target pipeline honours the same convention. For instance, to switch the serialisation format without editing `config.yaml` use:
+
+```bash
+export CHEMBL_DA__PIPELINE__LIST_FORMAT=pipe
+export CHEMBL_DA__PIPELINE__IUPHAR__APPROVED_ONLY=true
+python scripts/pipeline_targets_main.py --input data/input/targets.csv --output data/output/final_targets.csv
+```
+
 Always define the environment variables in the shell session before launching the CLI so that the overrides are visible to the Python process.
 
 #### HTTP retry configuration
