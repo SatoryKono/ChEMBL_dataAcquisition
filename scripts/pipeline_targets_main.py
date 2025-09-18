@@ -6,7 +6,11 @@ import argparse
 import logging
 import os
 import sys
+ 
+from functools import partial
+ 
 from dataclasses import dataclass
+ 
 from pathlib import Path
 
 from collections.abc import Iterable, Mapping, Sequence
@@ -1059,6 +1063,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Maximum number of IDs per network request",
     )
     parser.add_argument(
+        "--timeout-sec",
+        type=float,
+        default=None,
+        help="Override network timeout in seconds for external services",
+    )
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=None,
+        help="Override retry attempts for external service requests",
+    )
+    parser.add_argument(
+        "--rate-limit-rps",
+        type=float,
+        default=None,
+        help="Override request rate limit (requests per second)",
+    )
+    parser.add_argument(
         "--meta-output",
         default=None,
         help="Optional metadata YAML path",
@@ -1066,6 +1088,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.batch_size <= 0:
         parser.error("--batch-size must be a positive integer")
+    if args.timeout_sec is not None and args.timeout_sec <= 0:
+        parser.error("--timeout-sec must be a positive number")
+    if args.retries is not None and args.retries < 0:
+        parser.error("--retries must be zero or a positive integer")
+    if args.rate_limit_rps is not None and args.rate_limit_rps < 0:
+        parser.error("--rate-limit-rps must be zero or a positive number")
     return args
 
 
@@ -1082,6 +1110,7 @@ def build_clients(
     EnsemblHomologyClient | None,
     OmaClient | None,
     list[str],
+    Callable[..., UniProtEnrichClient],
 ]:
     """Initialise service clients used by the pipeline.
 
@@ -1096,6 +1125,14 @@ def build_clients(
     default_cache:
         Optional fallback cache configuration applied when a section does not
         specify its own cache settings.
+
+    Returns
+    -------
+    tuple
+        Tuple containing instantiated service clients along with a factory for
+        :class:`~library.uniprot_enrich.enrich.UniProtClient` that already
+        embeds retry, timeout and rate limit settings sourced from
+        ``pipeline_cfg``.
     """
 
     data = _load_yaml_mapping(cfg_path)
@@ -1194,7 +1231,13 @@ def build_clients(
         target_species = _ensure_str_sequence(
             orth_cfg.get("target_species"), context="orthologs.target_species"
         )
-    return uni, hgnc, gtop, ens_client, oma_client, target_species
+    enrich_factory = partial(
+        UniProtEnrichClient,
+        request_timeout=pipeline_cfg.timeout_sec,
+        max_retries=pipeline_cfg.retries,
+        rate_limit_rps=pipeline_cfg.rate_limit_rps,
+    )
+    return uni, hgnc, gtop, ens_client, oma_client, target_species, enrich_factory
 
 
 def main() -> None:
@@ -1203,6 +1246,12 @@ def main() -> None:
     args = parse_args()
     configure_logging(args.log_level, log_format=args.log_format)
     pipeline_cfg = load_pipeline_config(args.config)
+    if args.timeout_sec is not None:
+        pipeline_cfg.timeout_sec = args.timeout_sec
+    if args.retries is not None:
+        pipeline_cfg.retries = args.retries
+    if args.rate_limit_rps is not None:
+        pipeline_cfg.rate_limit_rps = args.rate_limit_rps
     if args.list_format is not None:
         pipeline_cfg.list_format = args.list_format
     cli_species = _parse_species_argument(args.species)
@@ -1289,6 +1338,7 @@ def main() -> None:
         ens_client,
         oma_client,
         target_species,
+        enrich_client_factory,
     ) = build_clients(
         args.config,
         pipeline_cfg,
@@ -1326,7 +1376,7 @@ def main() -> None:
             target_species=target_species,
             progress_callback=pbar.update,
         )
-    enrich_client = UniProtEnrichClient(cache_config=enrich_cache)
+    enrich_client = enrich_client_factory(cache_config=enrich_cache)
     out_df = add_uniprot_fields(out_df, enrich_client.fetch_all)
     out_df = merge_chembl_fields(out_df, chembl_df)
     entry_cache: Dict[str, Any] = {}
