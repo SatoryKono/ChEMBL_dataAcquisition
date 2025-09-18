@@ -16,6 +16,7 @@ from pipeline_targets_main import (
     add_isoform_fields,
     add_protein_classification,
     add_uniprot_fields,
+    build_clients,
     extract_activity,
     extract_isoform,
     merge_chembl_fields,
@@ -368,5 +369,3 @@ def test_parse_args_rejects_non_positive_batch_size(
     )
     with pytest.raises(SystemExit):
         parse_args()
-
-

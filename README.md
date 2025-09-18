@@ -195,7 +195,10 @@ The `scripts/` directory contains several other scripts for performing specific 
 
 *   `chembl2uniprot_main.py`: Map ChEMBL IDs to UniProt accessions.
 *   `chembl_tissue_main.py`: Download tissue metadata directly from ChEMBL.
-*   `get_target_data_main.py`: Download target metadata from ChEMBL.
+*   `get_target_data_main.py`: Download target metadata from ChEMBL. The CLI
+    aborts when any chunk fails and writes a detailed
+    `<output>.errors.json` report next to the main file so missing records are
+    never silently ignored.
 *   `get_cell_line_main.py`: Download metadata for specific ChEMBL cell lines and
     serialise the records as JSON lines.
 *   `get_uniprot_target_data.py`: Retrieve and normalize detailed information about UniProt targets.

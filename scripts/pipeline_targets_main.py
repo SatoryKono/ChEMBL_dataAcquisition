@@ -6,11 +6,11 @@ import argparse
 import logging
 import os
 import sys
- 
+
 from functools import partial
- 
+
 from dataclasses import dataclass
- 
+
 from pathlib import Path
 
 from collections.abc import Iterable, Mapping, Sequence
@@ -1276,6 +1276,7 @@ def main() -> None:
         )
     pipeline_cfg.include_isoforms = pipeline_cfg.include_isoforms or args.with_isoforms
     use_isoforms = pipeline_cfg.include_isoforms
+    output_path = Path(args.output).expanduser().resolve()
 
     # Load optional ChEMBL column configuration and ensure required fields
     data = _load_yaml_mapping(args.config)
@@ -1360,9 +1361,11 @@ def main() -> None:
     # Fetch comprehensive ChEMBL data once and reuse it in the pipeline
 
     chembl_df: pd.DataFrame = fetch_targets(
-        ids, chembl_cfg, batch_size=args.batch_size
+        ids,
+        chembl_cfg,
+        batch_size=args.batch_size,
+        output_path=output_path,
     )
-
 
     def _cached_chembl_fetch(
         _: Sequence[str], __: TargetConfig
@@ -1433,7 +1436,7 @@ def main() -> None:
     if sort_columns:
         out_df = out_df.sort_values(sort_columns).reset_index(drop=True)
 
-    output_path = ensure_output_dir(Path(args.output).expanduser().resolve())
+    output_path = ensure_output_dir(output_path)
     serialised_df = serialise_dataframe(out_df, list_format=pipeline_cfg.list_format)
     serialised_df.to_csv(
         output_path,

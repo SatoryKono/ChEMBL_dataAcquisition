@@ -57,13 +57,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     ids = df[args.column].dropna().astype(str).tolist()
 
     cfg = TargetConfig(output_sep=args.sep, output_encoding=args.encoding)
-    result = fetch_targets(ids, cfg)
+    output_path = Path(args.output).expanduser()
+    result = fetch_targets(ids, cfg, output_path=output_path)
     result.to_csv(
-        args.output, index=False, sep=cfg.output_sep, encoding=cfg.output_encoding
+        output_path, index=False, sep=cfg.output_sep, encoding=cfg.output_encoding
     )
-    analyze_table_quality(result, table_name=str(Path(args.output).with_suffix("")))
+    analyze_table_quality(result, table_name=str(output_path.with_suffix("")))
 
-    print(args.output)
+    print(str(output_path))
 
 
 if __name__ == "__main__":  # pragma: no cover

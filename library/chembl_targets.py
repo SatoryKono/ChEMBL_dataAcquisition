@@ -16,8 +16,10 @@ Algorithm Notes
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
 import pandas as pd
@@ -320,7 +322,11 @@ def _extract_protein_classifications(payload: Dict[str, Any]) -> List[str]:
 
 
 def fetch_targets(
-    ids: Sequence[str], cfg: TargetConfig, *, batch_size: int = 20
+    ids: Sequence[str],
+    cfg: TargetConfig,
+    *,
+    batch_size: int = 20,
+    output_path: Path | str | None = None,
 ) -> pd.DataFrame:
     """Fetch ChEMBL targets and return a normalised :class:`~pandas.DataFrame`.
 
@@ -333,6 +339,16 @@ def fetch_targets(
         the set of columns returned in the output.
     batch_size:
         Maximum number of identifiers queried per HTTP request.
+    output_path:
+        Optional path to the primary output file. When provided, an
+        ``<output>.errors.json`` sidecar is written if any chunk fails.
+
+    Raises
+    ------
+    RuntimeError
+        Raised when one or more chunks fail to download. Details of the
+        failures are serialised to ``<output>.errors.json`` when
+        ``output_path`` is supplied.
     """
 
     norm_ids = normalise_ids(ids)
@@ -344,8 +360,16 @@ def fetch_targets(
     )
     records: List[Dict[str, Any]] = []
     base = cfg.base_url.rstrip("/")
-    for i in range(0, len(norm_ids), batch_size):
+    errors: List[Dict[str, Any]] = []
+    if output_path is not None:
+        output_target = Path(output_path)
+        error_suffix = f"{output_target.suffix}.errors.json"
+        error_path = output_target.with_suffix(error_suffix)
+    else:
+        error_path = None
+    for chunk_index, i in enumerate(range(0, len(norm_ids), batch_size)):
         chunk = norm_ids[i : i + batch_size]
+        chunk_repr = ",".join(chunk)
         params = {
             "target_chembl_id__in": ",".join(chunk),
             "format": "json",
@@ -361,11 +385,40 @@ def fetch_targets(
                 }
             else:
                 LOGGER.warning(
-                    "Non-200 response for %s: %s", ",".join(chunk), resp.status_code
+                    "Chunk %d (%s) returned HTTP status %s",
+                    chunk_index,
+                    chunk_repr,
+                    resp.status_code,
+                )
+                errors.append(
+                    {
+                        "chunk_index": chunk_index,
+                        "identifiers": list(chunk),
+                        "status_code": resp.status_code,
+                        "request_url": url,
+                        "request_params": params,
+                        "message": f"Unexpected HTTP status {resp.status_code}",
+                    }
                 )
                 payload_map = {}
         except Exception as exc:  # noqa: BLE001 - we log and continue
-            LOGGER.warning("Failed to fetch %s: %s", ",".join(chunk), exc)
+            LOGGER.warning(
+                "Chunk %d (%s) raised %s: %s",
+                chunk_index,
+                chunk_repr,
+                type(exc).__name__,
+                exc,
+            )
+            errors.append(
+                {
+                    "chunk_index": chunk_index,
+                    "identifiers": list(chunk),
+                    "request_url": url,
+                    "request_params": params,
+                    "message": str(exc),
+                    "error_type": type(exc).__name__,
+                }
+            )
             payload_map = {}
         for chembl_id in chunk:
             payload = payload_map.get(chembl_id, {})
@@ -404,6 +457,17 @@ def fetch_targets(
             }
             records.append(record)
     df = pd.DataFrame(records, columns=cfg.columns)
+    if errors:
+        if error_path is not None:
+            error_path.parent.mkdir(parents=True, exist_ok=True)
+            with error_path.open("w", encoding="utf-8") as handle:
+                json.dump(errors, handle, ensure_ascii=False, indent=2)
+        msg = f"Failed to fetch {len(errors)} chunk(s) from ChEMBL"
+        if error_path is not None:
+            msg = f"{msg}; see {error_path.name} for details"
+        raise RuntimeError(msg)
+    if error_path is not None and error_path.exists():
+        error_path.unlink()
     return df
 
 

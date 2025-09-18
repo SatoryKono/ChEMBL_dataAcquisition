@@ -74,7 +74,9 @@ def test_pipeline_targets_cli_writes_outputs(
         cfg = module.PipelineConfig()
         return cfg
 
-    def fake_fetch_targets(ids: list[str], _: Any, batch_size: int) -> pd.DataFrame:
+    def fake_fetch_targets(
+        ids: list[str], _: Any, batch_size: int, **_kwargs: Any
+    ) -> pd.DataFrame:
         return pd.DataFrame(
             {
                 "target_chembl_id": ids,
@@ -211,7 +213,9 @@ def test_pipeline_targets_cli_filters_invalid_ids(
 
     captured: dict[str, Any] = {}
 
-    def fake_fetch_targets(ids: list[str], cfg: Any, batch_size: int) -> pd.DataFrame:
+    def fake_fetch_targets(
+        ids: list[str], cfg: Any, batch_size: int, **_kwargs: Any
+    ) -> pd.DataFrame:
         captured["ids"] = list(ids)
         return pd.DataFrame({"target_chembl_id": ids})
 
@@ -226,10 +230,14 @@ def test_pipeline_targets_cli_filters_invalid_ids(
         )
 
     class DummyEnrichClient:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover - simple
+        def __init__(
+            self, *args: Any, **kwargs: Any
+        ) -> None:  # pragma: no cover - simple
             pass
 
-        def fetch_all(self, accessions: list[str]) -> dict[str, dict[str, str]]:  # pragma: no cover - simple
+        def fetch_all(
+            self, accessions: list[str]
+        ) -> dict[str, dict[str, str]]:  # pragma: no cover - simple
             return {acc: {} for acc in accessions}
 
     def fake_build_clients(*_args: Any, **_kwargs: Any) -> tuple[Any, ...]:
@@ -249,7 +257,10 @@ def test_pipeline_targets_cli_filters_invalid_ids(
     monkeypatch.setattr(module, "merge_chembl_fields", lambda df, _: df)
     monkeypatch.setattr(module, "add_activity_fields", _identity_frame)
     monkeypatch.setattr(module, "add_isoform_fields", _identity_frame)
-    def _ensure_iuphar_columns(df: pd.DataFrame, *args: Any, **kwargs: Any) -> pd.DataFrame:
+
+    def _ensure_iuphar_columns(
+        df: pd.DataFrame, *args: Any, **kwargs: Any
+    ) -> pd.DataFrame:
         frame = df.copy()
         for column in module.IUPHAR_CLASS_COLUMNS:
             if column not in frame.columns:
@@ -799,7 +810,9 @@ uniprot_enrich: null
 
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
 
-    def fake_fetch_targets(ids: list[str], cfg: Any, batch_size: int) -> pd.DataFrame:
+    def fake_fetch_targets(
+        ids: list[str], cfg: Any, batch_size: int, **_kwargs: Any
+    ) -> pd.DataFrame:
         captured["chembl_columns"] = list(cfg.columns)
         return pd.DataFrame({"target_chembl_id": ids})
 
