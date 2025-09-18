@@ -1116,7 +1116,7 @@ def main() -> None:
     ids: List[str] = list(unique_ids)
 
     # Fetch comprehensive ChEMBL data once and reuse it in the pipeline
-    chembl_df = fetch_targets(ids, chembl_cfg, batch_size=args.batch_size)
+    chembl_df: pd.DataFrame = fetch_targets(ids, chembl_cfg, batch_size=args.batch_size)
 
     def _cached_chembl_fetch(
         _: Sequence[str], __: TargetConfig
