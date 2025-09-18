@@ -181,11 +181,16 @@ python scripts/get_target_data_main.py \
     --input targets.csv \
     --output targets_dump.csv \
     --column target_chembl_id \
-    --log-level INFO
+    --sep , \
+    --encoding utf-8-sig \
+    --list-format json \
+    --log-level INFO \
+    --meta-output targets_dump.csv.meta.yaml
 ```
 
-Nested fields in the output are encoded as JSON strings to ensure
-deterministic, machine-readable results.
+Nested fields in the output are encoded deterministically according to
+``--list-format``. The CLI writes both ``targets_dump.csv`` and a metadata
+sidecar capturing the command invocation, file checksum, and table dimensions.
 
 The set of columns retrieved from ChEMBL can be customised in
 ``config.yaml`` under the ``chembl.columns`` section.

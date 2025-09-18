@@ -11,13 +11,18 @@ python scripts/get_target_data_main.py \
     --input data/targets.csv \
     --output out/targets_dump.csv \
     --column target_chembl_id \
+    --sep , \
+    --encoding utf-8-sig \
+    --list-format json \
     --log-level INFO \
-    --log-format json
+    --meta-output out/targets_dump.csv.meta.yaml
 ```
 
 The input file must contain a column with ChEMBL target identifiers. Duplicate
 and empty values are ignored. The resulting CSV contains one row per unique
-identifier with nested fields serialised as JSON strings.
+identifier with nested fields serialised deterministically via
+``--list-format``. A companion ``.meta.yaml`` file captures the CLI invocation,
+row/column counts, and output checksum.
 
 ## dump_gtop_target.py
 
@@ -31,14 +36,18 @@ python scripts/dump_gtop_target.py \
     --id-column uniprot_id \
     --affinity-parameter pKi \
     --affinity-ge 7 \
+    --sep , \
+    --encoding utf-8-sig \
     --log-level INFO \
-    --log-format json
+    --meta-output out/gtop/targets_overview.meta.yaml
 ```
 
 This command creates ``targets.csv`` together with related tables such as
 ``targets_synonyms.csv`` and ``targets_interactions.csv`` in the specified output
 directory. Only unique identifiers are queried and results are written in a
-deterministic order.
+deterministic order. The main table is accompanied by a metadata sidecar (set
+to a custom path above via ``--meta-output``) that records runtime parameters
+and checksums.
 
 ## Performance smoke testing
 
