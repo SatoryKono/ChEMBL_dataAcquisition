@@ -124,6 +124,28 @@ python scripts/get_uniprot_target_data.py \
 
 The behaviour is configured via ``config.yaml``.  Lists are serialised either as
 JSON (default) or as ``|``-delimited strings depending on the configuration.
+The relevant configuration sections are:
+
+- ``output`` – CSV separator, encoding, default list serialisation format and
+  whether sequences are exported.
+- ``uniprot`` – REST endpoint, retry budget, timeout, rate limit and optional
+  request-level cache for UniProtKB.
+- ``orthologs`` – toggle for ortholog enrichment, allowed species, retry and
+  rate limit parameters plus an optional cache configuration.
+- ``http_cache`` – global HTTP cache used as a fallback when a section does not
+  define its own cache settings.
+
+Each setting can be overridden via environment variables prefixed with
+``CHEMBL_DA__``.  Components of the configuration path are separated with double
+underscores, for example::
+
+    export CHEMBL_DA__OUTPUT__SEP="\t"
+    export CHEMBL_DA__UNIPROT__RPS=6
+    export CHEMBL_DA__ORTHOLOGS__TARGET_SPECIES="[\"Human\", \"Mouse\"]"
+    export CHEMBL_DA__HTTP_CACHE__ENABLED=true
+
+These overrides are processed before validation, ensuring the resulting
+configuration matches the constraints enforced by the loader.
 
 
 ### Including orthologs
