@@ -53,6 +53,24 @@ inspect the slowest tests:
 pytest --maxfail=1 --durations=10
 ```
 
+## Code Quality Checks
+
+Static analysis and formatting are enforced via pre-commit hooks. To run the
+individual tools manually execute:
+
+```bash
+ruff check .
+ruff format .  # or `black .` to match the configured formatter
+mypy --strict --ignore-missing-imports .
+pytest
+```
+
+Alternatively, execute all checks in one go with:
+
+```bash
+pre-commit run --all-files
+```
+
 ## Installation
 
 1.  Create and activate a virtual environment:
@@ -263,3 +281,54 @@ python scripts/chembl_activities_main.py \
 Validation errors are persisted to `<output>.errors.json` while dataset metadata
 is written to `<output>.meta.yaml`. Quality and correlation reports are produced
 alongside the main CSV file.
+
+### Performance smoke testing
+
+`chembl_activities_main.py` is the preferred entry point for quick performance
+smoke checks because it supports both `--dry-run` and `--limit` arguments. The
+snippet below exercises the CLI against the bundled
+`tests/data/activities_input.csv` file without making network calls while
+capturing the runtime via `time.perf_counter`:
+
+```bash
+python - <<'PY'
+import pathlib
+import runpy
+import sys
+import time
+
+sys.path.insert(0, str(pathlib.Path('scripts').resolve()))
+sys.argv = [
+    'chembl_activities_main.py',
+    '--input',
+    'tests/data/activities_input.csv',
+    '--dry-run',
+    '--limit',
+    '50',
+]
+start = time.perf_counter()
+try:
+    runpy.run_path('scripts/chembl_activities_main.py', run_name='__main__')
+except SystemExit as exc:
+    if exc.code not in (0, None):
+        raise
+elapsed = time.perf_counter() - start
+print(f"Dry-run completed in {elapsed:.3f}s")
+PY
+```
+
+Engineers can drop the `--dry-run` flag and keep a small `--limit` (for example
+`--limit 5`) to perform a short end-to-end request against the live API:
+
+```bash
+python scripts/chembl_activities_main.py \
+    --input tests/data/activities_input.csv \
+    --output output/activities_smoke.csv \
+    --column activity_chembl_id \
+    --limit 5 \
+    --chunk-size 5 \
+    --log-level INFO
+```
+
+Add the first command to the CI smoke test job to guard against regressions in
+argument parsing and input handling without depending on external services.

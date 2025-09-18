@@ -12,7 +12,7 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Sequence, cast
 
 import pandas as pd
 
@@ -120,7 +120,7 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
 def _limited_ids(
     path: Path, column: str, cfg: CsvConfig, limit: int | None
 ) -> Iterable[str]:
-    return read_ids(path, column, cfg, limit=limit)
+    return cast(Iterable[str], read_ids(path, column, cfg, limit=limit))
 
 
 def run_pipeline(

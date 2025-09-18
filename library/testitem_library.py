@@ -223,22 +223,40 @@ class _PubChemRequest:
 
         headers = {"Accept": "application/json", "User-Agent": self.user_agent}
         try:
-
-            response = self.session.get(url, timeout=self.timeout, headers=headers)
-            if response.status_code == 404:
+            response = self.http_client.request(
+                "get", url, timeout=self.timeout, headers=headers
+            )
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status == 404:
                 LOGGER.debug(
                     "PubChem returned 404 for %s while fetching %s", smiles, context
                 )
                 return None
-            response.raise_for_status()
-        except requests.HTTPError:
+            status_msg = f" {status}" if status is not None else ""
             LOGGER.warning(
-                "HTTP error when requesting PubChem %s for %s", context, smiles
+                "HTTP error%s when requesting PubChem %s for %s", status_msg, context, smiles
             )
             return None
         except requests.RequestException:
             LOGGER.warning(
                 "Network error when requesting PubChem %s for %s", context, smiles
+            )
+            return None
+
+        if response.status_code == 404:
+            LOGGER.debug(
+                "PubChem returned 404 for %s while fetching %s", smiles, context
+            )
+            return None
+
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            status_msg = f" {status}" if status is not None else ""
+            LOGGER.warning(
+                "HTTP error%s when requesting PubChem %s for %s", status_msg, context, smiles
             )
             return None
 
@@ -256,7 +274,8 @@ class _PubChemRequest:
         encoded = quote(smiles, safe="")
         results: dict[str, object] = {}
 
-        property_fields = list(dict.fromkeys(self.properties))
+        requested_properties = list(dict.fromkeys(self.properties))
+        property_fields = [prop for prop in requested_properties if prop != "CID"]
         property_success = False
         requested_cid = "CID" in self.properties
         if property_fields:
@@ -273,7 +292,8 @@ class _PubChemRequest:
                         results[prop] = _normalise_numeric(prop, record.get(prop))
                     property_success = True
 
-        if requested_cid and results.get("CID") is None:
+
+        if "CID" in requested_properties and results.get("CID") is None:
             if not property_success:
                 LOGGER.debug(
                     "Retrying PubChem CID lookup for %s after property request failed",

@@ -9,7 +9,9 @@ import requests_mock as requests_mock_lib
 
 get_testitems = importlib.import_module("library.chembl_library").get_testitems
 add_pubchem_data = importlib.import_module("library.testitem_library").add_pubchem_data
-PUBCHEM_BASE_URL = importlib.import_module("library.testitem_library").PUBCHEM_BASE_URL
+testitem_library = importlib.import_module("library.testitem_library")
+PUBCHEM_BASE_URL = testitem_library.PUBCHEM_BASE_URL
+PUBCHEM_PROPERTIES = testitem_library.PUBCHEM_PROPERTIES
 normalize_testitems = importlib.import_module(
     "library.normalize_testitems"
 ).normalize_testitems
@@ -63,14 +65,13 @@ def test_add_pubchem_data_enriches_dataframe(
             }
         }
 
+    property_suffix = ",".join(prop for prop in PUBCHEM_PROPERTIES if prop != "CID")
     requests_mock.get(
-        f"{PUBCHEM_BASE_URL}/compound/smiles/C/property/"
-        "CID,MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
+        f"{PUBCHEM_BASE_URL}/compound/smiles/C/property/{property_suffix}/JSON",
         json=_pubchem_properties_response("CH4", 10),
     )
     requests_mock.get(
-        f"{PUBCHEM_BASE_URL}/compound/smiles/CC/property/"
-        "CID,MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
+        f"{PUBCHEM_BASE_URL}/compound/smiles/CC/property/{property_suffix}/JSON",
         json=_pubchem_properties_response("C2H6", 20),
     )
     requests_mock.get(
@@ -100,9 +101,9 @@ def test_add_pubchem_data_handles_invalid_json(
         ]
     )
 
+    property_suffix = ",".join(prop for prop in PUBCHEM_PROPERTIES if prop != "CID")
     requests_mock.get(
-        f"{PUBCHEM_BASE_URL}/compound/smiles/C/property/"
-        "CID,MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
+        f"{PUBCHEM_BASE_URL}/compound/smiles/C/property/{property_suffix}/JSON",
         text="not-json",
         status_code=200,
     )
@@ -126,9 +127,9 @@ def test_add_pubchem_data_handles_network_errors(
         ]
     )
 
+    property_suffix = ",".join(prop for prop in PUBCHEM_PROPERTIES if prop != "CID")
     requests_mock.get(
-        f"{PUBCHEM_BASE_URL}/compound/smiles/C/property/"
-        "CID,MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
+        f"{PUBCHEM_BASE_URL}/compound/smiles/C/property/{property_suffix}/JSON",
         exc=requests.exceptions.ConnectTimeout,
     )
     requests_mock.get(

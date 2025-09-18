@@ -10,7 +10,7 @@ import sys
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, MutableMapping, Sequence
+from typing import Any, Dict, List, Mapping, MutableMapping, Sequence, cast
 
 import pandas as pd
 import yaml
@@ -204,7 +204,8 @@ def load_config(path: str | None) -> Dict[str, Any]:
             if not isinstance(file_cfg, Mapping):
                 msg = f"Configuration in {path} is not a mapping"
                 raise ValueError(msg)
-            _deep_update(config, file_cfg)  # type: ignore[arg-type]
+            file_mapping = cast(Mapping[str, Any], file_cfg)
+            _deep_update(config, file_mapping)
         else:
             LOGGER.warning("Config file %s not found; using defaults", path)
     return config
@@ -266,12 +267,13 @@ def _build_global_parser(
     """
 
     parser = argparse.ArgumentParser(add_help=False)
+    default_config_value: Any = argparse.SUPPRESS
+    if include_defaults:
+        default_config_value = str(default_config)
     parser.add_argument(
         "--config",
         help="Path to YAML configuration file",
-        default=(
-            str(default_config) if include_defaults else argparse.SUPPRESS  # type: ignore[arg-type]
-        ),
+        default=default_config_value,
     )
     parser.add_argument(
         "--input",
@@ -562,7 +564,7 @@ def _write_output(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_path, sep=sep, index=False, encoding=encoding)
     checksum = compute_file_hash(output_path)
-    report = quality_report(df)
+    report = cast(Dict[str, Any], quality_report(df))
     report["file_sha256"] = checksum
     report["output"] = str(output_path)
     meta_path = output_path.with_suffix(output_path.suffix + ".meta.json")
