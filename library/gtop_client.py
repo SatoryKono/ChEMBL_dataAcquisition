@@ -48,6 +48,8 @@ class GtoPConfig:
         Number of retry attempts for transient failures.
     rps:
         Maximum requests per second enforced via a token bucket.
+    backoff:
+        Exponential backoff multiplier applied between retry attempts.
     cache:
         Optional HTTP cache configuration shared by all requests.
     """
@@ -56,6 +58,7 @@ class GtoPConfig:
     timeout_sec: float = 30.0
     max_retries: int = 3
     rps: float = 2.0
+    backoff: float = 1.0
     cache: CacheConfig | None = None
 
 
@@ -68,6 +71,7 @@ class GtoPClient:
             timeout=cfg.timeout_sec,
             max_retries=cfg.max_retries,
             rps=cfg.rps,
+            backoff_multiplier=cfg.backoff,
             cache_config=cfg.cache,
         )
         self.base_url = cfg.base_url.rstrip("/")

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 from collections.abc import Iterable, Mapping, Sequence
@@ -236,6 +238,181 @@ def _load_yaml_mapping(path: str) -> dict[str, Any]:
     with open(path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
     return _ensure_mapping(data, context=f"{path} root", allow_none=False)
+
+
+def _apply_env_overrides(
+    data: dict[str, Any], *, section: str | None = None
+) -> dict[str, Any]:
+    """Return ``data`` updated with values from environment variables.
+
+    Parameters
+    ----------
+    data:
+        Mutable configuration dictionary to update in-place.
+    section:
+        Optional name of a specific configuration section. When supplied the
+        helper assumes that the first component of the environment variable
+        path refers to this section and strips it accordingly. This mirrors the
+        behaviour implemented for the chembl2uniprot CLI utilities.
+
+    Returns
+    -------
+    dict[str, Any]
+        The dictionary with applied overrides. The same instance that was
+        passed in is returned to facilitate fluent usage patterns.
+    """
+
+    prefixes = ("CHEMBL_DA__", "CHEMBL_")
+    section_lower = section.lower() if section else None
+    for raw_key, value in os.environ.items():
+        existing_keys = {str(key).lower() for key in data}
+        matched_prefix = next((p for p in prefixes if raw_key.startswith(p)), None)
+        if matched_prefix is None:
+            continue
+        tail = raw_key[len(matched_prefix) :]
+        if not tail:
+            continue
+        path = [part.lower() for part in tail.split("__") if part]
+        if not path:
+            continue
+        if matched_prefix == "CHEMBL_DA__":
+            if section_lower and path[0] == section_lower:
+                path = path[1:]
+            elif not section_lower and path[0] not in existing_keys and len(path) > 1:
+                path = path[1:]
+        else:
+            if section_lower:
+                if path[0] != section_lower:
+                    continue
+                path = path[1:]
+        if not path:
+            continue
+        ref: dict[str, Any] | Any = data
+        valid_path = True
+        for part in path[:-1]:
+            if not isinstance(ref, dict):
+                valid_path = False
+                break
+            ref = ref.setdefault(part, {})
+        if not valid_path or not isinstance(ref, dict):
+            continue
+        ref[path[-1]] = value
+    return data
+
+
+@dataclass
+class SectionSettings:
+    """Normalised network, rate limit and cache settings for a section."""
+
+    timeout_sec: float
+    max_retries: int
+    backoff_sec: float
+    rps: float
+    cache: CacheConfig | None
+
+
+def _coerce_float(value: Any, *, default: float, context: str) -> float:
+    """Return ``value`` as a float while honouring ``default`` for nulls."""
+
+    if value is None:
+        return float(default)
+    if isinstance(value, bool):
+        msg = f"Expected '{context}' to be numeric, not {type(value).__name__!s}"
+        raise TypeError(msg)
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
+        msg = f"Expected '{context}' to be numeric, received {value!r}"
+        raise TypeError(msg) from exc
+
+
+def _coerce_int(value: Any, *, default: int, context: str) -> int:
+    """Return ``value`` as an integer while honouring ``default`` for nulls."""
+
+    if value is None:
+        return int(default)
+    if isinstance(value, bool):
+        msg = f"Expected '{context}' to be an integer, not {type(value).__name__!s}"
+        raise TypeError(msg)
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
+        msg = f"Expected '{context}' to be an integer, received {value!r}"
+        raise TypeError(msg) from exc
+
+
+def _resolve_section_settings(
+    section_name: str,
+    section_cfg: Mapping[str, Any],
+    *,
+    pipeline_cfg: PipelineConfig,
+    global_cache: CacheConfig | None,
+    default_backoff: float = 1.0,
+) -> SectionSettings:
+    """Return normalised timeout, retry, rate limit and cache settings."""
+
+    network_cfg_raw = section_cfg.get("network")
+    network_cfg = (
+        _ensure_mapping(network_cfg_raw, context=f"{section_name}.network")
+        if isinstance(network_cfg_raw, Mapping)
+        else None
+    )
+
+    def _network_value(*keys: str) -> Any:
+        for key in keys:
+            if network_cfg is not None and network_cfg.get(key) is not None:
+                return network_cfg.get(key)
+            if section_cfg.get(key) is not None:
+                return section_cfg.get(key)
+        return None
+
+    timeout_sec = _coerce_float(
+        _network_value("timeout_sec", "timeout"),
+        default=pipeline_cfg.timeout_sec,
+        context=f"{section_name}.timeout_sec",
+    )
+    max_retries = _coerce_int(
+        _network_value("max_retries", "retries"),
+        default=pipeline_cfg.retries,
+        context=f"{section_name}.retries",
+    )
+    backoff_sec = _coerce_float(
+        _network_value("backoff_sec", "backoff_base_sec", "backoff"),
+        default=default_backoff,
+        context=f"{section_name}.backoff",
+    )
+
+    rate_limit_raw = section_cfg.get("rate_limit")
+    rate_limit_cfg = (
+        _ensure_mapping(rate_limit_raw, context=f"{section_name}.rate_limit")
+        if isinstance(rate_limit_raw, Mapping)
+        else None
+    )
+
+    def _rate_value(*keys: str) -> Any:
+        for key in keys:
+            if rate_limit_cfg is not None and rate_limit_cfg.get(key) is not None:
+                return rate_limit_cfg.get(key)
+            if section_cfg.get(key) is not None:
+                return section_cfg.get(key)
+        return None
+
+    rps = _coerce_float(
+        _rate_value("rps", "rate_limit_rps"),
+        default=pipeline_cfg.rate_limit_rps,
+        context=f"{section_name}.rps",
+    )
+
+    cache_cfg = _optional_mapping(section_cfg, "cache", context=f"{section_name}.cache")
+    cache = CacheConfig.from_dict(cache_cfg) or global_cache
+
+    return SectionSettings(
+        timeout_sec=timeout_sec,
+        max_retries=max_retries,
+        backoff_sec=backoff_sec,
+        rps=rps,
+        cache=cache,
+    )
 
 
 def _normalise_field_names(value: Any, *, source: str) -> list[str]:
@@ -858,26 +1035,29 @@ def build_clients(
     """
 
     data = _load_yaml_mapping(cfg_path)
+    _apply_env_overrides(data)
     global_cache = default_cache or CacheConfig.from_dict(
         _optional_mapping(data, "http_cache", context="http_cache")
     )
+
     uni_cfg = _ensure_mapping(data.get("uniprot"), context="uniprot", allow_none=False)
-    fields = _resolve_uniprot_fields(uni_cfg)
-    uni_cache = (
-        CacheConfig.from_dict(
-            _optional_mapping(uni_cfg, "cache", context="uniprot.cache")
-        )
-        or global_cache
+    uni_settings = _resolve_section_settings(
+        "uniprot",
+        uni_cfg,
+        pipeline_cfg=pipeline_cfg,
+        global_cache=global_cache,
     )
+    fields = _resolve_uniprot_fields(uni_cfg)
     uni = UniProtClient(
-        base_url=uni_cfg["base_url"],
+        base_url=str(uni_cfg["base_url"]),
         fields=fields,
         network=UniNetworkConfig(
-            timeout_sec=pipeline_cfg.timeout_sec,
-            max_retries=pipeline_cfg.retries,
+            timeout_sec=uni_settings.timeout_sec,
+            max_retries=uni_settings.max_retries,
+            backoff_sec=uni_settings.backoff_sec,
         ),
-        rate_limit=UniRateConfig(rps=pipeline_cfg.rate_limit_rps),
-        cache=uni_cache,
+        rate_limit=UniRateConfig(rps=uni_settings.rps),
+        cache=uni_settings.cache,
     )
 
     # The HGNC configuration is nested under the top-level "hgnc" section
@@ -886,28 +1066,32 @@ def build_clients(
     # otherwise raise ``TypeError`` due to unexpected keys.
     hcfg = load_hgnc_config(cfg_path, section="hgnc")
     hgnc_cfg = _ensure_mapping(data.get("hgnc"), context="hgnc")
-    hcfg.network.timeout_sec = pipeline_cfg.timeout_sec
-    hcfg.network.max_retries = pipeline_cfg.retries
-    hcfg.rate_limit.rps = pipeline_cfg.rate_limit_rps
-    hcfg.cache = (
-        hcfg.cache
-        or CacheConfig.from_dict(
-            _optional_mapping(hgnc_cfg, "cache", context="hgnc.cache")
-        )
-        or global_cache
+    hgnc_settings = _resolve_section_settings(
+        "hgnc",
+        hgnc_cfg,
+        pipeline_cfg=pipeline_cfg,
+        global_cache=global_cache,
     )
+    hcfg.network.timeout_sec = hgnc_settings.timeout_sec
+    hcfg.network.max_retries = hgnc_settings.max_retries
+    hcfg.rate_limit.rps = hgnc_settings.rps
+    hcfg.cache = hgnc_settings.cache
     hgnc = HGNCClient(hcfg)
 
     gtop_cfg = _ensure_mapping(data.get("gtop"), context="gtop", allow_none=False)
+    gtop_settings = _resolve_section_settings(
+        "gtop",
+        gtop_cfg,
+        pipeline_cfg=pipeline_cfg,
+        global_cache=global_cache,
+    )
     gcfg = GtoPConfig(
-        base_url=gtop_cfg["base_url"],
-        timeout_sec=pipeline_cfg.timeout_sec,
-        max_retries=pipeline_cfg.retries,
-        rps=pipeline_cfg.rate_limit_rps,
-        cache=CacheConfig.from_dict(
-            _optional_mapping(gtop_cfg, "cache", context="gtop.cache")
-        )
-        or global_cache,
+        base_url=str(gtop_cfg["base_url"]),
+        timeout_sec=gtop_settings.timeout_sec,
+        max_retries=gtop_settings.max_retries,
+        rps=gtop_settings.rps,
+        backoff=gtop_settings.backoff_sec,
+        cache=gtop_settings.cache,
     )
     gtop = GtoPClient(gcfg)
 
@@ -916,28 +1100,31 @@ def build_clients(
     target_species: list[str] = []
     if with_orthologs:
         orth_cfg = _ensure_mapping(data.get("orthologs"), context="orthologs")
-        orth_cache = (
-            CacheConfig.from_dict(
-                _optional_mapping(orth_cfg, "cache", context="orthologs.cache")
-            )
-            or global_cache
+        orth_settings = _resolve_section_settings(
+            "orthologs",
+            orth_cfg,
+            pipeline_cfg=pipeline_cfg,
+            global_cache=global_cache,
         )
+        orth_cache = orth_settings.cache
         ens_client = EnsemblHomologyClient(
             base_url="https://rest.ensembl.org",
             network=UniNetworkConfig(
-                timeout_sec=pipeline_cfg.timeout_sec,
-                max_retries=pipeline_cfg.retries,
+                timeout_sec=orth_settings.timeout_sec,
+                max_retries=orth_settings.max_retries,
+                backoff_sec=orth_settings.backoff_sec,
             ),
-            rate_limit=UniRateConfig(rps=pipeline_cfg.rate_limit_rps),
+            rate_limit=UniRateConfig(rps=orth_settings.rps),
             cache=orth_cache,
         )
         oma_client = OmaClient(
             base_url="https://omabrowser.org/api",
             network=UniNetworkConfig(
-                timeout_sec=pipeline_cfg.timeout_sec,
-                max_retries=pipeline_cfg.retries,
+                timeout_sec=orth_settings.timeout_sec,
+                max_retries=orth_settings.max_retries,
+                backoff_sec=orth_settings.backoff_sec,
             ),
-            rate_limit=UniRateConfig(rps=pipeline_cfg.rate_limit_rps),
+            rate_limit=UniRateConfig(rps=orth_settings.rps),
             cache=orth_cache,
         )
         target_species = _ensure_str_sequence(
