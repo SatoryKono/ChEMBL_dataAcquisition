@@ -201,9 +201,7 @@ def test_pipeline_targets_cli_uses_configured_list_format(
 
     serialise_stats: dict[str, Any] = {}
 
-    def fake_serialise_dataframe(
-        df: pd.DataFrame, list_format: str
-    ) -> pd.DataFrame:
+    def fake_serialise_dataframe(df: pd.DataFrame, list_format: str) -> pd.DataFrame:
         serialise_stats["list_format"] = list_format
         return df
 
@@ -229,16 +227,12 @@ def test_pipeline_targets_cli_uses_configured_list_format(
 
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
 
-    def fake_fetch_targets(
-        ids: list[str], *_args: Any, **_kwargs: Any
-    ) -> pd.DataFrame:
+    def fake_fetch_targets(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
         return pd.DataFrame({"target_chembl_id": ids})
 
     monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
 
-    def fake_run_pipeline(
-        ids: list[str], *_args: Any, **_kwargs: Any
-    ) -> pd.DataFrame:
+    def fake_run_pipeline(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
         data: dict[str, Any] = {
             "target_chembl_id": ids,
             "uniprot_id_primary": ["P001" for _ in ids],
@@ -293,3 +287,82 @@ def test_pipeline_targets_cli_uses_configured_list_format(
     module.main()
 
     assert serialise_stats["list_format"] == "pipe"
+
+
+def test_cli_orthologs_default_respects_yaml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the CLI flag is absent the YAML value should be honoured."""
+
+    module: Any = importlib.import_module("scripts.pipeline_targets_main")
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("orthologs:\n  enabled: true\n", encoding="utf-8")
+
+    captured: dict[str, Any] = {}
+
+    def fake_build_clients(*_args: Any, **kwargs: Any) -> tuple[Any, ...]:
+        captured["with_orthologs"] = kwargs.get("with_orthologs")
+        raise RuntimeError("stop after build_clients")
+
+    monkeypatch.setattr(module, "build_clients", fake_build_clients)
+
+    argv = [
+        "pipeline_targets_main",
+        "--input",
+        "input.csv",
+        "--output",
+        str(tmp_path / "output.csv"),
+        "--config",
+        str(config_path),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(RuntimeError, match="stop after build_clients"):
+        module.main()
+
+    assert captured["with_orthologs"] is True
+
+
+def test_cli_handles_null_sections(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sections explicitly set to null should behave like missing entries."""
+
+    module: Any = importlib.import_module("scripts.pipeline_targets_main")
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "orthologs: null",
+                "chembl: null",
+                "uniprot_enrich: null",
+                "gtop: null",
+                "hgnc: null",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    captured: dict[str, Any] = {}
+
+    def fake_build_clients(*_args: Any, **kwargs: Any) -> tuple[Any, ...]:
+        captured["with_orthologs"] = kwargs.get("with_orthologs")
+        raise RuntimeError("stop after build_clients")
+
+    monkeypatch.setattr(module, "build_clients", fake_build_clients)
+
+    argv = [
+        "pipeline_targets_main",
+        "--input",
+        "input.csv",
+        "--output",
+        str(tmp_path / "output.csv"),
+        "--config",
+        str(config_path),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(RuntimeError, match="stop after build_clients"):
+        module.main()
+
+    assert captured["with_orthologs"] is False

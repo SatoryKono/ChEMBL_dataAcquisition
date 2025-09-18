@@ -73,6 +73,69 @@ IUPHAR_CLASS_COLUMNS = [
 ]
 
 
+def _load_yaml_mapping(path: str | Path) -> dict[str, Any]:
+    """Return the YAML configuration at ``path`` as a mapping."""
+
+    with Path(path).open("r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    if not isinstance(data, Mapping):
+        msg = (
+            "Top-level YAML structure must be a mapping, "
+            f"received {type(data).__name__}"
+        )
+        raise TypeError(msg)
+    return dict(data)
+
+
+def _get_optional_mapping(
+    data: Mapping[str, Any], key: str, *, context: str
+) -> dict[str, Any] | None:
+    """Return ``data[key]`` when it is a mapping or ``None`` when missing."""
+
+    value = data.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        msg = (
+            f"Expected '{context}.{key}' to be a mapping, found {type(value).__name__}"
+        )
+        raise TypeError(msg)
+    return dict(value)
+
+
+def _get_string_list(
+    section: Mapping[str, Any] | None,
+    *,
+    key: str,
+    context: str,
+) -> list[str]:
+    """Extract a list of strings from ``section``."""
+
+    if section is None:
+        return []
+    value = section.get(key)
+    if value is None:
+        return []
+    if isinstance(value, str):
+        msg = f"Expected '{context}.{key}' to be a sequence of strings"
+        raise TypeError(msg)
+    if not isinstance(value, Sequence):
+        msg = (
+            f"Expected '{context}.{key}' to be a sequence, found {type(value).__name__}"
+        )
+        raise TypeError(msg)
+    items: list[str] = []
+    for index, entry in enumerate(value):
+        if not isinstance(entry, str):
+            msg = (
+                f"Expected all values in '{context}.{key}' to be strings, "
+                f"found {type(entry).__name__} at position {index}"
+            )
+            raise TypeError(msg)
+        items.append(entry)
+    return items
+
+
 def merge_chembl_fields(
     pipeline_df: pd.DataFrame, chembl_df: pd.DataFrame
 ) -> pd.DataFrame:
@@ -645,7 +708,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--approved-only", default=None)
     parser.add_argument("--primary-target-only", default=None)
     parser.add_argument("--with-isoforms", action="store_true")
-    parser.add_argument("--with-orthologs", action="store_true")
+    parser.add_argument(
+        "--with-orthologs",
+        dest="with_orthologs",
+        action="store_true",
+        help="Enable ortholog enrichment regardless of YAML configuration.",
+    )
+    parser.add_argument(
+        "--without-orthologs",
+        dest="with_orthologs",
+        action="store_false",
+        help="Disable ortholog enrichment regardless of YAML configuration.",
+    )
+    parser.set_defaults(with_orthologs=None)
     parser.add_argument("--iuphar-target", help="Path to _IUPHAR_target.csv")
     parser.add_argument("--iuphar-family", help="Path to _IUPHAR_family.csv")
     parser.add_argument(
@@ -670,8 +745,8 @@ def build_clients(
     default_cache: CacheConfig | None = None,
 ) -> tuple[
     UniProtClient,
-    HGNCClient,
-    GtoPClient,
+    HGNCClient | None,
+    GtoPClient | None,
     EnsemblHomologyClient | None,
     OmaClient | None,
     list[str],
@@ -691,12 +766,20 @@ def build_clients(
         specify its own cache settings.
     """
 
-    with open(cfg_path, "r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh) or {}
-    global_cache = default_cache or CacheConfig.from_dict(data.get("http_cache"))
-    uni_cfg = data["uniprot"]
+    data = _load_yaml_mapping(cfg_path)
+    global_cache = default_cache or CacheConfig.from_dict(
+        _get_optional_mapping(data, "http_cache", context="config")
+    )
+    uni_cfg = _get_optional_mapping(data, "uniprot", context="config")
+    if uni_cfg is None:
+        raise KeyError("Missing 'uniprot' section in configuration file")
     fields = _resolve_uniprot_fields(uni_cfg)
-    uni_cache = CacheConfig.from_dict(uni_cfg.get("cache")) or global_cache
+    uni_cache = (
+        CacheConfig.from_dict(
+            _get_optional_mapping(uni_cfg, "cache", context="uniprot")
+        )
+        or global_cache
+    )
     uni = UniProtClient(
         base_url=uni_cfg["base_url"],
         fields=fields,
@@ -712,32 +795,55 @@ def build_clients(
     # in the YAML file. Explicitly select this section to avoid passing the
     # entire configuration dictionary to ``HGNCServiceConfig``, which would
     # otherwise raise ``TypeError`` due to unexpected keys.
-    hcfg = load_hgnc_config(cfg_path, section="hgnc")
-    hcfg.network.timeout_sec = pipeline_cfg.timeout_sec
-    hcfg.network.max_retries = pipeline_cfg.retries
-    hcfg.rate_limit.rps = pipeline_cfg.rate_limit_rps
-    hcfg.cache = (
-        hcfg.cache
-        or CacheConfig.from_dict(data.get("hgnc", {}).get("cache"))
-        or global_cache
-    )
-    hgnc = HGNCClient(hcfg)
+    hgnc_cfg = _get_optional_mapping(data, "hgnc", context="config")
+    hgnc: HGNCClient | None = None
+    if hgnc_cfg is not None:
+        hcfg = load_hgnc_config(cfg_path, section="hgnc")
+        hcfg.network.timeout_sec = pipeline_cfg.timeout_sec
+        hcfg.network.max_retries = pipeline_cfg.retries
+        hcfg.rate_limit.rps = pipeline_cfg.rate_limit_rps
+        hcfg.cache = (
+            hcfg.cache
+            or CacheConfig.from_dict(
+                _get_optional_mapping(hgnc_cfg, "cache", context="hgnc")
+            )
+            or global_cache
+        )
+        hgnc = HGNCClient(hcfg)
 
-    gcfg = GtoPConfig(
-        base_url=data["gtop"]["base_url"],
-        timeout_sec=pipeline_cfg.timeout_sec,
-        max_retries=pipeline_cfg.retries,
-        rps=pipeline_cfg.rate_limit_rps,
-        cache=CacheConfig.from_dict(data.get("gtop", {}).get("cache")) or global_cache,
-    )
-    gtop = GtoPClient(gcfg)
+    gtop_cfg = _get_optional_mapping(data, "gtop", context="config")
+    gtop: GtoPClient | None = None
+    if gtop_cfg is not None:
+        base_url = gtop_cfg.get("base_url")
+        if not isinstance(base_url, str):
+            raise TypeError("Expected 'gtop.base_url' to be a string")
+        gcfg = GtoPConfig(
+            base_url=base_url,
+            timeout_sec=pipeline_cfg.timeout_sec,
+            max_retries=pipeline_cfg.retries,
+            rps=pipeline_cfg.rate_limit_rps,
+            cache=(
+                CacheConfig.from_dict(
+                    _get_optional_mapping(gtop_cfg, "cache", context="gtop")
+                )
+                or global_cache
+            ),
+        )
+        gtop = GtoPClient(gcfg)
 
     ens_client: EnsemblHomologyClient | None = None
     oma_client: OmaClient | None = None
     target_species: list[str] = []
     if with_orthologs:
-        orth_cfg = data.get("orthologs", {})
-        orth_cache = CacheConfig.from_dict(orth_cfg.get("cache")) or global_cache
+        orth_cfg = _get_optional_mapping(data, "orthologs", context="config")
+        orth_cache = (
+            CacheConfig.from_dict(
+                _get_optional_mapping(orth_cfg, "cache", context="orthologs")
+                if orth_cfg is not None
+                else None
+            )
+            or global_cache
+        )
         ens_client = EnsemblHomologyClient(
             base_url="https://rest.ensembl.org",
             network=UniNetworkConfig(
@@ -756,7 +862,9 @@ def build_clients(
             rate_limit=UniRateConfig(rps=pipeline_cfg.rate_limit_rps),
             cache=orth_cache,
         )
-        target_species = list(orth_cfg.get("target_species", []))
+        target_species = _get_string_list(
+            orth_cfg, key="target_species", context="orthologs"
+        )
     return uni, hgnc, gtop, ens_client, oma_client, target_species
 
 
@@ -783,15 +891,38 @@ def main() -> None:
     pipeline_cfg.include_isoforms = pipeline_cfg.include_isoforms or args.with_isoforms
     use_isoforms = pipeline_cfg.include_isoforms
 
+    config_data = _load_yaml_mapping(args.config)
+    ortholog_cfg = _get_optional_mapping(config_data, "orthologs", context="config")
+    config_orthologs_enabled = False
+    if ortholog_cfg is not None:
+        enabled_value = ortholog_cfg.get("enabled")
+        if enabled_value is None:
+            config_orthologs_enabled = False
+        elif isinstance(enabled_value, bool):
+            config_orthologs_enabled = enabled_value
+        else:
+            raise TypeError("Expected 'orthologs.enabled' to be a boolean")
+    with_orthologs = (
+        config_orthologs_enabled if args.with_orthologs is None else args.with_orthologs
+    )
+
     # Load optional ChEMBL column configuration and ensure required fields
-    with open(args.config, "r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh) or {}
-    global_cache = CacheConfig.from_dict(data.get("http_cache"))
+    global_cache = CacheConfig.from_dict(
+        _get_optional_mapping(config_data, "http_cache", context="config")
+    )
+    uniprot_enrich_cfg = _get_optional_mapping(
+        config_data, "uniprot_enrich", context="config"
+    )
     enrich_cache = (
-        CacheConfig.from_dict(data.get("uniprot_enrich", {}).get("cache"))
+        CacheConfig.from_dict(
+            _get_optional_mapping(uniprot_enrich_cfg, "cache", context="uniprot_enrich")
+            if uniprot_enrich_cfg is not None
+            else None
+        )
         or global_cache
     )
-    chembl_cols = list(data.get("chembl", {}).get("columns", []))
+    chembl_cfg_section = _get_optional_mapping(config_data, "chembl", context="config")
+    chembl_cols = _get_string_list(chembl_cfg_section, key="columns", context="chembl")
     required_cols = [
         "target_chembl_id",
         "pref_name",
@@ -812,7 +943,12 @@ def main() -> None:
     for col in required_cols:
         if col not in columns:
             columns.append(col)
-    chembl_cache = CacheConfig.from_dict(data.get("chembl", {}).get("cache"))
+    chembl_cache_cfg = (
+        _get_optional_mapping(chembl_cfg_section, "cache", context="chembl")
+        if chembl_cfg_section is not None
+        else None
+    )
+    chembl_cache = CacheConfig.from_dict(chembl_cache_cfg)
     chembl_cfg: TargetConfig = TargetConfig(
         list_format=pipeline_cfg.list_format,
         columns=columns,
@@ -825,7 +961,8 @@ def main() -> None:
     # declare their own column lists without having to manually duplicate them
     # under ``pipeline.columns``.
     for section in ("uniprot", "gtop", "hgnc"):
-        for col in data.get(section, {}).get("columns", []):
+        section_cfg = _get_optional_mapping(config_data, section, context="config")
+        for col in _get_string_list(section_cfg, key="columns", context=section):
             if col not in pipeline_cfg.columns:
                 pipeline_cfg.columns.append(col)
 
@@ -839,7 +976,7 @@ def main() -> None:
     ) = build_clients(
         args.config,
         pipeline_cfg,
-        with_orthologs=args.with_orthologs,
+        with_orthologs=with_orthologs,
         default_cache=global_cache,
     )
 
@@ -923,9 +1060,7 @@ def main() -> None:
         out_df = out_df.sort_values(sort_columns).reset_index(drop=True)
 
     output_path = ensure_output_dir(Path(args.output).expanduser().resolve())
-    serialised_df = serialise_dataframe(
-        out_df, list_format=pipeline_cfg.list_format
-    )
+    serialised_df = serialise_dataframe(out_df, list_format=pipeline_cfg.list_format)
     serialised_df.to_csv(
         output_path,
         index=False,

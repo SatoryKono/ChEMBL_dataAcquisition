@@ -201,6 +201,13 @@ python scripts/pipeline_targets_main.py \
     --id-column target_chembl_id
 ```
 
+Ortholog enrichment follows the ``orthologs.enabled`` flag in ``config.yaml``
+when no CLI override is provided. Use ``--with-orthologs`` or
+``--without-orthologs`` to explicitly toggle the feature for a single run. Any
+top-level section (for example ``orthologs`` or ``gtop``) can be disabled by
+setting it to ``null`` in the YAML file; the pipeline treats such entries as
+absent and skips the associated client configuration.
+
 The output contains one row per ``target_chembl_id`` with blocks of columns
 covering identifiers, taxonomy, sequence features, cross-references and a brief
 IUPHAR summary.  Lists are serialised as JSON arrays and sorted to guarantee
