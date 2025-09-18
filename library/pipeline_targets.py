@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping, Sequence
 from math import isnan
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Callable, Dict, List, Sequence
+from typing import Any, Callable, Dict, List
 
 import pandas as pd
 from typing import TYPE_CHECKING
@@ -174,24 +175,106 @@ def load_pipeline_config(path: str) -> PipelineConfig:
     import yaml  # type: ignore[import]
 
     with open(path, "r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh) or {}
-    cfg = data.get("pipeline", {})
-    iuphar = cfg.get("iuphar", {})
+        raw_data = yaml.safe_load(fh) or {}
+    if not isinstance(raw_data, Mapping):
+        raise TypeError(
+            "Top-level configuration must be a mapping, "
+            f"found {type(raw_data).__name__}"
+        )
+    data = dict(raw_data)
+    cfg_section = data.get("pipeline")
+    if cfg_section is None:
+        cfg: dict[str, Any] = {}
+    elif isinstance(cfg_section, Mapping):
+        cfg = dict(cfg_section)
+    else:
+        raise TypeError("Expected 'pipeline' section to be a mapping")
+    iuphar_section = cfg.get("iuphar")
+    if iuphar_section is None:
+        iuphar_cfg: dict[str, Any] = {}
+    elif isinstance(iuphar_section, Mapping):
+        iuphar_cfg = dict(iuphar_section)
+    else:
+        raise TypeError("Expected 'pipeline.iuphar' section to be a mapping")
+
+    rate_limit_raw = cfg.get("rate_limit_rps", 2.0)
+    if isinstance(rate_limit_raw, bool) or not isinstance(rate_limit_raw, (int, float)):
+        raise TypeError("Expected 'pipeline.rate_limit_rps' to be a number")
+    retries_raw = cfg.get("retries", 3)
+    if isinstance(retries_raw, bool) or not isinstance(retries_raw, int):
+        raise TypeError("Expected 'pipeline.retries' to be an integer")
+    timeout_raw = cfg.get("timeout_sec", 30.0)
+    if isinstance(timeout_raw, bool) or not isinstance(timeout_raw, (int, float)):
+        raise TypeError("Expected 'pipeline.timeout_sec' to be a number")
+
+    list_format_raw = cfg.get("list_format", "json")
+    if not isinstance(list_format_raw, str):
+        raise TypeError("Expected 'pipeline.list_format' to be a string")
+
+    include_sequence_raw = cfg.get("include_sequence", False)
+    if not isinstance(include_sequence_raw, bool):
+        raise TypeError("Expected 'pipeline.include_sequence' to be a boolean")
+    include_isoforms_raw = cfg.get("include_isoforms", False)
+    if not isinstance(include_isoforms_raw, bool):
+        raise TypeError("Expected 'pipeline.include_isoforms' to be a boolean")
+
+    species_priority = cfg.get("species_priority")
+    if species_priority is None:
+        species_list = ["Human", "Homo sapiens"]
+    else:
+        if isinstance(species_priority, str):
+            raise TypeError("Expected 'pipeline.species_priority' to be a sequence")
+        if not isinstance(species_priority, Sequence):
+            raise TypeError(
+                "Expected 'pipeline.species_priority' to be a sequence of strings"
+            )
+        species_list = []
+        for index, entry in enumerate(species_priority):
+            if not isinstance(entry, str):
+                raise TypeError(
+                    "Expected 'pipeline.species_priority' entries to be strings"
+                )
+            species_list.append(entry)
+
+    columns_value = cfg.get("columns")
+    if columns_value is None:
+        columns_list = list(DEFAULT_COLUMNS)
+    else:
+        if isinstance(columns_value, str):
+            raise TypeError("Expected 'pipeline.columns' to be a sequence of strings")
+        if not isinstance(columns_value, Sequence):
+            raise TypeError("Expected 'pipeline.columns' to be a sequence")
+        columns_list = []
+        for index, entry in enumerate(columns_value):
+            if not isinstance(entry, str):
+                raise TypeError("Expected 'pipeline.columns' entries to be strings")
+            columns_list.append(entry)
+
+    affinity_raw = iuphar_cfg.get("affinity_parameter", "pKi")
+    if not isinstance(affinity_raw, str):
+        raise TypeError("Expected 'pipeline.iuphar.affinity_parameter' to be a string")
+    approved_raw = iuphar_cfg.get("approved_only")
+    if approved_raw is not None and not isinstance(approved_raw, bool):
+        raise TypeError("Expected 'pipeline.iuphar.approved_only' to be a boolean")
+    primary_raw = iuphar_cfg.get("primary_target_only", True)
+    if not isinstance(primary_raw, bool):
+        raise TypeError(
+            "Expected 'pipeline.iuphar.primary_target_only' to be a boolean"
+        )
+
     cfg_kwargs: Dict[str, Any] = {
-        "rate_limit_rps": cfg.get("rate_limit_rps", 2.0),
-        "retries": cfg.get("retries", 3),
-        "timeout_sec": cfg.get("timeout_sec", 30.0),
-        "species_priority": list(
-            cfg.get("species_priority", ["Human", "Homo sapiens"])
-        ),
-        "list_format": cfg.get("list_format", "json"),
-        "include_sequence": cfg.get("include_sequence", False),
-        "include_isoforms": cfg.get("include_isoforms", False),
-        "columns": list(cfg.get("columns", DEFAULT_COLUMNS)),
+        "rate_limit_rps": float(rate_limit_raw),
+        "retries": int(retries_raw),
+        "timeout_sec": float(timeout_raw),
+        "species_priority": species_list,
+        "list_format": list_format_raw,
+        "include_sequence": include_sequence_raw,
+        "include_isoforms": include_isoforms_raw,
+        "columns": columns_list,
         "iuphar": IupharConfig(
-            affinity_parameter=iuphar.get("affinity_parameter", "pKi"),
-            approved_only=iuphar.get("approved_only"),
-            primary_target_only=iuphar.get("primary_target_only", True),
+            affinity_parameter=affinity_raw,
+            approved_only=approved_raw,
+            primary_target_only=primary_raw,
         ),
     }
     timestamp_cfg = cfg.get("timestamp_utc")

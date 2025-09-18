@@ -3,16 +3,18 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Any, Dict, Iterable, List
 
 import pandas as pd
 import pytest
 import requests
+import yaml
 
 from hgnc_client import HGNCRecord
-from pipeline_targets import PipelineConfig, run_pipeline
+from pipeline_targets import PipelineConfig, load_pipeline_config, run_pipeline
 
 sys.path.insert(0, str(Path("scripts")))
+import pipeline_targets_main as pipeline_targets_main
 from pipeline_targets_main import add_protein_classification
 
 
@@ -332,4 +334,134 @@ def test_add_protein_classification_network_error() -> None:
     with pytest.raises(RuntimeError) as excinfo:
         add_protein_classification(df, failing_fetch)
 
-    assert "P12345" in str(excinfo.value)
+    assert "Network error while fetching UniProt entries" in str(excinfo.value)
+
+
+def test_load_pipeline_config_allows_null_sections(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        yaml.safe_dump(
+            {
+                "pipeline": {
+                    "columns": None,
+                    "species_priority": None,
+                    "iuphar": None,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    cfg = load_pipeline_config(str(cfg_path))
+
+    assert isinstance(cfg, PipelineConfig)
+    assert "target_chembl_id" in cfg.columns
+    assert cfg.species_priority == ["Human", "Homo sapiens"]
+    assert cfg.iuphar.primary_target_only is True
+    assert cfg.iuphar.approved_only is None
+
+
+def test_build_clients_uses_yaml_orthologs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        yaml.safe_dump(
+            {
+                "uniprot": {"base_url": "https://example.org/uniprot"},
+                "orthologs": {
+                    "target_species": ["human", "mouse"],
+                    "cache": {"enabled": True, "path": "/tmp/cache"},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    captured: dict[str, Any] = {}
+
+    class DummyUni:
+        def __init__(self, **kwargs: Any) -> None:
+            captured["uni"] = kwargs
+
+    class DummyEnsembl:
+        def __init__(self, **kwargs: Any) -> None:
+            captured["ensembl"] = kwargs
+
+    class DummyOma:
+        def __init__(self, **kwargs: Any) -> None:
+            captured["oma"] = kwargs
+
+    monkeypatch.setattr(pipeline_targets_main, "UniProtClient", DummyUni)
+    monkeypatch.setattr(pipeline_targets_main, "EnsemblHomologyClient", DummyEnsembl)
+    monkeypatch.setattr(pipeline_targets_main, "OmaClient", DummyOma)
+
+    (
+        uni_client,
+        hgnc_client,
+        gtop_client,
+        ens_client,
+        oma_client,
+        species,
+    ) = pipeline_targets_main.build_clients(
+        str(cfg_path), PipelineConfig(), with_orthologs=True
+    )
+
+    assert isinstance(uni_client, DummyUni)
+    assert hgnc_client is None
+    assert gtop_client is None
+    assert isinstance(ens_client, DummyEnsembl)
+    assert isinstance(oma_client, DummyOma)
+    assert species == ["human", "mouse"]
+    assert captured["ensembl"]["cache"] is not None
+    assert captured["uni"]["base_url"] == "https://example.org/uniprot"
+
+
+def test_build_clients_handles_null_sections(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        yaml.safe_dump(
+            {
+                "uniprot": {"base_url": "https://example.org/uniprot"},
+                "orthologs": None,
+                "gtop": None,
+                "hgnc": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class DummyUni:
+        def __init__(self, **_kwargs: Any) -> None:
+            return None
+
+    class DummyEnsembl:
+        def __init__(self, **kwargs: Any) -> None:
+            self.cache = kwargs.get("cache")
+
+    class DummyOma:
+        def __init__(self, **kwargs: Any) -> None:
+            self.cache = kwargs.get("cache")
+
+    monkeypatch.setattr(pipeline_targets_main, "UniProtClient", DummyUni)
+    monkeypatch.setattr(pipeline_targets_main, "EnsemblHomologyClient", DummyEnsembl)
+    monkeypatch.setattr(pipeline_targets_main, "OmaClient", DummyOma)
+
+    (
+        _uni_client,
+        hgnc_client,
+        gtop_client,
+        ens_client,
+        oma_client,
+        species,
+    ) = pipeline_targets_main.build_clients(
+        str(cfg_path), PipelineConfig(), with_orthologs=True
+    )
+
+    assert hgnc_client is None
+    assert gtop_client is None
+    assert isinstance(ens_client, DummyEnsembl)
+    assert isinstance(oma_client, DummyOma)
+    assert species == []
