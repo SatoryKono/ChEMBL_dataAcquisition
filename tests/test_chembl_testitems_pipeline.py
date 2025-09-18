@@ -109,7 +109,12 @@ def test_chembl_testitems_main_end_to_end(
             }
         }
 
+    property_suffix = (
+        "MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,"
+        "HBondAcceptorCount,RotatableBondCount/JSON"
+    )
     requests_mock.get(
+
         f"{pubchem_base}/compound/smiles/C/property/"
         "MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
         json=_pubchem_response(11, "CH4"),
@@ -117,6 +122,7 @@ def test_chembl_testitems_main_end_to_end(
     requests_mock.get(
         f"{pubchem_base}/compound/smiles/CC/property/"
         "MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
+ 
         json=_pubchem_response(22, "C2H6"),
     )
     requests_mock.get(

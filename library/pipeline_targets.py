@@ -3,13 +3,13 @@ from __future__ import annotations
 import json
 import logging
 from math import isnan
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
 from typing import Any, Callable, Dict, List, Sequence
 
 import pandas as pd
 from typing import TYPE_CHECKING
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 if TYPE_CHECKING:  # pragma: no cover - for static type checking only
     from .chembl_targets import TargetConfig, fetch_targets
@@ -48,6 +48,13 @@ else:  # pragma: no cover - support both package and direct imports
             extract_isoforms,
             normalize_entry,
         )
+
+try:  # pragma: no cover - import fallback mirrors the logic above
+    from .chembl2uniprot.config import _apply_env_overrides as apply_env_overrides
+except ImportError:  # pragma: no cover - script execution without package context
+    from chembl2uniprot.config import (  # type: ignore[import-not-found]
+        _apply_env_overrides as apply_env_overrides,
+    )
 
 LOGGER = logging.getLogger(__name__)
 
@@ -113,17 +120,73 @@ DEFAULT_COLUMNS = [
 _INVALID_IDENTIFIER_LITERALS = frozenset({"", "nan", "none", "null", "na", "n/a"})
 
 
-@dataclass
-class IupharConfig:
+_DEFAULT_SPECIES_PRIORITY = ("Human", "Homo sapiens")
+
+
+def _default_timestamp() -> str:
+    """Return an ISO 8601 timestamp in UTC for configuration defaults."""
+
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _coerce_str_sequence(
+    value: Any, *, default: Sequence[str], context: str
+) -> List[str]:
+    """Return ``value`` as a list of strings honouring configuration defaults."""
+
+    if value is None:
+        return list(default)
+    candidate = value
+    if isinstance(candidate, str):
+        text = candidate.strip()
+        if not text:
+            return []
+        try:
+            decoded = json.loads(text)
+        except json.JSONDecodeError:
+            return [text]
+        candidate = decoded
+    if isinstance(candidate, SequenceABC) and not isinstance(
+        candidate, (bytes, bytearray, str)
+    ):
+        result: List[str] = []
+        for item in candidate:
+            if not isinstance(item, str):
+                msg = (
+                    f"Expected entries of '{context}' to be strings, "
+                    f"found {type(item).__name__!s}"
+                )
+                raise TypeError(msg)
+            result.append(item)
+        return result
+    if isinstance(candidate, str):  # pragma: no cover - handled above defensively
+        return [candidate]
+    msg = f"Expected '{context}' to be a sequence of strings"
+    raise TypeError(msg)
+
+
+class IupharConfig(BaseModel):
     """Settings for querying the IUPHAR/GtoP service."""
+
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
     affinity_parameter: str = "pKi"
     approved_only: bool | None = None
     primary_target_only: bool = True
 
+    @field_validator("approved_only", mode="before")
+    @classmethod
+    def _normalise_optional_bool(cls, value: Any) -> bool | None:
+        """Normalise textual representations of optional boolean fields."""
 
-@dataclass
-class PipelineConfig:
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in {"null", "none", ""}:
+                return None
+        return value
+
+
+class PipelineConfig(BaseModel):
     """High level pipeline configuration.
 
     Attributes
@@ -151,20 +214,75 @@ class PipelineConfig:
         with the same configuration remain reproducible.
     """
 
-    rate_limit_rps: float = 2.0
-    retries: int = 3
-    timeout_sec: float = 30.0
-    species_priority: List[str] = field(
-        default_factory=lambda: ["Human", "Homo sapiens"]
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+
+    rate_limit_rps: float = Field(default=2.0, gt=0)
+    retries: int = Field(default=3, ge=0)
+    timeout_sec: float = Field(default=30.0, gt=0)
+    species_priority: List[str] = Field(
+        default_factory=lambda: list(_DEFAULT_SPECIES_PRIORITY)
     )
     list_format: str = "json"
     include_sequence: bool = False
     include_isoforms: bool = False
-    columns: List[str] = field(default_factory=lambda: list(DEFAULT_COLUMNS))
-    iuphar: IupharConfig = field(default_factory=IupharConfig)
-    timestamp_utc: str = field(
-        default_factory=lambda: datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    )
+    columns: List[str] = Field(default_factory=lambda: list(DEFAULT_COLUMNS))
+    iuphar: IupharConfig = Field(default_factory=IupharConfig)
+    timestamp_utc: str = Field(default_factory=_default_timestamp)
+
+    @field_validator("iuphar", mode="before")
+    @classmethod
+    def _default_iuphar(cls, value: Any) -> dict[str, Any] | IupharConfig:
+        """Allow ``null`` IUPHAR configuration entries in YAML files."""
+
+        if value is None:
+            return {}
+        return value
+
+    @field_validator("species_priority", mode="before")
+    @classmethod
+    def _validate_species_priority(cls, value: Any) -> List[str]:
+        """Coerce the species priority field into a list of strings."""
+
+        return _coerce_str_sequence(
+            value,
+            default=_DEFAULT_SPECIES_PRIORITY,
+            context="pipeline.species_priority",
+        )
+
+    @field_validator("columns", mode="before")
+    @classmethod
+    def _validate_columns(cls, value: Any) -> List[str]:
+        """Coerce the column list into a list of strings."""
+
+        return _coerce_str_sequence(
+            value, default=DEFAULT_COLUMNS, context="pipeline.columns"
+        )
+
+    @field_validator("list_format")
+    @classmethod
+    def _validate_list_format(cls, value: str) -> str:
+        """Ensure the list serialisation format is supported."""
+
+        cleaned = value.strip().lower()
+        if cleaned not in {"json", "pipe"}:
+            msg = "list_format must be either 'json' or 'pipe'"
+            raise ValueError(msg)
+        return cleaned
+
+    @field_validator("timestamp_utc", mode="before")
+    @classmethod
+    def _normalise_timestamp(cls, value: Any) -> str:
+        """Normalise timestamps to RFC 3339 compliant strings."""
+
+        if value is None:
+            return _default_timestamp()
+        if isinstance(value, datetime):
+            instant = value if value.tzinfo else value.replace(tzinfo=UTC)
+            return instant.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        if isinstance(value, str):
+            return value
+        msg = "timestamp_utc must be an ISO 8601 string"
+        raise TypeError(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -187,96 +305,8 @@ def _ensure_mapping(
     raise TypeError(msg)
 
 
-def _ensure_float(value: Any, *, context: str, default: float) -> float:
-    """Return a floating-point configuration value with validation."""
-
-    if value is None:
-        return float(default)
-    if isinstance(value, bool):
-        msg = f"Expected '{context}' to be a float, not {type(value).__name__!s}"
-        raise TypeError(msg)
-    if isinstance(value, (int, float)):
-        return float(value)
-    msg = f"Expected '{context}' to be numeric, not {type(value).__name__!s}"
-    raise TypeError(msg)
-
-
-def _ensure_int(value: Any, *, context: str, default: int) -> int:
-    """Return an integer configuration value with validation."""
-
-    if value is None:
-        return int(default)
-    if isinstance(value, bool):
-        msg = f"Expected '{context}' to be an integer, not {type(value).__name__!s}"
-        raise TypeError(msg)
-    if isinstance(value, int):
-        return int(value)
-    msg = f"Expected '{context}' to be an integer, not {type(value).__name__!s}"
-    raise TypeError(msg)
-
-
-def _ensure_bool(value: Any, *, context: str, default: bool) -> bool:
-    """Return a boolean configuration value with validation."""
-
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    msg = f"Expected '{context}' to be a boolean, not {type(value).__name__!s}"
-    raise TypeError(msg)
-
-
-def _ensure_optional_bool(value: Any, *, context: str) -> bool | None:
-    """Return an optional boolean configuration value with validation."""
-
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return value
-    msg = f"Expected '{context}' to be a boolean or null, not {type(value).__name__!s}"
-    raise TypeError(msg)
-
-
-def _ensure_str(value: Any, *, context: str, default: str) -> str:
-    """Return a string configuration value with validation."""
-
-    if value is None:
-        return default
-    if isinstance(value, str):
-        return value
-    msg = f"Expected '{context}' to be a string, not {type(value).__name__!s}"
-    raise TypeError(msg)
-
-
-def _ensure_str_sequence(
-    value: Any,
-    *,
-    context: str,
-    default: Sequence[str] | None = None,
-) -> List[str]:
-    """Return ``value`` as a list of strings ensuring valid element types."""
-
-    if value is None:
-        return list(default) if default is not None else []
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, SequenceABC) and not isinstance(value, (bytes, bytearray)):
-        result: List[str] = []
-        for item in value:
-            if not isinstance(item, str):
-                msg = (
-                    f"Expected entries of '{context}' to be strings, "
-                    f"found {type(item).__name__!s}"
-                )
-                raise TypeError(msg)
-            result.append(item)
-        return result
-    msg = f"Expected '{context}' to be a sequence of strings"
-    raise TypeError(msg)
-
-
 def load_pipeline_config(path: str) -> PipelineConfig:
-    """Load ``PipelineConfig`` from a YAML file."""
+    """Load :class:`PipelineConfig` from ``path`` applying environment overrides."""
 
     import yaml  # type: ignore[import]
 
@@ -285,60 +315,12 @@ def load_pipeline_config(path: str) -> PipelineConfig:
     config_root = _ensure_mapping(
         data, context="pipeline configuration", allow_none=False
     )
-    cfg = _ensure_mapping(config_root.get("pipeline"), context="pipeline")
-    iuphar_cfg = _ensure_mapping(cfg.get("iuphar"), context="pipeline.iuphar")
-    cfg_kwargs: Dict[str, Any] = {
-        "rate_limit_rps": _ensure_float(
-            cfg.get("rate_limit_rps"), context="pipeline.rate_limit_rps", default=2.0
-        ),
-        "retries": _ensure_int(
-            cfg.get("retries"), context="pipeline.retries", default=3
-        ),
-        "timeout_sec": _ensure_float(
-            cfg.get("timeout_sec"), context="pipeline.timeout_sec", default=30.0
-        ),
-        "species_priority": _ensure_str_sequence(
-            cfg.get("species_priority"),
-            context="pipeline.species_priority",
-            default=["Human", "Homo sapiens"],
-        ),
-        "list_format": _ensure_str(
-            cfg.get("list_format"), context="pipeline.list_format", default="json"
-        ),
-        "include_sequence": _ensure_bool(
-            cfg.get("include_sequence"),
-            context="pipeline.include_sequence",
-            default=False,
-        ),
-        "include_isoforms": _ensure_bool(
-            cfg.get("include_isoforms"),
-            context="pipeline.include_isoforms",
-            default=False,
-        ),
-        "columns": _ensure_str_sequence(
-            cfg.get("columns"), context="pipeline.columns", default=DEFAULT_COLUMNS
-        ),
-        "iuphar": IupharConfig(
-            affinity_parameter=_ensure_str(
-                iuphar_cfg.get("affinity_parameter"),
-                context="pipeline.iuphar.affinity_parameter",
-                default="pKi",
-            ),
-            approved_only=_ensure_optional_bool(
-                iuphar_cfg.get("approved_only"),
-                context="pipeline.iuphar.approved_only",
-            ),
-            primary_target_only=_ensure_bool(
-                iuphar_cfg.get("primary_target_only"),
-                context="pipeline.iuphar.primary_target_only",
-                default=True,
-            ),
-        ),
-    }
-    timestamp_cfg = cfg.get("timestamp_utc")
-    if isinstance(timestamp_cfg, str):
-        cfg_kwargs["timestamp_utc"] = timestamp_cfg
-    return PipelineConfig(**cfg_kwargs)
+    pipeline_section = _ensure_mapping(config_root.get("pipeline"), context="pipeline")
+    apply_env_overrides(pipeline_section, section="pipeline")
+    try:
+        return PipelineConfig.model_validate(pipeline_section)
+    except ValidationError as exc:  # pragma: no cover - exercised in tests
+        raise ValueError(str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------

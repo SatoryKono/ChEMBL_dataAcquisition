@@ -31,13 +31,23 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 BOOL_LIKE = {"true", "false", "yes", "no", "y", "n", "1", "0", "t", "f"}
 
 
-def _load_table(table: pd.DataFrame | str | Path) -> pd.DataFrame:
+def _load_table(
+    table: pd.DataFrame | str | Path,
+    separator: str = ",",
+    encoding: str | None = None,
+) -> pd.DataFrame:
     """Load a table from ``table``.
 
     Parameters
     ----------
     table:
         Either an existing :class:`pandas.DataFrame` or path to a CSV file.
+    separator:
+        Field delimiter used when reading CSV files. Defaults to a comma.
+    encoding:
+        Encoding to use when reading the CSV file. When ``None`` (the
+        default) the function attempts several common encodings until one
+        succeeds.
 
     Returns
     -------
@@ -49,16 +59,31 @@ def _load_table(table: pd.DataFrame | str | Path) -> pd.DataFrame:
         return table.copy()
 
     path = Path(table)
-    encodings = ["utf-8-sig", "utf-8", "cp1251", "latin-1"]
+    encodings: list[str]
+    if encoding:
+        encodings = [encoding]
+    else:
+        encodings = ["utf-8-sig", "utf-8", "cp1251", "latin-1"]
     for enc in encodings:
         try:
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=DtypeWarning)
-                return pd.read_csv(path, encoding=enc, low_memory=False)
+                return pd.read_csv(
+                    path,
+                    sep=separator,
+                    encoding=enc,
+                    low_memory=False,
+                )
         except UnicodeDecodeError:
             LOGGER.debug("failed to decode %s with %s", path, enc)
             continue
-    raise UnicodeDecodeError("utf-8", b"", 0, 1, "Unable to decode CSV")
+    raise UnicodeDecodeError(
+        encodings[0],
+        b"",
+        0,
+        1,
+        f"Unable to decode CSV using encodings {', '.join(encodings)}",
+    )
 
 
 def _is_isbn(value: str) -> bool:
@@ -200,7 +225,10 @@ def _top_values(series: pd.Series) -> str:
 
 
 def analyze_table_quality(
-    table: pd.DataFrame | str | Path, table_name: str
+    table: pd.DataFrame | str | Path,
+    table_name: str,
+    separator: str = ",",
+    encoding: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Profile ``table`` and compute correlations for numeric columns.
 
@@ -212,6 +240,12 @@ def analyze_table_quality(
         Base name used for output files.  The generated reports append
         ``"_quality_report_table.csv"`` and ``"_data_correlation_report_table.csv"``
         to this value.
+    separator:
+        Field delimiter used when reading CSV files provided via ``table``.
+        Defaults to a comma.
+    encoding:
+        Encoding to use when reading the CSV file. When ``None`` (the
+        default) the reader attempts several common encodings.
 
     Returns
     -------
@@ -219,7 +253,7 @@ def analyze_table_quality(
         Quality report and correlation matrix.
     """
 
-    df = _load_table(table)
+    df = _load_table(table, separator=separator, encoding=encoding)
     rows: list[dict[str, object]] = []
     numeric_candidates: dict[str, pd.Series] = {}
     for column in df.columns:
