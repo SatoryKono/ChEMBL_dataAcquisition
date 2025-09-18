@@ -6,7 +6,7 @@ import argparse
 import csv
 import logging
 from pathlib import Path
-from typing import List, cast
+from typing import Any, Dict, Mapping, cast
 
 import pandas as pd
 import yaml
@@ -30,10 +30,14 @@ LOGGER = logging.getLogger("dump_gtop_target")
 DEFAULT_LOG_FORMAT = "human"
 
 
-def _load_config(path: Path) -> dict:
+def _load_config(path: Path) -> Dict[str, Any]:
     """Load a YAML configuration file."""
+
     with path.open("r", encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
+        data = yaml.safe_load(fh) or {}
+    if not isinstance(data, Mapping):
+        raise ValueError(f"Configuration in {path} is not a mapping")
+    return dict(data)
 
 
 def parse_args() -> argparse.Namespace:
@@ -80,7 +84,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def read_ids(path: Path, column: str) -> List[str]:
+def read_ids(path: Path, column: str) -> list[str]:
     """Read and normalize a list of identifiers from a CSV file."""
     df = pd.read_csv(path)
     if column not in df.columns:
@@ -101,8 +105,15 @@ def main() -> None:
     args = parse_args()
     configure_logging(args.log_level, log_format=args.log_format)
     cfg_dict = _load_config(Path(args.config))
-    gcfg = cfg_dict.get("gtop", {})
-    global_cache = CacheConfig.from_dict(cfg_dict.get("http_cache"))
+    gtop_section = cfg_dict.get("gtop", {})
+    if not isinstance(gtop_section, Mapping):
+        raise ValueError("'gtop' configuration must be a mapping")
+    gcfg: Dict[str, Any] = dict(gtop_section)
+    http_cache_cfg = cfg_dict.get("http_cache")
+    http_cache_mapping = http_cache_cfg if isinstance(http_cache_cfg, Mapping) else None
+    global_cache = CacheConfig.from_dict(http_cache_mapping)
+    cache_cfg = gcfg.get("cache")
+    cache_mapping = cache_cfg if isinstance(cache_cfg, Mapping) else None
     client = GtoPClient(
         GtoPConfig(
             base_url=gcfg.get(
@@ -111,14 +122,14 @@ def main() -> None:
             timeout_sec=cfg_dict.get("network", {}).get("timeout_sec", 30),
             max_retries=cfg_dict.get("network", {}).get("max_retries", 3),
             rps=cfg_dict.get("rate_limit", {}).get("rps", 2),
-            cache=CacheConfig.from_dict(gcfg.get("cache")) or global_cache,
+            cache=CacheConfig.from_dict(cache_mapping) or global_cache,
         )
     )
 
     ids = read_ids(Path(args.input), args.id_column)
-    targets = []
-    syn_rows = []
-    int_rows = []
+    targets: list[Dict[str, Any]] = []
+    syn_rows: list[pd.DataFrame] = []
+    int_rows: list[pd.DataFrame] = []
     for raw in ids:
         target = resolve_target(client, raw, args.id_column)
         if not target:

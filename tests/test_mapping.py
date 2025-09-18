@@ -24,6 +24,7 @@ CONFIG = CONFIG_DIR / "valid.yaml"
 SCHEMA = CONFIG_DIR / "config.schema.json"
 INPUT = CSV_DIR / "input.csv"
 INPUT_SINGLE = CSV_DIR / "input_single.csv"
+INPUT_EMPTY = CSV_DIR / "empty.csv"
 
 
 @pytest.fixture
@@ -64,6 +65,17 @@ def test_success_mapping_single_batch(
     out = tmp_path / "out.csv"
     map_chembl_to_uniprot(INPUT, out, config_path)
     assert read_output(out) == ["P1", "P2"]
+
+
+def test_empty_input_skips_requests(
+    requests_mock, tmp_path: Path, config_path: Path
+) -> None:
+    out = tmp_path / "out.csv"
+    result = map_chembl_to_uniprot(INPUT_EMPTY, out, config_path)
+
+    assert result == out
+    assert read_output(out) == []
+    assert not requests_mock.called
 
 
 def test_success_mapping_redirect(

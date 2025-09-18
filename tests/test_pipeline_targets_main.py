@@ -75,6 +75,21 @@ def test_add_protein_classification():
     assert row["protein_class_pred_confidence"] == "high"
 
 
+def test_add_protein_classification_fetches_once() -> None:
+    samples = json.loads((Path("tests/data/protein_samples.json").read_text()))
+    calls: list[list[str]] = []
+
+    def fetcher(accessions: Iterable[str]) -> Dict[str, dict]:
+        collected = list(accessions)
+        calls.append(collected)
+        return {acc: samples["gpcr"] for acc in collected}
+
+    df = pd.DataFrame({"uniprot_id_primary": ["P00000", "", "P00000"]})
+    add_protein_classification(df, fetcher)
+    assert len(calls) == 1
+    assert calls[0] == ["P00000"]
+
+
 def test_add_uniprot_fields() -> None:
     df = pd.DataFrame({"uniprot_id_primary": ["P12345"]})
 

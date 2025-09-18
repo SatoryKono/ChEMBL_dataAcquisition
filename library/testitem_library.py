@@ -277,6 +277,7 @@ class _PubChemRequest:
         requested_properties = list(dict.fromkeys(self.properties))
         property_fields = [prop for prop in requested_properties if prop != "CID"]
         property_success = False
+        requested_cid = "CID" in self.properties
         if property_fields:
             url = (
                 f"{self.base_url.rstrip('/')}/compound/smiles/{encoded}/property/"
@@ -290,6 +291,7 @@ class _PubChemRequest:
                     for prop in property_fields:
                         results[prop] = _normalise_numeric(prop, record.get(prop))
                     property_success = True
+
 
         if "CID" in requested_properties and results.get("CID") is None:
             if not property_success:

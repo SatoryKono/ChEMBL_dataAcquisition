@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, Iterable, List, Sequence
 
 import pandas as pd
 import requests
-import yaml  # type: ignore[import]
+import yaml
 from tqdm.auto import tqdm
 
 if __package__ in {None, ""}:
@@ -39,14 +39,11 @@ from library.logging_utils import configure_logging
 from library.cli_common import (
     analyze_table_quality,
     ensure_output_dir,
+    serialise_dataframe,
     write_cli_metadata,
 )
 
 from library.protein_classifier import classify_protein
-
-from library.data_profiling import analyze_table_quality
-from library.cli_common import write_cli_metadata
-
 
 
 from library.pipeline_targets import (
@@ -220,16 +217,22 @@ def add_protein_classification(
     unique_ids = [acc for acc in dict.fromkeys(ids) if acc]
     logger = logging.getLogger(__name__)
     entry_map: Dict[str, Any] = {}
-    for acc in unique_ids:
+    fetched_entries: Dict[str, Any] = {}
+    if unique_ids:
         try:
-            fetched = fetch_entries([acc])
+            fetched_entries = fetch_entries(unique_ids) or {}
         except requests.RequestException as exc:
-            msg = f"Network error while fetching UniProt entry for {acc}"
+            msg = (
+                "Network error while fetching UniProt entries "
+                f"for {len(unique_ids)} accessions"
+            )
             raise RuntimeError(msg) from exc
         except Exception as exc:  # pragma: no cover - logging side effect
-            logger.warning("Failed to fetch UniProt entry for %s: %s", acc, exc)
-            continue
-        entry = (fetched or {}).get(acc)
+            logger.warning("Failed to fetch UniProt entries: %s", exc)
+            fetched_entries = {}
+
+    for acc in unique_ids:
+        entry = fetched_entries.get(acc)
         if entry is not None:
             entry_map[acc] = entry
 
@@ -697,6 +700,10 @@ def main() -> None:
     with open(args.config, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
     global_cache = CacheConfig.from_dict(data.get("http_cache"))
+    enrich_cache = (
+        CacheConfig.from_dict(data.get("uniprot_enrich", {}).get("cache"))
+        or global_cache
+    )
     chembl_cols = list(data.get("chembl", {}).get("columns", []))
     required_cols = [
         "target_chembl_id",
@@ -780,7 +787,7 @@ def main() -> None:
             target_species=target_species,
             progress_callback=pbar.update,
         )
-    enrich_client = UniProtEnrichClient()
+    enrich_client = UniProtEnrichClient(cache_config=enrich_cache)
     out_df = add_uniprot_fields(out_df, enrich_client.fetch_all)
     out_df = merge_chembl_fields(out_df, chembl_df)
     entry_cache: Dict[str, Any] = {}
@@ -818,7 +825,6 @@ def main() -> None:
     cols = [c for c in out_df.columns if c not in IUPHAR_CLASS_COLUMNS]
     out_df = out_df[cols + IUPHAR_CLASS_COLUMNS]
 
- 
     sort_candidates = [
         "target_chembl_id",
         "uniprot_id_primary",
@@ -830,30 +836,26 @@ def main() -> None:
         out_df = out_df.sort_values(sort_columns).reset_index(drop=True)
 
     output_path = ensure_output_dir(Path(args.output).expanduser().resolve())
-    out_df.to_csv(output_path, index=False, sep=args.sep, encoding=args.encoding)
-
-    write_cli_metadata(
+    serialised_df = serialise_dataframe(out_df, list_format=args.list_format)
+    serialised_df.to_csv(
         output_path,
-        row_count=int(len(out_df)),
-        column_count=int(len(out_df.columns)),
-        namespace=args,
-        command_parts=tuple(sys.argv),
+        index=False,
+        sep=args.sep,
+        encoding=args.encoding,
     )
 
-    analyze_table_quality(out_df, table_name=str(output_path.with_suffix("")))
- 
-    output_path = save_output(out_df, args.output, sep=args.sep, encoding=args.encoding)
+    analyze_table_quality(serialised_df, table_name=str(output_path.with_suffix("")))
 
     meta_path = Path(args.meta_output) if args.meta_output else None
     write_cli_metadata(
         output_path,
-        row_count=int(out_df.shape[0]),
-        column_count=int(out_df.shape[1]),
+        row_count=int(serialised_df.shape[0]),
+        column_count=int(serialised_df.shape[1]),
         namespace=args,
         command_parts=tuple(sys.argv),
         meta_path=meta_path,
     )
- 
+
 
 if __name__ == "__main__":
     main()
