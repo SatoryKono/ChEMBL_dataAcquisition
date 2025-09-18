@@ -14,10 +14,28 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install dependencies
-        run: pip install .[dev]
+        run: |
+          python -m pip install --upgrade pip
+          pip install --constraint constraints.txt .[dev]
+
+      - name: Verify constraints are up to date
+        run: |
+          python scripts/update_constraints_main.py --lock-file requirements.lock --constraints-file constraints.txt --log-level INFO
+          git diff --exit-code constraints.txt
       - name: Ruff
         run: ruff check .
       - name: Mypy
         run: mypy --strict library/chembl2uniprot
       - name: Pytest
         run: pytest
+
+      - name: Smoke test pinned installation
+        run: |
+          python -m venv /tmp/install-smoke
+          source /tmp/install-smoke/bin/activate
+          python -m pip install --upgrade pip
+          pip install --constraint constraints.txt .
+          python - <<'PY'
+import importlib
+importlib.import_module('chembl2uniprot')
+PY
