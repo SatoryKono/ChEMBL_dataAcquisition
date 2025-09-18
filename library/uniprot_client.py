@@ -18,11 +18,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import logging
-import time
 from typing import Any, Dict, Iterable, List, Optional, cast
 
 import requests
 from tenacity import (
+    RetryCallState,
     retry,
     retry_if_exception_type,
     stop_after_attempt,
@@ -33,9 +33,23 @@ LOGGER = logging.getLogger(__name__)
 
 
 try:  # pragma: no cover - optional import paths for tests
-    from .http_client import CacheConfig, create_http_session
+    from .http_client import (
+        CacheConfig,
+        DEFAULT_STATUS_FORCELIST,
+        RateLimiter,
+        RetryAfterWaitStrategy,
+        create_http_session,
+        retry_after_from_response,
+    )
 except ImportError:  # pragma: no cover
-    from http_client import CacheConfig, create_http_session  # type: ignore[no-redef]
+    from http_client import (  # type: ignore[no-redef]
+        CacheConfig,
+        DEFAULT_STATUS_FORCELIST,
+        RateLimiter,
+        RetryAfterWaitStrategy,
+        create_http_session,
+        retry_after_from_response,
+    )
 
 
 @dataclass
@@ -94,7 +108,8 @@ class UniProtClient:
 
     def __post_init__(self) -> None:  # pragma: no cover - simple initialisation
         self.base_url = self.base_url.rstrip("/")
-        self._last_call = 0.0
+        self._rate_limiter: RateLimiter = RateLimiter(self.rate_limit.rps)
+        self._status_forcelist: set[int] = set(DEFAULT_STATUS_FORCELIST)
         if self.session is None:
             self.session = create_http_session(self.cache)
 
@@ -108,14 +123,7 @@ class UniProtClient:
     # ------------------------------------------------------------------
     def _wait_rate_limit(self) -> None:
         """Sleep if necessary to enforce the configured rate limit."""
-        if self.rate_limit.rps <= 0:
-            return
-        interval = 1.0 / self.rate_limit.rps
-        now = time.monotonic()
-        delta = now - self._last_call
-        if delta < interval:
-            time.sleep(interval - delta)
-        self._last_call = time.monotonic()
+        self._rate_limiter.wait()
 
     def _request(self, url: str, params: Dict[str, str]) -> Optional[requests.Response]:
         """Perform a GET request to the UniProt API with retry and rate limiting.
@@ -134,18 +142,70 @@ class UniProtClient:
         """
 
         session = self._get_session()
+        wait_strategy = RetryAfterWaitStrategy(
+            wait_exponential(multiplier=self.network.backoff_sec)
+        )
+
+        def _log_retry(retry_state: RetryCallState) -> None:
+            if retry_state.outcome is None:
+                return
+            sleep_seconds = 0.0
+            if (
+                retry_state.next_action is not None
+                and retry_state.next_action.sleep is not None
+            ):
+                sleep_seconds = float(retry_state.next_action.sleep)
+            exception = retry_state.outcome.exception()
+            reason = "unknown"
+            if (
+                isinstance(exception, requests.HTTPError)
+                and exception.response is not None
+            ):
+                status_code = exception.response.status_code
+                reason = f"HTTP {status_code}"
+                if status_code in {408, 429} and sleep_seconds > 0:
+                    self._rate_limiter.apply_penalty(sleep_seconds)
+            elif exception is not None:
+                reason = repr(exception)
+            next_attempt = retry_state.attempt_number + 1
+            LOGGER.warning(
+                "Retrying GET %s (attempt %d/%d) after %.2f seconds due to %s",
+                url,
+                next_attempt,
+                self.network.max_retries,
+                sleep_seconds,
+                reason,
+            )
 
         @retry(
             reraise=True,
             retry=retry_if_exception_type(requests.RequestException),
             stop=stop_after_attempt(self.network.max_retries),
-            wait=wait_exponential(multiplier=self.network.backoff_sec),
+            wait=wait_strategy,
+            before_sleep=_log_retry,
         )
         def _do_request() -> requests.Response:
             self._wait_rate_limit()
             LOGGER.debug("GET %s params=%s", url, params)
             resp = session.get(url, params=params, timeout=self.network.timeout_sec)
-            if resp.status_code >= 500:
+            if resp.status_code in self._status_forcelist:
+                retry_after = retry_after_from_response(resp)
+                if retry_after is not None and retry_after > 0:
+                    LOGGER.warning(
+                        "Transient HTTP %s for GET %s; server requested %.2f seconds pause",
+                        resp.status_code,
+                        url,
+                        retry_after,
+                    )
+                    self._rate_limiter.apply_penalty(retry_after)
+                else:
+                    LOGGER.warning(
+                        "Transient HTTP %s for GET %s; retrying with backoff",
+                        resp.status_code,
+                        url,
+                    )
+                resp.raise_for_status()
+            elif resp.status_code >= 500:
                 resp.raise_for_status()
             return resp
 
