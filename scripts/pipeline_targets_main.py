@@ -775,8 +775,8 @@ def main() -> None:
         else args.approved_only.lower() == "true"
     )
     pipeline_cfg.iuphar.primary_target_only = args.primary_target_only.lower() == "true"
-    use_isoforms = args.with_isoforms
-    pipeline_cfg.include_isoforms = False
+    pipeline_cfg.include_isoforms = pipeline_cfg.include_isoforms or args.with_isoforms
+    use_isoforms = pipeline_cfg.include_isoforms
 
     # Load optional ChEMBL column configuration and ensure required fields
     with open(args.config, "r", encoding="utf-8") as fh:
