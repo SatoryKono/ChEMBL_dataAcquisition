@@ -50,7 +50,7 @@ def test_pipeline_targets_cli_writes_outputs(
 
     input_csv = tmp_path / "input.csv"
     input_csv.write_text(
-        "target_chembl_id\nCHEMBL2\nCHEMBL1\nCHEMBL2\n",
+        "target_chembl_id\nCHEMBL2\n\nNaN\nCHEMBL1\nNone\nCHEMBL2\n",
         encoding="utf-8",
     )
 
@@ -70,11 +70,14 @@ def test_pipeline_targets_cli_writes_outputs(
         def fetch_all(self, accessions: list[str]) -> dict[str, dict[str, str]]:
             return {accession: {} for accession in accessions}
 
+    captured_fetch_ids: list[list[str]] = []
+
     def fake_load_pipeline_config(_: str) -> Any:
         cfg = module.PipelineConfig()
         return cfg
 
     def fake_fetch_targets(ids: list[str], _: Any, batch_size: int) -> pd.DataFrame:
+        captured_fetch_ids.append(list(ids))
         return pd.DataFrame(
             {
                 "target_chembl_id": ids,
@@ -190,6 +193,7 @@ def test_pipeline_targets_cli_writes_outputs(
     assert metadata_stats["calls"] == 1
     assert metadata_stats["kwargs"].get("meta_path") is None
     assert enrich_call["kwargs"].get("cache_config") is None
+    assert captured_fetch_ids == [["CHEMBL2", "CHEMBL1"]]
 
 
 def _identity_frame(df: pd.DataFrame, *args: Any, **kwargs: Any) -> pd.DataFrame:
@@ -229,9 +233,7 @@ def test_pipeline_targets_cli_uses_configured_list_format(
 
     serialise_stats: dict[str, Any] = {}
 
-    def fake_serialise_dataframe(
-        df: pd.DataFrame, list_format: str
-    ) -> pd.DataFrame:
+    def fake_serialise_dataframe(df: pd.DataFrame, list_format: str) -> pd.DataFrame:
         serialise_stats["list_format"] = list_format
         return df
 
@@ -257,16 +259,12 @@ def test_pipeline_targets_cli_uses_configured_list_format(
 
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
 
-    def fake_fetch_targets(
-        ids: list[str], *_args: Any, **_kwargs: Any
-    ) -> pd.DataFrame:
+    def fake_fetch_targets(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
         return pd.DataFrame({"target_chembl_id": ids})
 
     monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
 
-    def fake_run_pipeline(
-        ids: list[str], *_args: Any, **_kwargs: Any
-    ) -> pd.DataFrame:
+    def fake_run_pipeline(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
         data: dict[str, Any] = {
             "target_chembl_id": ids,
             "uniprot_id_primary": ["P001" for _ in ids],
@@ -349,9 +347,7 @@ orthologs:
 
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
 
-    def fake_fetch_targets(
-        ids: list[str], *_args: Any, **_kwargs: Any
-    ) -> pd.DataFrame:
+    def fake_fetch_targets(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
         return pd.DataFrame({"target_chembl_id": ids})
 
     monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
@@ -449,9 +445,7 @@ orthologs:
 
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
 
-    def fake_fetch_targets(
-        ids: list[str], *_args: Any, **_kwargs: Any
-    ) -> pd.DataFrame:
+    def fake_fetch_targets(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
         return pd.DataFrame({"target_chembl_id": ids})
 
     monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
