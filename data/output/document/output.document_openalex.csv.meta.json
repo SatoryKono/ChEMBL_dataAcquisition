@@ -1,0 +1,17 @@
+{
+  "error_counts": {
+    "OpenAlex.Error": 88,
+    "PubMed.Error": 15675,
+    "crossref.Error": 0,
+    "scholar.Error": 0
+  },
+  "file_sha256": "4c22c54b98054f0788ae7f0f33c96f313209fb851794a0dceca1e86042b669d6",
+  "missing_doi": 88,
+  "output": "data\\output\\output.document_openalex.csv",
+  "publication_class_distribution": {
+    "experimental": 14984,
+    "review": 587,
+    "unknown": 104
+  },
+  "row_count": 15675
+}
