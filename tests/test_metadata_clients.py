@@ -135,3 +135,34 @@ def test_crossref_parses_fields():
     assert recs[0].title == "Title"
     assert recs[0].subtype == "clinical-trial"
     assert recs[0].subject == ["Biology", "Chemistry"]
+
+
+def test_crossref_normalises_optional_fields() -> None:
+    """Crossref client should coerce optional fields into clean strings."""
+
+    doi = "10.1/doi2"
+    with requests_mock.Mocker() as m:
+        m.get(
+            CR_URL.format(doi=doi),
+            json={
+                "message": {
+                    "type": "journal-article",
+                    "subtype": [" Clinical-Trial ", None],
+                    "title": " Alternate Title ",
+                    "subtitle": [" Part A ", 42, "Part B"],
+                    "subject": [
+                        {"name": "Biology"},
+                        {"value": "Chemistry"},
+                        " Physics ",
+                        {"name": "Biology"},
+                    ],
+                }
+            },
+        )
+        client = HttpClient(timeout=1.0, max_retries=1, rps=0)
+        recs = fetch_crossref_records([doi], client=client)
+    record = recs[0]
+    assert record.subtype == "Clinical-Trial"
+    assert record.subtitle == "Part A|Part B"
+    assert record.subject == ["Biology", "Chemistry", "Physics"]
+    assert record.title == "Alternate Title"
