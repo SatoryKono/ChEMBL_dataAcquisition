@@ -1,0 +1,482 @@
+[
+  {
+    "bto_id": "BTO:0000620",
+    "caloha_id": "TS-0472",
+    "efo_id": "EFO:0001334",
+    "pref_name": "Ileum",
+    "tissue_chembl_id": "CHEMBL3638244",
+    "uberon_id": "UBERON:0002116"
+  },
+  {
+    "bto_id": "BTO:0000142",
+    "caloha_id": "TS-0095",
+    "efo_id": "EFO:0000302",
+    "pref_name": "Brain",
+    "tissue_chembl_id": "CHEMBL3638188",
+    "uberon_id": "UBERON:0000955"
+  },
+  {
+    "bto_id": "BTO:0000601",
+    "caloha_id": "TS-0460",
+    "efo_id": "EFO:0000530",
+    "pref_name": "Hippocampus",
+    "tissue_chembl_id": "CHEMBL3638273",
+    "uberon_id": null
+  },
+  {
+    "bto_id": "BTO:0000903",
+    "caloha_id": "TS-0437",
+    "efo_id": "EFO:0000277",
+    "pref_name": "Cardiac atrium",
+    "tissue_chembl_id": "CHEMBL3638237",
+    "uberon_id": "UBERON:0002081"
+  },
+  {
+    "bto_id": "BTO:0000131",
+    "caloha_id": "TS-0800",
+    "efo_id": "EFO:0001905",
+    "pref_name": "Plasma",
+    "tissue_chembl_id": "CHEMBL3559721",
+    "uberon_id": "UBERON:0001969"
+  },
+  {
+    "bto_id": "BTO:0000763",
+    "caloha_id": "TS-0568",
+    "efo_id": "EFO:0000934",
+    "pref_name": "Lung",
+    "tissue_chembl_id": "CHEMBL3638235",
+    "uberon_id": "UBERON:0002048"
+  },
+  {
+    "bto_id": "BTO:0000418",
+    "caloha_id": null,
+    "efo_id": "EFO:0000109",
+    "pref_name": "Striatum",
+    "tissue_chembl_id": "CHEMBL3638255",
+    "uberon_id": "UBERON:0002435"
+  },
+  {
+    "bto_id": "BTO:0000901",
+    "caloha_id": "TS-0440",
+    "efo_id": "EFO:0000819",
+    "pref_name": "Myocardium",
+    "tissue_chembl_id": "CHEMBL3987852",
+    "uberon_id": "UBERON:0002349"
+  },
+  {
+    "bto_id": "BTO:0000671",
+    "caloha_id": "TS-0510",
+    "efo_id": "EFO:0000929",
+    "pref_name": "Kidney",
+    "tissue_chembl_id": "CHEMBL3638241",
+    "uberon_id": "UBERON:0002113"
+  },
+  {
+    "bto_id": "BTO:0000233",
+    "caloha_id": "TS-0091",
+    "efo_id": "EFO:0000328",
+    "pref_name": "Cerebral cortex",
+    "tissue_chembl_id": "CHEMBL3559724",
+    "uberon_id": "UBERON:0000956"
+  },
+  {
+    "bto_id": null,
+    "caloha_id": null,
+    "efo_id": null,
+    "pref_name": "Lung parenchyma",
+    "tissue_chembl_id": "CHEMBL3987825",
+    "uberon_id": "UBERON:0008946"
+  },
+  {
+    "bto_id": null,
+    "caloha_id": null,
+    "efo_id": "EFO:0000383",
+    "pref_name": "Cortex",
+    "tissue_chembl_id": "CHEMBL3638219",
+    "uberon_id": "UBERON:0001851"
+  },
+  {
+    "bto_id": "BTO:0001363",
+    "caloha_id": "TS-1030",
+    "efo_id": "EFO:0000984",
+    "pref_name": "Testis",
+    "tissue_chembl_id": "CHEMBL3638183",
+    "uberon_id": "UBERON:0000473"
+  },
+  {
+    "bto_id": "BTO:0000232",
+    "caloha_id": "TS-0125",
+    "efo_id": "EFO:0000327",
+    "pref_name": "Cerebellum",
+    "tissue_chembl_id": "CHEMBL3638233",
+    "uberon_id": "UBERON:0002037"
+  },
+  {
+    "bto_id": "BTO:0000988",
+    "caloha_id": "TS-0736",
+    "efo_id": "EFO:0000855",
+    "pref_name": "Pancreas",
+    "tissue_chembl_id": "CHEMBL3638206",
+    "uberon_id": "UBERON:0001264"
+  },
+  {
+    "bto_id": null,
+    "caloha_id": null,
+    "efo_id": null,
+    "pref_name": "Adrenal tissue",
+    "tissue_chembl_id": "CHEMBL3638272",
+    "uberon_id": "UBERON:0018303"
+  },
+  {
+    "bto_id": "BTO:0000648",
+    "caloha_id": "TS-0490",
+    "efo_id": "EFO:0000834",
+    "pref_name": "Intestine",
+    "tissue_chembl_id": "CHEMBL3638176",
+    "uberon_id": "UBERON:0000160"
+  },
+  {
+    "bto_id": "BTO:0000478",
+    "caloha_id": "TS-0380",
+    "efo_id": "EFO:0000909",
+    "pref_name": "Forebrain",
+    "tissue_chembl_id": "CHEMBL3987605",
+    "uberon_id": "UBERON:0001890"
+  },
+  {
+    "bto_id": "BTO:0000562",
+    "caloha_id": "TS-0445",
+    "efo_id": "EFO:0000815",
+    "pref_name": "Heart",
+    "tissue_chembl_id": "CHEMBL3638187",
+    "uberon_id": "UBERON:0000948"
+  },
+  {
+    "bto_id": "BTO:0001129",
+    "caloha_id": "TS-0828",
+    "efo_id": "EFO:0000858",
+    "pref_name": "Prostate gland",
+    "tissue_chembl_id": "CHEMBL3638250",
+    "uberon_id": "UBERON:0002367"
+  },
+  {
+    "bto_id": "BTO:0000135",
+    "caloha_id": "TS-0046",
+    "efo_id": "EFO:0000265",
+    "pref_name": "Aorta",
+    "tissue_chembl_id": "CHEMBL3638186",
+    "uberon_id": "UBERON:0000947"
+  },
+  {
+    "bto_id": "BTO:0000759",
+    "caloha_id": "TS-0564",
+    "efo_id": "EFO:0000887",
+    "pref_name": "Liver",
+    "tissue_chembl_id": "CHEMBL3559723",
+    "uberon_id": "UBERON:0002107"
+  },
+  {
+    "bto_id": "BTO:0000642",
+    "caloha_id": null,
+    "efo_id": null,
+    "pref_name": "Intestinal mucosa",
+    "tissue_chembl_id": "CHEMBL3987786",
+    "uberon_id": "UBERON:0001242"
+  },
+  {
+    "bto_id": "BTO:0001427",
+    "caloha_id": "TS-1105",
+    "efo_id": "EFO:0000981",
+    "pref_name": "Vas deferens",
+    "tissue_chembl_id": "CHEMBL3638198",
+    "uberon_id": "UBERON:0001000"
+  },
+  {
+    "bto_id": "BTO:0000484",
+    "caloha_id": "TS-0389",
+    "efo_id": null,
+    "pref_name": "Frontal cortex",
+    "tissue_chembl_id": "CHEMBL3638220",
+    "uberon_id": "UBERON:0001870"
+  },
+  {
+    "bto_id": "BTO:0000269",
+    "caloha_id": "TS-0158",
+    "efo_id": "EFO:0000361",
+    "pref_name": "Colon",
+    "tissue_chembl_id": "CHEMBL3638202",
+    "uberon_id": "UBERON:0001155"
+  },
+  {
+    "bto_id": "BTO:0001279",
+    "caloha_id": "TS-0953",
+    "efo_id": "EFO:0000110",
+    "pref_name": "Spinal cord",
+    "tissue_chembl_id": "CHEMBL3638246",
+    "uberon_id": "UBERON:0002240"
+  },
+  {
+    "bto_id": "BTO:0001264",
+    "caloha_id": "TS-0954",
+    "efo_id": "EFO:0000900",
+    "pref_name": "Dorsal root ganglion",
+    "tissue_chembl_id": "CHEMBL3833581",
+    "uberon_id": "UBERON:0000044"
+  },
+  {
+    "bto_id": "BTO:0000887",
+    "caloha_id": "TS-0642",
+    "efo_id": null,
+    "pref_name": "Muscle tissue",
+    "tissue_chembl_id": "CHEMBL3638254",
+    "uberon_id": "UBERON:0002385"
+  },
+  {
+    "bto_id": "BTO:0001078",
+    "caloha_id": "TS-0799",
+    "efo_id": "EFO:0001407",
+    "pref_name": "Placenta",
+    "tissue_chembl_id": "CHEMBL3987910",
+    "uberon_id": "UBERON:0001987"
+  },
+  {
+    "bto_id": "BTO:0000089",
+    "caloha_id": "TS-0079",
+    "efo_id": "EFO:0000296",
+    "pref_name": "Blood",
+    "tissue_chembl_id": "CHEMBL3638178",
+    "uberon_id": "UBERON:0000178"
+  },
+  {
+    "bto_id": "BTO:0000212",
+    "caloha_id": null,
+    "efo_id": "EFO:0001912",
+    "pref_name": "Caudate-putamen",
+    "tissue_chembl_id": "CHEMBL3638267",
+    "uberon_id": "UBERON:0005383"
+  },
+  {
+    "bto_id": "BTO:0000045",
+    "caloha_id": "TS-0015",
+    "efo_id": "EFO:0000237",
+    "pref_name": "Adrenal cortex",
+    "tissue_chembl_id": "CHEMBL3638203",
+    "uberon_id": "UBERON:0001235"
+  },
+  {
+    "bto_id": "BTO:0000138",
+    "caloha_id": "TS-0630",
+    "efo_id": "EFO:0000919",
+    "pref_name": "Midbrain",
+    "tissue_chembl_id": "CHEMBL3638224",
+    "uberon_id": "UBERON:0001891"
+  },
+  {
+    "bto_id": "BTO:0000651",
+    "caloha_id": "TS-0942",
+    "efo_id": "EFO:0000841",
+    "pref_name": "Small intestine",
+    "tissue_chembl_id": "CHEMBL3638239",
+    "uberon_id": "UBERON:0002108"
+  },
+  {
+    "bto_id": "BTO:0000047",
+    "caloha_id": "TS-0016",
+    "efo_id": "EFO:0000238",
+    "pref_name": "Adrenal gland",
+    "tissue_chembl_id": "CHEMBL3638251",
+    "uberon_id": "UBERON:0002369"
+  },
+  {
+    "bto_id": "BTO:0000975",
+    "caloha_id": "TS-0730",
+    "efo_id": "EFO:0000973",
+    "pref_name": "Female gonad",
+    "tissue_chembl_id": "CHEMBL3638196",
+    "uberon_id": "UBERON:0000992"
+  },
+  {
+    "bto_id": "BTO:0001175",
+    "caloha_id": "TS-0865",
+    "efo_id": "EFO:0000832",
+    "pref_name": "Retina",
+    "tissue_chembl_id": "CHEMBL3638192",
+    "uberon_id": "UBERON:0000966"
+  },
+  {
+    "bto_id": null,
+    "caloha_id": "TS-2090",
+    "efo_id": null,
+    "pref_name": "Tissue",
+    "tissue_chembl_id": "CHEMBL3988010",
+    "uberon_id": "UBERON:0000479"
+  },
+  {
+    "bto_id": "BTO:0001281",
+    "caloha_id": "TS-0956",
+    "efo_id": "EFO:0000869",
+    "pref_name": "Spleen",
+    "tissue_chembl_id": "CHEMBL3559722",
+    "uberon_id": "UBERON:0002106"
+  },
+  {
+    "bto_id": "BTO:0000365",
+    "caloha_id": "TS-0214",
+    "efo_id": "EFO:0000851",
+    "pref_name": "Duodenum",
+    "tissue_chembl_id": "CHEMBL3638242",
+    "uberon_id": "UBERON:0002114"
+  },
+  {
+    "bto_id": "BTO:0000292",
+    "caloha_id": "TS-0181",
+    "efo_id": null,
+    "pref_name": "Corpus luteum",
+    "tissue_chembl_id": "CHEMBL3638257",
+    "uberon_id": "UBERON:0002512"
+  },
+  {
+    "bto_id": "BTO:0001042",
+    "caloha_id": "TS-0037",
+    "efo_id": "EFO:0000252",
+    "pref_name": "Amygdala",
+    "tissue_chembl_id": "CHEMBL3987566",
+    "uberon_id": "UBERON:0001876"
+  },
+  {
+    "bto_id": "BTO:0004702",
+    "caloha_id": null,
+    "efo_id": "EFO:0001936",
+    "pref_name": "Ventral striatum",
+    "tissue_chembl_id": "CHEMBL3988039",
+    "uberon_id": "UBERON:0005403"
+  },
+  {
+    "bto_id": "BTO:0001424",
+    "caloha_id": "TS-1102",
+    "efo_id": "EFO:0000975",
+    "pref_name": "Uterus",
+    "tissue_chembl_id": "CHEMBL3638197",
+    "uberon_id": "UBERON:0000995"
+  },
+  {
+    "bto_id": "BTO:0000769",
+    "caloha_id": null,
+    "efo_id": null,
+    "pref_name": "Submaxillary gland",
+    "tissue_chembl_id": "CHEMBL3987361",
+    "uberon_id": "UBERON:0002520"
+  },
+  {
+    "bto_id": "BTO:0001234",
+    "caloha_id": "TS-0919",
+    "efo_id": "EFO:0000986",
+    "pref_name": "Seminal vesicle",
+    "tissue_chembl_id": "CHEMBL3987572",
+    "uberon_id": "UBERON:0000998"
+  },
+  {
+    "bto_id": "BTO:0001239",
+    "caloha_id": "TS-0923",
+    "efo_id": null,
+    "pref_name": "Serum",
+    "tissue_chembl_id": "CHEMBL3638229",
+    "uberon_id": "UBERON:0001977"
+  },
+  {
+    "bto_id": "BTO:0000723",
+    "caloha_id": "TS-0545",
+    "efo_id": null,
+    "pref_name": "Lens of camera-type eye",
+    "tissue_chembl_id": "CHEMBL3638191",
+    "uberon_id": "UBERON:0000965"
+  },
+  {
+    "bto_id": "BTO:0002807",
+    "caloha_id": null,
+    "efo_id": "EFO:0001384",
+    "pref_name": "Prefrontal cortex",
+    "tissue_chembl_id": "CHEMBL3987919",
+    "uberon_id": "UBERON:0000451"
+  },
+  {
+    "bto_id": "BTO:0001311",
+    "caloha_id": "TS-0183",
+    "efo_id": "EFO:0000381",
+    "pref_name": "Corpus striatum",
+    "tissue_chembl_id": "CHEMBL3987697",
+    "uberon_id": "UBERON:0000369"
+  },
+  {
+    "bto_id": "BTO:0001869",
+    "caloha_id": null,
+    "efo_id": null,
+    "pref_name": "Olfactory tubercle",
+    "tissue_chembl_id": "CHEMBL3987877",
+    "uberon_id": "UBERON:0001883"
+  },
+  {
+    "bto_id": "BTO:0000239",
+    "caloha_id": "TS-1018",
+    "efo_id": "EFO:0000912",
+    "pref_name": "Cerebrum",
+    "tissue_chembl_id": "CHEMBL3638225",
+    "uberon_id": "UBERON:0001893"
+  },
+  {
+    "bto_id": null,
+    "caloha_id": "TS-0655",
+    "efo_id": null,
+    "pref_name": "Nasal cartilage",
+    "tissue_chembl_id": "CHEMBL3987854",
+    "uberon_id": "UBERON:0001823"
+  },
+  {
+    "bto_id": null,
+    "caloha_id": null,
+    "efo_id": null,
+    "pref_name": "Blood/Plasma",
+    "tissue_chembl_id": "CHEMBL3987301",
+    "uberon_id": null
+  },
+  {
+    "bto_id": "BTO:0001419",
+    "caloha_id": "TS-1092",
+    "efo_id": "EFO:0001939",
+    "pref_name": "Urine",
+    "tissue_chembl_id": "CHEMBL3638201",
+    "uberon_id": "UBERON:0001088"
+  },
+  {
+    "bto_id": "BTO:0001487",
+    "caloha_id": "TS-0013",
+    "efo_id": "EFO:0000790",
+    "pref_name": "Adipose tissue",
+    "tissue_chembl_id": "CHEMBL3638200",
+    "uberon_id": "UBERON:0001013"
+  },
+  {
+    "bto_id": "BTO:0000282",
+    "caloha_id": "TS-0436",
+    "efo_id": "EFO:0000964",
+    "pref_name": "Head",
+    "tissue_chembl_id": "CHEMBL3987761",
+    "uberon_id": "UBERON:0000033"
+  },
+  {
+    "bto_id": null,
+    "caloha_id": null,
+    "efo_id": null,
+    "pref_name": "Electric organ",
+    "tissue_chembl_id": "CHEMBL3987721",
+    "uberon_id": "UBERON:0006869"
+  },
+  {
+    "bto_id": "BTO:0000614",
+    "caloha_id": "TS-0469",
+    "efo_id": "EFO:0000107",
+    "pref_name": "Hypothalamus",
+    "tissue_chembl_id": "CHEMBL3638227",
+    "uberon_id": "UBERON:0001898"
+  }
+]
