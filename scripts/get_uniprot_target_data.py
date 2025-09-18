@@ -8,13 +8,14 @@ Examples
 from __future__ import annotations
 
 import argparse
-import json
 import logging
+import sys
 from datetime import datetime
 from pathlib import Path
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
+import pandas as pd
 import yaml
 
 if __package__ in {None, ""}:
@@ -83,8 +84,15 @@ def main(argv: Sequence[str] | None = None) -> None:
             the arguments provided via the command line are used implicitly.
     """
 
+    from library.cli_common import (
+        analyze_table_quality,
+        ensure_output_dir,
+        serialise_dataframe,
+        write_cli_metadata,
+    )
     from library.http_client import CacheConfig
-    from library.io_utils import CsvConfig, read_ids, write_rows
+    from library.io import read_ids
+    from library.io_utils import CsvConfig, write_rows
     from library.logging_utils import configure_logging
     from library.orthologs import EnsemblHomologyClient, OmaClient
     from library.uniprot_client import (
@@ -201,9 +209,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         else output_path.with_name(f"{output_path.stem}_isoforms.csv")
     )
 
+    output_path = ensure_output_dir(output_path)
+    if args.with_orthologs and orth_cfg.get("enabled", True):
+        orthologs_path = ensure_output_dir(orthologs_path)
+    if include_iso:
+        iso_out_path = ensure_output_dir(iso_out_path)
+
     accessions = read_ids(input_path, args.column, csv_cfg)
     rows: list[dict[str, Any]] = []
-    iso_rows: list[dict[str, str]] = []
+    iso_rows: list[dict[str, Any]] = []
 
     cols = output_columns(include_seq)
 
@@ -274,7 +288,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             row: dict[str, Any] = {c: "" for c in cols}
             row["uniprot_id"] = acc
             if ensembl_client:
-                row["orthologs_json"] = "[]"
+                row["orthologs_json"] = []
                 row["orthologs_count"] = 0
             rows.append(row)
             continue
@@ -294,29 +308,21 @@ def main(argv: Sequence[str] | None = None) -> None:
                         "parent_uniprot_id": acc,
                         "isoform_uniprot_id": iso["isoform_uniprot_id"],
                         "isoform_name": iso["isoform_name"],
-                        "isoform_synonyms": json.dumps(
-                            iso["isoform_synonyms"],
-                            ensure_ascii=False,
-                            sort_keys=True,
-                        ),
-                        "is_canonical": str(iso["is_canonical"]).lower(),
+                        "isoform_synonyms": list(iso["isoform_synonyms"]),
+                        "is_canonical": iso["is_canonical"],
                     }
                 )
 
         row = normalize_entry(data, include_seq, isoforms)
 
-        orthologs_json = "[]"
+        orthologs_json: list[dict[str, Any]] = []
         orthologs_count = 0
         if ensembl_client and gene_ids:
             gene_id = gene_ids[0]
             orthologs = ensembl_client.get_orthologs(gene_id, target_species)
             if not orthologs and oma_client:
                 orthologs = oma_client.get_orthologs_by_uniprot(acc)
-            orthologs_json = json.dumps(
-                [o.to_ordered_dict() for o in orthologs],
-                separators=(",", ":"),
-                sort_keys=True,
-            )
+            orthologs_json = [o.to_ordered_dict() for o in orthologs]
             orthologs_count = len(orthologs)
             for o in orthologs:
                 orth_rows.append(
@@ -345,11 +351,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
             if oma_client:
                 orthologs = oma_client.get_orthologs_by_uniprot(acc)
-                orthologs_json = json.dumps(
-                    [o.to_ordered_dict() for o in orthologs],
-                    separators=(",", ":"),
-                    sort_keys=True,
-                )
+                orthologs_json = [o.to_ordered_dict() for o in orthologs]
                 orthologs_count = len(orthologs)
                 for o in orthologs:
                     orth_rows.append(
@@ -395,6 +397,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
 
     rows.sort(key=lambda r: r.get("uniprot_id", ""))
+    output_df = pd.DataFrame(rows, columns=cols)
+    serialised_df = serialise_dataframe(output_df, list_format=csv_cfg.list_format)
     write_rows(output_path, rows, cols, csv_cfg)
     if include_iso:
         iso_cols = [
@@ -415,6 +419,24 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         )
         write_rows(iso_out_path, iso_rows, iso_cols, csv_cfg)
+
+    analyze_table_quality(
+        serialised_df,
+        table_name=str(output_path.with_suffix("")),
+    )
+
+    command_parts = (
+        tuple(sys.argv)
+        if argv is None
+        else ("get_uniprot_target_data.py", *tuple(argv))
+    )
+    write_cli_metadata(
+        output_path,
+        row_count=int(serialised_df.shape[0]),
+        column_count=int(serialised_df.shape[1]),
+        namespace=args,
+        command_parts=command_parts,
+    )
 
     LOGGER.info(
         "Target table written to %s",

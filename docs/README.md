@@ -125,6 +125,12 @@ python scripts/get_uniprot_target_data.py \
 The behaviour is configured via ``config.yaml``.  Lists are serialised either as
 JSON (default) or as ``|``-delimited strings depending on the configuration.
 
+Every run also emits a companion ``.meta.yaml`` file next to the main CSV.  The
+metadata captures the executed command line, normalised CLI arguments and
+summary statistics such as row and column counts.  Basic data quality metrics
+are calculated via ``library.data_profiling.analyze_table_quality`` for
+downstream validation.
+
 
 ### Including orthologs
 
