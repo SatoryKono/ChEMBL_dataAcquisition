@@ -192,6 +192,91 @@ def test_pipeline_targets_cli_writes_outputs(
     assert enrich_call["kwargs"].get("cache_config") is None
 
 
+def test_pipeline_targets_cli_skips_invalid_identifiers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module: Any = importlib.import_module("scripts.pipeline_targets_main")
+
+    input_csv = tmp_path / "input.csv"
+    input_csv.write_text(
+        "target_chembl_id\nCHEMBL1\n  CHEMBL1  \n\nNONE\nNaN\ncheMBL2\n",
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("{}\n", encoding="utf-8")
+
+    class DummyUniClient:
+        def fetch_entry_json(self, accession: str) -> dict[str, Any]:
+            return {}
+
+        def fetch_entries_json(
+            self, accessions: list[str], batch_size: int = 0
+        ) -> dict[str, dict[str, Any]]:
+            return {accession: {} for accession in accessions}
+
+    def fake_build_clients(*_args: Any, **_kwargs: Any) -> tuple[Any, ...]:
+        return DummyUniClient(), object(), object(), None, None, []
+
+    monkeypatch.setattr(module, "build_clients", fake_build_clients)
+
+    captured: dict[str, Any] = {}
+
+    def fake_fetch_targets(ids: list[str], *_args: Any, **kwargs: Any) -> pd.DataFrame:
+        captured["ids"] = list(ids)
+        captured["kwargs"] = kwargs
+        return pd.DataFrame({"target_chembl_id": ids})
+
+    monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
+
+    def fake_run_pipeline(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
+        captured["pipeline_ids"] = list(ids)
+        data = pd.DataFrame({"target_chembl_id": ids, "uniprot_id_primary": ["" for _ in ids]})
+        for column in module.IUPHAR_CLASS_COLUMNS:
+            data[column] = ""
+        return data
+
+    monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
+
+    def identity_frame(df: pd.DataFrame, *args: Any, **kwargs: Any) -> pd.DataFrame:
+        return df
+
+    monkeypatch.setattr(module, "add_uniprot_fields", identity_frame)
+    monkeypatch.setattr(module, "merge_chembl_fields", identity_frame)
+    monkeypatch.setattr(module, "add_activity_fields", identity_frame)
+    monkeypatch.setattr(module, "add_isoform_fields", identity_frame)
+    monkeypatch.setattr(module, "add_protein_classification", identity_frame)
+
+    def fake_enrich_client(*_args: Any, **_kwargs: Any) -> Any:
+        class _Dummy:
+            def fetch_all(self, accessions: list[str]) -> dict[str, dict[str, Any]]:
+                return {acc: {} for acc in accessions}
+
+        return _Dummy()
+
+    monkeypatch.setattr(module, "UniProtEnrichClient", fake_enrich_client)
+
+    monkeypatch.setattr(module, "analyze_table_quality", lambda *_, **__: None)
+    monkeypatch.setattr(module, "write_cli_metadata", lambda *args, **kwargs: tmp_path / "meta.yaml")
+    monkeypatch.setattr(module, "serialise_dataframe", lambda df, *_args, **_kwargs: df)
+
+    argv = [
+        "pipeline_targets_main",
+        "--input",
+        str(input_csv),
+        "--output",
+        str(tmp_path / "out.csv"),
+        "--config",
+        str(config_path),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    module.main()
+
+    assert captured["ids"] == ["CHEMBL1", "cheMBL2"]
+    assert captured["pipeline_ids"] == ["CHEMBL1", "cheMBL2"]
+    assert captured["kwargs"].get("batch_size", 0) > 0
+
+
 def test_pipeline_targets_cli_uses_configured_list_format(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -293,3 +378,30 @@ def test_pipeline_targets_cli_uses_configured_list_format(
     module.main()
 
     assert serialise_stats["list_format"] == "pipe"
+
+
+def test_pipeline_targets_cli_rejects_non_positive_batch_size(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module: Any = importlib.import_module("scripts.pipeline_targets_main")
+
+    input_csv = tmp_path / "input.csv"
+    input_csv.write_text("target_chembl_id\nCHEMBL1\n", encoding="utf-8")
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("{}\n", encoding="utf-8")
+
+    argv = [
+        "pipeline_targets_main",
+        "--input",
+        str(input_csv),
+        "--output",
+        str(tmp_path / "out.csv"),
+        "--config",
+        str(config_path),
+        "--batch-size",
+        "0",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit):
+        module.main()
