@@ -197,14 +197,43 @@ class _PubChemRequest:
 
         return self.http_client.session
 
+    def _log_http_error(
+        self,
+        status: int | None,
+        *,
+        context: str,
+        smiles: str,
+        method: str,
+    ) -> None:
+        status_msg = f" {status}" if status is not None else ""
+        verb = method.upper()
+        if status == 400 and verb == "GET":
+            LOGGER.debug(
+                "HTTP error%s when requesting PubChem %s for %s via %s",
+                status_msg,
+                context,
+                smiles,
+                verb,
+            )
+            return
+        LOGGER.warning(
+            "HTTP error%s when requesting PubChem %s for %s via %s",
+            status_msg,
+            context,
+            smiles,
+            verb,
+        )
+
     def _get_json(
         self,
         url: str,
         *,
         smiles: str,
         context: str,
-    ) -> Mapping[str, Any] | None:
-        """Perform a GET request and decode the JSON payload.
+        method: str = "get",
+        data: Mapping[str, Any] | None = None,
+    ) -> tuple[Mapping[str, Any] | None, int | None]:
+        """Perform an HTTP request and decode the JSON payload.
 
         Parameters
         ----------
@@ -214,61 +243,65 @@ class _PubChemRequest:
             SMILES string used for logging.
         context:
             Short description of the request type (e.g. ``"properties"``).
+        method:
+            HTTP verb executed against the PubChem API. Defaults to ``"get"``.
+        data:
+            Optional request payload submitted for POST fallbacks.
 
         Returns
         -------
-        Mapping[str, Any] | None
-            Parsed JSON payload or ``None`` when the request fails.
+        tuple[Mapping[str, Any] | None, int | None]
+            Pair consisting of the parsed JSON payload (or ``None`` when the
+            request fails) and the received HTTP status code when available.
         """
 
         headers = {"Accept": "application/json", "User-Agent": self.user_agent}
+        request_kwargs: dict[str, Any] = {"timeout": self.timeout, "headers": headers}
+        if data is not None:
+            request_kwargs["data"] = data
         try:
-            response = self.http_client.request(
-                "get", url, timeout=self.timeout, headers=headers
-            )
+            response = self.http_client.request(method, url, **request_kwargs)
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else None
             if status == 404:
                 LOGGER.debug(
                     "PubChem returned 404 for %s while fetching %s", smiles, context
                 )
-                return None
-            status_msg = f" {status}" if status is not None else ""
-            LOGGER.warning(
-                "HTTP error%s when requesting PubChem %s for %s", status_msg, context, smiles
-            )
-            return None
+                return None, status
+            self._log_http_error(status, context=context, smiles=smiles, method=method)
+            return None, status
         except requests.RequestException:
             LOGGER.warning(
-                "Network error when requesting PubChem %s for %s", context, smiles
+                "Network error when requesting PubChem %s for %s via %s",
+                context,
+                smiles,
+                method.upper(),
             )
-            return None
+            return None, None
 
         if response.status_code == 404:
             LOGGER.debug(
                 "PubChem returned 404 for %s while fetching %s", smiles, context
             )
-            return None
+            return None, 404
 
         try:
             response.raise_for_status()
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else None
-            status_msg = f" {status}" if status is not None else ""
-            LOGGER.warning(
-                "HTTP error%s when requesting PubChem %s for %s", status_msg, context, smiles
-            )
-            return None
+            self._log_http_error(status, context=context, smiles=smiles, method=method)
+            return None, status
 
         try:
-            return response.json()
+            return response.json(), response.status_code
         except ValueError:
             LOGGER.warning(
-                "Failed to decode JSON response from PubChem %s for %s",
+                "Failed to decode JSON response from PubChem %s for %s via %s",
                 context,
                 smiles,
+                method.upper(),
             )
-            return None
+            return None, response.status_code
 
     def fetch(self, smiles: str) -> Mapping[str, object]:
         encoded = quote(smiles, safe="")
@@ -277,13 +310,28 @@ class _PubChemRequest:
         requested_properties = list(dict.fromkeys(self.properties))
         property_fields = [prop for prop in requested_properties if prop != "CID"]
         property_success = False
-        requested_cid = "CID" in self.properties
         if property_fields:
             url = (
                 f"{self.base_url.rstrip('/')}/compound/smiles/{encoded}/property/"
                 f"{','.join(property_fields)}/JSON"
             )
-            payload = self._get_json(url, smiles=smiles, context="properties")
+            payload, status = self._get_json(url, smiles=smiles, context="properties")
+            if payload is None and status == 400:
+                LOGGER.info(
+                    "Retrying PubChem properties request for %s using POST payload",
+                    smiles,
+                )
+                post_url = (
+                    f"{self.base_url.rstrip('/')}/compound/smiles/property/"
+                    f"{','.join(property_fields)}/JSON"
+                )
+                payload, _ = self._get_json(
+                    post_url,
+                    smiles=smiles,
+                    context="properties",
+                    method="post",
+                    data={"smiles": smiles},
+                )
             if payload is not None:
                 properties = payload.get("PropertyTable", {}).get("Properties", [])
                 if properties:
@@ -292,7 +340,6 @@ class _PubChemRequest:
                         results[prop] = _normalise_numeric(prop, record.get(prop))
                     property_success = True
 
-
         if "CID" in requested_properties and results.get("CID") is None:
             if not property_success:
                 LOGGER.debug(
@@ -300,7 +347,19 @@ class _PubChemRequest:
                     smiles,
                 )
             cid_url = f"{self.base_url.rstrip('/')}/compound/smiles/{encoded}/cids/JSON"
-            payload = self._get_json(cid_url, smiles=smiles, context="CID list")
+            payload, status = self._get_json(cid_url, smiles=smiles, context="CID list")
+            if payload is None and status == 400:
+                LOGGER.info(
+                    "Retrying PubChem CID lookup for %s using POST payload", smiles
+                )
+                cid_post_url = f"{self.base_url.rstrip('/')}/compound/smiles/cids/JSON"
+                payload, _ = self._get_json(
+                    cid_post_url,
+                    smiles=smiles,
+                    context="CID list",
+                    method="post",
+                    data={"smiles": smiles},
+                )
             if payload is not None:
                 identifiers = payload.get("IdentifierList", {}).get("CID", [])
                 if identifiers:

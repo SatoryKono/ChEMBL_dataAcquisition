@@ -1,11 +1,11 @@
+import json
+import sys
 from pathlib import Path
 from typing import Dict, Iterable
 
-import json
-import sys
-
 import pandas as pd
-
+import yaml
+ 
 sys.path.insert(0, str(Path("scripts")))
 from pipeline_targets_main import (
     add_iuphar_classification,
@@ -13,10 +13,12 @@ from pipeline_targets_main import (
     add_activity_fields,
     add_isoform_fields,
     add_uniprot_fields,
+    build_clients,
     extract_activity,
     extract_isoform,
     merge_chembl_fields,
 )
+from library.pipeline_targets import PipelineConfig
 
 
 def test_merge_chembl_fields_adds_columns():
@@ -211,3 +213,15 @@ def test_add_isoform_fields() -> None:
     assert row["isoform_names"] == "Isoform 1"
     assert row["isoform_ids"] == "P1-1"
     assert row["isoform_synonyms"] == "Alpha"
+
+
+def test_build_clients_infers_uniprot_fields() -> None:
+    pipeline_cfg = PipelineConfig()
+    uni_client, *_ = build_clients("config.yaml", pipeline_cfg)
+
+    config = yaml.safe_load(Path("config.yaml").read_text())
+    uniprot_columns = config["uniprot"]["columns"]
+    field_set = {field for field in uni_client.fields.split(",") if field}
+
+    assert set(uniprot_columns).issubset(field_set)
+

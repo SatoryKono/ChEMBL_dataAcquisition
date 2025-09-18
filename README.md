@@ -16,26 +16,64 @@ The primary goal of this project is to provide a deterministic and configurable 
 
 ## Requirements
 
-*   Python >= 3.10
-*   pandas >= 1.5
-*   requests >= 2.31
-*   PyYAML >= 6.0
-*   jsonschema >= 4.17
-*   tqdm >= 4.66
-*   tenacity >= 8.2
-*   pydantic >= 2.0
+The project targets Python 3.12. All runtime and development dependencies are
+pinned to guarantee reproducible environments. The tables below summarise the
+current versions tracked in [`constraints.txt`](constraints.txt), which is
+generated from [`requirements.lock`](requirements.lock).
 
-### Development Requirements
+### Runtime dependencies
 
-*   pytest >= 7.4
-*   requests-mock >= 1.11
-*   hypothesis >= 6.0
-*   black >= 23.0
-*   ruff >= 0.1
-*   mypy >= 1.4
-*   types-PyYAML >= 6.0.12
-*   types-requests >= 2.31.0.10
-*   types-jsonschema >= 4.17.0
+| Package        | Pinned version |
+| -------------- | -------------- |
+| pandas         | 2.3.2          |
+| requests       | 2.32.5         |
+| PyYAML         | 6.0.2          |
+| jsonschema     | 4.25.1         |
+| tqdm           | 4.67.1         |
+| tenacity       | 9.1.2          |
+| pydantic       | 2.11.9         |
+| requests-cache | 1.2.1          |
+
+### Development dependencies
+
+| Package         | Pinned version |
+| --------------- | -------------- |
+| pytest          | 8.4.2          |
+| requests-mock   | 1.12.1         |
+| hypothesis      | 6.138.17       |
+| black           | 25.1.0         |
+| ruff            | 0.13.0         |
+| mypy            | 1.18.1         |
+| pandas-stubs    | 2.3.2.250827   |
+| types-PyYAML    | 6.0.12.20250915 |
+| types-requests  | 2.32.4.20250913 |
+| types-jsonschema| 4.25.1.20250822 |
+
+To refresh these pins run `pip-compile` to update `requirements.lock` and then
+execute `python scripts/update_constraints_main.py`. The script rewrites
+`constraints.txt` based on the lock file and fails the CI workflow if the files
+fall out of sync.
+
+## Installation
+
+1.  Create and activate a virtual environment:
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate  # On Windows, use `.venv\Scripts\activate`
+    ```
+
+2.  Upgrade ``pip`` and install the project with the pinned dependencies:
+    ```bash
+    python -m pip install --upgrade pip
+    pip install --constraint constraints.txt .[dev]
+    ```
+    Omit ``.[dev]`` if you only need the runtime dependencies.
+
+3.  Install the pre-commit hooks to ensure consistent formatting, linting, type
+    checking, and tests before each commit:
+    ```bash
+    pre-commit install
+    ```
 
 ## Testing
 
@@ -70,25 +108,6 @@ Alternatively, execute all checks in one go with:
 ```bash
 pre-commit run --all-files
 ```
-
-## Installation
-
-1.  Create and activate a virtual environment:
-    ```bash
-    python -m venv .venv
-    source .venv/bin/activate  # On Windows, use `.venv\Scripts\activate`
-    ```
-
-2.  Install the project in editable mode with development dependencies:
-    ```bash
-    pip install -e .[dev]
-    ```
-
-3.  Install the pre-commit hooks to ensure consistent formatting, linting, type
-    checking, and tests before each commit:
-    ```bash
-    pre-commit install
-    ```
 
 ## Project Structure
 

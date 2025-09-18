@@ -22,6 +22,8 @@ if __package__ in {None, ""}:
 
     _ensure_project_root()
 
+from pipeline_targets_main import _resolve_uniprot_fields
+
 if TYPE_CHECKING:  # pragma: no cover - imported for typing only
     from library.orthologs import EnsemblHomologyClient, OmaClient
     from library.uniprot_normalize import Isoform
@@ -174,9 +176,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     client = UniProtClient(
         base_url=uniprot_cfg.get("base_url", "https://rest.uniprot.org/uniprotkb"),
-        fields=(
-            ",".join(uniprot_cfg.get("fields", [])) if uniprot_cfg.get("fields") else ""
-        ),
+        fields=_resolve_uniprot_fields(uniprot_cfg),
         network=NetworkConfig(
             timeout_sec=uniprot_cfg.get("timeout_sec", 30),
             max_retries=uniprot_cfg.get("retries", 3),

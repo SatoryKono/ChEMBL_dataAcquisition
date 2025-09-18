@@ -7,7 +7,8 @@ import logging
 import sys
 from pathlib import Path
 
-from typing import Any, Callable, Dict, Iterable, List, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Any, Callable, Dict, List
 
 import pandas as pd
 import requests
@@ -100,6 +101,87 @@ def merge_chembl_fields(
             how="left",
         )
     return pipeline_df
+
+
+def _normalise_field_names(value: Any, *, source: str) -> list[str]:
+    """Return ``value`` as a list of stripped field names.
+
+    Parameters
+    ----------
+    value:
+        Configuration value representing UniProt field names.
+    source:
+        Human-readable label used in error messages to indicate the origin of
+        the data.
+
+    Returns
+    -------
+    list[str]
+        Field names stripped of surrounding whitespace. Empty strings are
+        discarded to avoid passing blank field names to the UniProt API.
+
+    Raises
+    ------
+    TypeError
+        If ``value`` is neither a string nor an iterable of strings.
+    """
+
+    if value is None:
+        return []
+    if isinstance(value, str):
+        candidate = value.strip()
+        return [candidate] if candidate else []
+    if isinstance(value, Mapping):
+        msg = f"Expected '{source}' to be a sequence of strings, not a mapping"
+        raise TypeError(msg)
+    if not isinstance(value, Iterable):
+        msg = f"Expected '{source}' to be a string or iterable of strings"
+        raise TypeError(msg)
+    names: list[str] = []
+    for entry in value:
+        if entry is None:
+            continue
+        if not isinstance(entry, str):
+            msg = (
+                f"Expected all values in '{source}' to be strings, received "
+                f"{type(entry).__name__}"
+            )
+            raise TypeError(msg)
+        candidate = entry.strip()
+        if candidate:
+            names.append(candidate)
+    return names
+
+
+def _resolve_uniprot_fields(uni_cfg: Mapping[str, Any]) -> str:
+    """Return the UniProt ``fields`` parameter derived from ``uni_cfg``.
+
+    The configuration may specify the desired UniProt fields explicitly via the
+    ``fields`` key. When omitted, the helper falls back to the ``columns``
+    configuration so existing deployments that only list output columns continue
+    to function without modification.
+
+    Parameters
+    ----------
+    uni_cfg:
+        Mapping containing UniProt configuration options loaded from the YAML
+        file.
+
+    Returns
+    -------
+    str
+        Comma separated string suitable for the UniProt REST API ``fields``
+        parameter. The string is empty when neither ``fields`` nor ``columns``
+        are configured.
+    """
+
+    field_names = _normalise_field_names(uni_cfg.get("fields"), source="uniprot.fields")
+    if field_names:
+        return ",".join(field_names)
+    column_names = _normalise_field_names(
+        uni_cfg.get("columns"), source="uniprot.columns"
+    )
+    return ",".join(column_names)
 
 
 def add_iuphar_classification(
@@ -557,11 +639,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--sep", default=",")
     parser.add_argument("--encoding", default="utf-8-sig")
-    parser.add_argument("--list-format", default="json")
-    parser.add_argument("--species", default="Human")
+    parser.add_argument("--list-format", default=None)
+    parser.add_argument("--species", default=None)
     parser.add_argument("--affinity-parameter", default="pKi")
-    parser.add_argument("--approved-only", default="false")
-    parser.add_argument("--primary-target-only", default="true")
+    parser.add_argument("--approved-only", default=None)
+    parser.add_argument("--primary-target-only", default=None)
     parser.add_argument("--with-isoforms", action="store_true")
     parser.add_argument("--with-orthologs", action="store_true")
     parser.add_argument("--iuphar-target", help="Path to _IUPHAR_target.csv")
@@ -613,7 +695,7 @@ def build_clients(
         data = yaml.safe_load(fh) or {}
     global_cache = default_cache or CacheConfig.from_dict(data.get("http_cache"))
     uni_cfg = data["uniprot"]
-    fields = ",".join(uni_cfg.get("fields", []))
+    fields = _resolve_uniprot_fields(uni_cfg)
     uni_cache = CacheConfig.from_dict(uni_cfg.get("cache")) or global_cache
     uni = UniProtClient(
         base_url=uni_cfg["base_url"],
@@ -684,17 +766,22 @@ def main() -> None:
     args = parse_args()
     configure_logging(args.log_level, log_format=args.log_format)
     pipeline_cfg = load_pipeline_config(args.config)
-    pipeline_cfg.list_format = args.list_format
-    pipeline_cfg.species_priority = [args.species]
+    if args.list_format is not None:
+        pipeline_cfg.list_format = args.list_format
+    if args.species is not None:
+        pipeline_cfg.species_priority = [args.species]
     pipeline_cfg.iuphar.affinity_parameter = args.affinity_parameter
-    pipeline_cfg.iuphar.approved_only = (
-        None
-        if args.approved_only.lower() == "null"
-        else args.approved_only.lower() == "true"
-    )
-    pipeline_cfg.iuphar.primary_target_only = args.primary_target_only.lower() == "true"
-    use_isoforms = args.with_isoforms
-    pipeline_cfg.include_isoforms = False
+    if args.approved_only is not None:
+        approved_only = args.approved_only.lower()
+        pipeline_cfg.iuphar.approved_only = (
+            None if approved_only == "null" else approved_only == "true"
+        )
+    if args.primary_target_only is not None:
+        pipeline_cfg.iuphar.primary_target_only = (
+            args.primary_target_only.lower() == "true"
+        )
+    pipeline_cfg.include_isoforms = pipeline_cfg.include_isoforms or args.with_isoforms
+    use_isoforms = pipeline_cfg.include_isoforms
 
     # Load optional ChEMBL column configuration and ensure required fields
     with open(args.config, "r", encoding="utf-8") as fh:
@@ -836,7 +923,9 @@ def main() -> None:
         out_df = out_df.sort_values(sort_columns).reset_index(drop=True)
 
     output_path = ensure_output_dir(Path(args.output).expanduser().resolve())
-    serialised_df = serialise_dataframe(out_df, list_format=args.list_format)
+    serialised_df = serialise_dataframe(
+        out_df, list_format=pipeline_cfg.list_format
+    )
     serialised_df.to_csv(
         output_path,
         index=False,
