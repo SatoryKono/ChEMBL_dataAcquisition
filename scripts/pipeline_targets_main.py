@@ -859,7 +859,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--sep", default=",")
     parser.add_argument("--encoding", default="utf-8-sig")
-    parser.add_argument("--list-format", default=None)
+    parser.add_argument(
+        "--list-format",
+        default=None,
+        choices=("json", "pipe"),
+        help="Serialisation format for list-like fields (json or pipe)",
+    )
     parser.add_argument("--species", default=None)
     parser.add_argument("--affinity-parameter", default="pKi")
     parser.add_argument("--approved-only", default=None)
@@ -1116,7 +1121,9 @@ def main() -> None:
     ids: List[str] = list(unique_ids)
 
     # Fetch comprehensive ChEMBL data once and reuse it in the pipeline
-    chembl_df = fetch_targets(ids, chembl_cfg, batch_size=args.batch_size)
+    chembl_df: pd.DataFrame = fetch_targets(
+        ids, chembl_cfg, batch_size=args.batch_size
+    )
 
     def _cached_chembl_fetch(
         _: Sequence[str], __: TargetConfig

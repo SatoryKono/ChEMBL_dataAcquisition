@@ -696,3 +696,38 @@ uniprot_enrich: null
 
     assert captured["with_orthologs"] is False
     assert "target_chembl_id" in captured["chembl_columns"]
+
+
+def test_pipeline_targets_cli_rejects_invalid_list_format(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Invalid list format choices should result in a clear CLI error."""
+
+    module: Any = importlib.import_module("scripts.pipeline_targets_main")
+
+    input_csv = tmp_path / "input.csv"
+    input_csv.write_text("target_chembl_id\nCHEMBL1\n", encoding="utf-8")
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("{}\n", encoding="utf-8")
+
+    argv = [
+        "pipeline_targets_main",
+        "--input",
+        str(input_csv),
+        "--output",
+        str(tmp_path / "targets.csv"),
+        "--config",
+        str(config_path),
+        "--list-format",
+        "yaml",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit) as exc:
+        module.main()
+
+    assert exc.value.code != 0
+    stderr = capsys.readouterr().err
+    assert "invalid choice" in stderr
+    assert "json" in stderr and "pipe" in stderr
