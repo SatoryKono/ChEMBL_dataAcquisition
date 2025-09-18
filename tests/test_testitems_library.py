@@ -142,6 +142,33 @@ def test_add_pubchem_data_handles_network_errors(
     assert pd.isna(enriched.loc[0, "pubchem_cid"])
 
 
+def test_add_pubchem_data_fetches_cid_after_property_failure(
+    requests_mock: requests_mock_lib.Mocker,
+) -> None:
+    df = pd.DataFrame(
+        [
+            {"molecule_chembl_id": "CHEMBL1", "canonical_smiles": "C"},
+        ]
+    )
+
+    requests_mock.get(
+        f"{PUBCHEM_BASE_URL}/compound/smiles/C/property/"
+        "CID,MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
+        status_code=500,
+        json={"Fault": "error"},
+    )
+    requests_mock.get(
+        f"{PUBCHEM_BASE_URL}/compound/smiles/C/cids/JSON",
+        json={"IdentifierList": {"CID": [123]}},
+    )
+
+    enriched = add_pubchem_data(df, http_client_config={"max_retries": 1, "rps": 0.0})
+
+    assert requests_mock.call_count == 2
+    assert enriched.loc[0, "pubchem_cid"] == 123
+    assert pd.isna(enriched.loc[0, "pubchem_molecular_formula"])
+
+
 def test_add_pubchem_data_handles_missing_smiles() -> None:
     df = pd.DataFrame([{"molecule_chembl_id": "CHEMBL1"}])
     result = add_pubchem_data(df)
