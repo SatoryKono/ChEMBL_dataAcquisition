@@ -34,6 +34,7 @@ def _make_args(
     )
 
 
+
 def test_read_identifier_column_detects_separator(tmp_path: Path) -> None:
     """_read_identifier_column should retry with an inferred separator."""
 
@@ -204,6 +205,7 @@ def test_run_openalex_command_exports_openalex_only(
     assert df.loc[0, "crossref.Subtype"] == "clinical-trial"
     assert df.loc[0, "crossref.Subtitle"] == "Part A|Part B"
     assert df.loc[0, "crossref.Subject"] == "Biology|Chemistry"
+
 
 
 def test_run_crossref_command_exports_crossref_only(

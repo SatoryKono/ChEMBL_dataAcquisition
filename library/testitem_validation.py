@@ -69,8 +69,7 @@ class TestitemsSchema(BaseModel):
                 int_value = int(float(stripped))
             except ValueError as exc:  # pragma: no cover - defensive branch
                 raise ValueError("max_phase must be an integer") from exc
-            if int_value < 0:
-                raise ValueError("max_phase must be non-negative")
+
             return int_value
         try:
             int_value = int(value)
