@@ -30,10 +30,7 @@ from library.uniprot_client import (
 )
 from library.orthologs import EnsemblHomologyClient, OmaClient
 from library.http_client import CacheConfig
-from library.uniprot_enrich.enrich import (
-    UniProtClient as UniProtEnrichClient,
-    _collect_ec_numbers,
-)
+from library.uniprot_enrich.enrich import UniProtEnrichClient, _collect_ec_numbers
 from library.logging_utils import configure_logging
 
 from library.cli_common import (
@@ -266,7 +263,7 @@ def add_uniprot_fields(
     fetch_all:
         Callable returning a mapping from UniProt accession to a dictionary of
         annotation fields. Typically this is
-        :meth:`library.uniprot_enrich.enrich.UniProtClient.fetch_all`.
+        :meth:`library.uniprot_enrich.enrich.UniProtEnrichClient.fetch_all`.
 
     Returns
     -------
