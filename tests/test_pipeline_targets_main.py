@@ -90,7 +90,20 @@ def test_add_protein_classification_fetches_once() -> None:
         calls.append(collected)
         return {acc: samples["gpcr"] for acc in collected}
 
-    df = pd.DataFrame({"uniprot_id_primary": ["P00000", "", "P00000"]})
+    df = pd.DataFrame(
+        {
+            "uniprot_id_primary": [
+                "P00000",
+                "",
+                None,
+                float("nan"),
+                "nan",
+                "None",
+                "  ",
+                "P00000",
+            ]
+        }
+    )
     add_protein_classification(df, fetcher)
     assert len(calls) == 1
     assert calls[0] == ["P00000"]
@@ -307,3 +320,25 @@ def test_parse_args_with_orthologs_flag(
     )
     args_without_flag = parse_args()
     assert args_without_flag.with_orthologs is False
+
+
+def test_parse_args_rejects_non_positive_batch_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "pipeline_targets_main",
+            "--input",
+            "input.csv",
+            "--output",
+            "output.csv",
+            "--batch-size",
+            "0",
+        ],
+    )
+    with pytest.raises(SystemExit):
+        parse_args()
+
+
