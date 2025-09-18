@@ -6,6 +6,7 @@ import re
 
 import pandas as pd
 import requests_mock
+import yaml
 
 from uniprot_normalize import (
     extract_isoforms,
@@ -61,10 +62,9 @@ def test_cli_writes_output(tmp_path: Path) -> None:
 
     inp = tmp_path / "inp.csv"
     inp.write_text("uniprot_id\nP12345\np12345\nP00000\n")
-    out = tmp_path / "out.csv"
+    out = tmp_path / "nested" / "out.csv"
 
     sample = _load_sample()
-    iso_out = tmp_path / "iso.csv"
     with requests_mock.Mocker() as m:
         m.get(
             "https://rest.uniprot.org/uniprotkb/P12345.json",
@@ -87,10 +87,13 @@ def test_cli_writes_output(tmp_path: Path) -> None:
                 str(inp),
                 "--output",
                 str(out),
-                "--isoforms-output",
-                str(iso_out),
             ]
         )
+    iso_out = out.with_name(f"{out.stem}_isoforms.csv")
+    meta_path = out.with_suffix(f"{out.suffix}.meta.yaml")
+    assert out.exists()
+    assert iso_out.exists()
+    assert meta_path.exists()
     df = (
         pd.read_csv(out, dtype=str)
         .fillna("")
@@ -109,3 +112,7 @@ def test_cli_writes_output(tmp_path: Path) -> None:
         "is_canonical",
     ]
     assert len(iso_df) == 2
+    metadata = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
+    assert metadata["rows"] == 2
+    assert metadata["columns"] == len(cols)
+    assert metadata["config"]["input"] == str(inp)
