@@ -181,7 +181,20 @@ def _normalise_doi(doi: str | None) -> str | None:
 
 @dataclass
 class OpenAlexRecord:
-    """Container for an OpenAlex work."""
+    """A container for an OpenAlex work.
+
+    Attributes:
+        pmid: The PubMed ID of the work.
+        doi: The DOI of the work.
+        publication_types: A list of publication types for the work.
+        type_crossref: The Crossref type of the work.
+        genre: The genre of the work.
+        venue: The venue where the work was published.
+        mesh_descriptors: A list of MeSH descriptors for the work.
+        mesh_qualifiers: A list of MeSH qualifiers for the work.
+        work_id: The OpenAlex ID of the work.
+        error: An error message if the request failed.
+    """
 
     pmid: str
     doi: str | None
@@ -195,7 +208,11 @@ class OpenAlexRecord:
     error: str | None = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Return a serialisable representation of the record."""
+        """Returns a serializable representation of the record.
+
+        Returns:
+            A dictionary containing the record's data.
+        """
 
         return {
             "OpenAlex.PMID": self.pmid,
@@ -249,7 +266,15 @@ def fetch_openalex_records(
     *,
     client: HttpClient,
 ) -> List[OpenAlexRecord]:
-    """Fetch metadata from OpenAlex for a sequence of PMIDs."""
+    """Fetches metadata from OpenAlex for a sequence of PMIDs.
+
+    Args:
+        pmids: A sequence of PubMed IDs to fetch.
+        client: An HttpClient instance.
+
+    Returns:
+        A list of OpenAlexRecord objects.
+    """
 
     cleaned = [pid for pid in (p.strip() for p in pmids) if pid]
     if not cleaned:

@@ -155,7 +155,14 @@ def _coerce_property_value(value: Any) -> Any:
 
 
 def normalize_testitems(df: pd.DataFrame) -> pd.DataFrame:
-    """Return a normalised copy of ``df`` with flattened molecule metadata."""
+    """Returns a normalized copy of the DataFrame with flattened molecule metadata.
+
+    Args:
+        df: The pandas DataFrame to normalize.
+
+    Returns:
+        A new DataFrame with normalized data.
+    """
 
     if df.empty:
         return df

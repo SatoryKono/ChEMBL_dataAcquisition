@@ -76,11 +76,11 @@ def _default_output(input_path: Path) -> Path:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Run the UniProt target data retrieval workflow.
+    """Runs the UniProt target data retrieval workflow.
 
     Args:
-        argv: Optional sequence of command-line arguments. When ``None``,
-            the arguments provided via the command line are used implicitly.
+        argv: An optional sequence of command-line arguments. If None, the
+            arguments are taken from `sys.argv`.
     """
 
     from library.http_client import CacheConfig

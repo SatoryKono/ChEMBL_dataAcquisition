@@ -41,7 +41,11 @@ def _load_config(path: Path) -> Dict[str, Any]:
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
+    """Parses command-line arguments.
+
+    Returns:
+        An `argparse.Namespace` object containing the parsed arguments.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, help="Path to input CSV file")
     parser.add_argument(
@@ -85,7 +89,15 @@ def parse_args() -> argparse.Namespace:
 
 
 def read_ids(path: Path, column: str) -> list[str]:
-    """Read and normalize a list of identifiers from a CSV file."""
+    """Reads and normalizes a list of identifiers from a CSV file.
+
+    Args:
+        path: The path to the CSV file.
+        column: The name of the column containing the identifiers.
+
+    Returns:
+        A list of normalized identifiers.
+    """
     df = pd.read_csv(path)
     if column not in df.columns:
         raise ValueError(f"Column {column} not found in input")
@@ -101,7 +113,7 @@ def read_ids(path: Path, column: str) -> list[str]:
 
 
 def main() -> None:
-    """Main entry point for the script."""
+    """The main entry point for the script."""
     args = parse_args()
     configure_logging(args.log_level, log_format=args.log_format)
     cfg_dict = _load_config(Path(args.config))

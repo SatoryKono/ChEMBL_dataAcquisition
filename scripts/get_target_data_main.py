@@ -22,13 +22,11 @@ DEFAULT_LOG_FORMAT = "human"
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Parse command-line arguments and run the target data download.
+    """Parses command-line arguments and runs the target data download.
 
-    Parameters
-    ----------
-    argv:
-        Optional list of command line arguments. When ``None`` the CLI values
-        provided by the user are used.
+    Args:
+        argv: An optional list of command-line arguments. If None, the
+            arguments are taken from `sys.argv`.
     """
     parser = argparse.ArgumentParser(description="Download ChEMBL target data")
     parser.add_argument("--input", required=True, help="Input CSV file")

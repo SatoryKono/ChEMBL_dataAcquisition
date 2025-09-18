@@ -79,7 +79,17 @@ def _normalise_subject(subject: Any) -> List[str]:
 
 @dataclass
 class CrossrefRecord:
-    """Container for a Crossref work."""
+    """A container for a Crossref work.
+
+    Attributes:
+        doi: The DOI of the work.
+        type: The type of the work (e.g., 'journal-article').
+        subtype: The subtype of the work (e.g., 'research-article').
+        title: The title of the work.
+        subtitle: The subtitle of the work.
+        subject: A list of subjects associated with the work.
+        error: An error message if the request failed.
+    """
 
     doi: str
     type: str | None
@@ -90,7 +100,11 @@ class CrossrefRecord:
     error: str | None = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Return a serialisable representation of the record."""
+        """Returns a serializable representation of the record.
+
+        Returns:
+            A dictionary containing the record's data.
+        """
 
         return {
             "crossref.DOI": self.doi,
@@ -120,7 +134,15 @@ def fetch_crossref_records(
     *,
     client: HttpClient,
 ) -> List[CrossrefRecord]:
-    """Fetch metadata from Crossref for a sequence of DOIs."""
+    """Fetches metadata from Crossref for a sequence of DOIs.
+
+    Args:
+        dois: A sequence of DOIs to fetch.
+        client: An HttpClient instance.
+
+    Returns:
+        A list of CrossrefRecord objects.
+    """
 
     cleaned = [doi.strip() for doi in dois if doi and doi.strip()]
     if not cleaned:

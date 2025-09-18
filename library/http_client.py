@@ -314,36 +314,26 @@ class RateLimiter:
 
 
 class HttpClient:
-    """Обёртка вокруг :mod:`requests` с поддержкой повторов, кэширования и ограничения скорости.
+    """A wrapper around :mod:`requests` with support for retries, caching, and rate limiting.
 
-    Parameters
-    ----------
-    timeout:
-        Таймаут по умолчанию для запросов. Может быть либо одним числом
-        (float), применяемым к фазам соединения и чтения, либо кортежем
-        ``(connect, read)``.
-    max_retries:
-        Максимальное количество попыток при временных ошибках.
-    rps:
-        Целевое количество запросов в секунду, реализуемое через простой token bucket.
-    status_forcelist:
-        Коды HTTP-статусов, при которых будет выполняться повтор запроса. По
-        умолчанию используется ``DEFAULT_STATUS_FORCELIST``, исключающая
-        ``404 Not Found``. Чтобы расширить стандартный набор, передайте
-        собственный итератор, например ``DEFAULT_STATUS_FORCELIST | {404}``
-        для повторов ответов ``404`` в специфичных сценариях (например, при
-        работе с нестабильными индексами).
-    backoff_multiplier:
-        Множитель для экспоненциальной задержки между попытками.
-    retry_penalty_seconds:
-        Дополнительная задержка для будущих запросов после получения ответа
-        ``429 Too Many Requests``, если сервер не указал ``Retry-After``.
-    cache_config:
-        Необязательная конфигурация кэширования HTTP-запросов.
-    session:
-        Необязательный :class:`requests.Session`, позволяющий использовать
-        заранее сконфигурированную сессию (например, с кэшем или кастомными
-        заголовками).
+    Args:
+        timeout: Default request timeout. Can be either a single float
+            applied to the connect and read phases, or a tuple of
+            ``(connect, read)`` timeouts.
+        max_retries: Maximum number of retries for transient errors.
+        rps: Target requests per second, implemented via a simple token bucket.
+        status_forcelist: HTTP status codes that trigger a retry. Defaults to
+            ``DEFAULT_STATUS_FORCELIST``, which excludes ``404 Not Found``.
+            To extend the default set, pass a custom iterator, e.g.,
+            ``DEFAULT_STATUS_FORCELIST | {404}`` to retry ``404`` responses
+            in specific scenarios (e.g., when dealing with unstable indexes).
+        backoff_multiplier: Multiplier for the exponential backoff delay between retries.
+        retry_penalty_seconds: Additional delay for future requests after receiving a
+            ``429 Too Many Requests`` response, if the server did not provide a
+            ``Retry-After`` header.
+        cache_config: Optional configuration for HTTP request caching.
+        session: Optional :class:`requests.Session` to use, allowing for a
+            pre-configured session (e.g., with caching or custom headers).
     """
 
     def __init__(

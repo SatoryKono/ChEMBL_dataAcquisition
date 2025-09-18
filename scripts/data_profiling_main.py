@@ -24,7 +24,11 @@ DEFAULT_LOG_FORMAT = "human"
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Run the profiling utility on a CSV file."""
+    """Runs the profiling utility on a CSV file.
+
+    Args:
+        argv: A sequence of command-line arguments. If None, `sys.argv` is used.
+    """
 
     parser = argparse.ArgumentParser(
         description="Generate quality and correlation reports for a table",

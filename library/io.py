@@ -30,29 +30,20 @@ LOGGER = logging.getLogger(__name__)
 def read_ids(
     path: Path, column: str, cfg: CsvConfig, *, limit: int | None = None
 ) -> Iterator[str]:
-    """Yield unique identifiers from ``column`` of ``path`` lazily.
+    """Yields unique identifiers from a specified column of a CSV file lazily.
 
-    Parameters
-    ----------
-    path:
-        Path to the CSV file containing identifiers.
-    column:
-        Name of the column holding the identifiers of interest.
-    cfg:
-        CSV configuration specifying delimiter and encoding.
-    limit:
-        Optional maximum number of **unique** identifiers to yield. ``None``
-        disables limiting and streams the entire file.
+    Args:
+        path: The path to the CSV file containing the identifiers.
+        column: The name of the column holding the identifiers of interest.
+        cfg: The CSV configuration, specifying the delimiter and encoding.
+        limit: An optional maximum number of unique identifiers to yield. If None,
+            the entire file is streamed.
 
-    Yields
-    ------
-    str
+    Yields:
         Upper-case identifier values with surrounding whitespace removed.
 
-    Raises
-    ------
-    KeyError
-        If ``column`` is missing from the CSV header.
+    Raises:
+        KeyError: If the specified column is missing from the CSV header.
     """
 
     LOGGER.debug("Reading identifiers from %s (column=%s)", path, column)

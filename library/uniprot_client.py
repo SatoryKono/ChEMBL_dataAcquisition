@@ -80,23 +80,16 @@ class RateLimitConfig:
 
 @dataclass
 class UniProtClient:
-    """Thin wrapper around the UniProtKB REST API.
+    """A thin wrapper around the UniProtKB REST API.
 
-    Attributes
-    ----------
-    base_url:
-        Base endpoint for UniProt API requests.
-    fields:
-        Comma-separated list of fields requested from the search endpoint.
-    network:
-        Network configuration controlling timeouts and retries.
-    rate_limit:
-        Rate limiting configuration applied before each request.
-    cache:
-        Optional HTTP cache configuration applied to outbound requests.
-    session:
-        Optional :class:`requests.Session` instance. When ``None`` the client
-        creates a session honouring ``cache`` automatically.
+    Attributes:
+        base_url: Base endpoint for UniProt API requests.
+        fields: Comma-separated list of fields requested from the search endpoint.
+        network: Network configuration controlling timeouts and retries.
+        rate_limit: Rate limiting configuration applied before each request.
+        cache: Optional HTTP cache configuration applied to outbound requests.
+        session: Optional :class:`requests.Session` instance. When ``None``, the client
+            creates a session that honors the ``cache`` configuration.
     """
 
     base_url: str

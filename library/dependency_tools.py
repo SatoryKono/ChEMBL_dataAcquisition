@@ -16,22 +16,17 @@ __all__ = ["synchronize_constraints", "extract_constraints"]
 
 
 def extract_constraints(lines: Iterable[str]) -> List[str]:
-    """Extract pinned package requirements from a lock file.
+    """Extracts pinned package requirements from a lock file.
 
-    Parameters
-    ----------
-    lines:
-        The raw lines read from the lock file.
+    Args:
+        lines: The raw lines read from the lock file.
 
-    Returns
-    -------
-    List[str]
-        Ordered list of pinned requirements suitable for ``constraints.txt``.
+    Returns:
+        An ordered list of pinned requirements suitable for a `constraints.txt` file.
 
-    Notes
-    -----
-    Comment lines, editable installs (``-e`` entries), and blank lines are
-    discarded. The original order is preserved to ease diff reviews.
+    Notes:
+        Comment lines, editable installs (`-e` entries), and blank lines are
+        discarded. The original order is preserved to ease diff reviews.
     """
 
     pinned: List[str] = []
@@ -49,21 +44,16 @@ def extract_constraints(lines: Iterable[str]) -> List[str]:
 
 
 def synchronize_constraints(lock_path: Path, constraints_path: Path) -> None:
-    """Synchronise ``constraints.txt`` with ``requirements.lock``.
+    """Synchronizes a `constraints.txt` file with a `requirements.lock` file.
 
-    Parameters
-    ----------
-    lock_path:
-        Path to the fully resolved lock file containing pinned dependencies.
-    constraints_path:
-        Destination path for the trimmed constraints file.
+    Args:
+        lock_path: The path to the fully resolved lock file containing pinned
+            dependencies.
+        constraints_path: The destination path for the trimmed constraints file.
 
-    Raises
-    ------
-    FileNotFoundError
-        Raised when ``lock_path`` does not exist.
-    OSError
-        Propagated if writing to ``constraints_path`` fails.
+    Raises:
+        FileNotFoundError: If the `lock_path` does not exist.
+        OSError: If writing to the `constraints_path` fails.
     """
 
     LOGGER.debug("Reading lock file from %s", lock_path)

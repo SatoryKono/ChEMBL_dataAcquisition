@@ -116,23 +116,19 @@ def merge_metadata(
     max_workers: int = 1,
     progress_callback: Callable[[int], None] | None = None,
 ) -> List[Dict[str, Any]]:
-    """Merge per-source metadata into row dictionaries suitable for CSV output.
+    """Merges per-source metadata into row dictionaries suitable for CSV output.
 
-    Parameters
-    ----------
-    pubmed_records:
-        PubMed records to merge with partner data sources.
-    scholar_records:
-        Records returned from the Semantic Scholar API.
-    openalex_records:
-        Records returned from the OpenAlex API.
-    crossref_records:
-        Records returned from the Crossref API.
-    max_workers:
-        Maximum number of worker threads used when building merged rows.
-    progress_callback:
-        Optional callable invoked with the number of processed records after
-        each merge step. Designed for progress bar integrations.
+    Args:
+        pubmed_records: A sequence of PubMed records to merge with partner data sources.
+        scholar_records: A sequence of records returned from the Semantic Scholar API.
+        openalex_records: A sequence of records returned from the OpenAlex API.
+        crossref_records: A sequence of records returned from the Crossref API.
+        max_workers: The maximum number of worker threads to use when building merged rows.
+        progress_callback: An optional callable invoked with the number of processed
+            records after each merge step, designed for progress bar integrations.
+
+    Returns:
+        A list of dictionaries, where each dictionary represents a merged row.
     """
 
     scholar_map = {rec.pmid: rec for rec in scholar_records}

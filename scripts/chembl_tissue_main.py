@@ -242,7 +242,14 @@ def _write_output(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Program entry point returning an exit status code."""
+    """The main entry point for the script.
+
+    Args:
+        argv: A sequence of command-line arguments. If None, `sys.argv` is used.
+
+    Returns:
+        An exit code, 0 for success and 1 for failure.
+    """
 
     parser = _build_parser()
     args = parser.parse_args(argv)

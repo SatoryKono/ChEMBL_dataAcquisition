@@ -56,7 +56,32 @@ def _extract_date(node: ET.Element | None) -> Tuple[str | None, str | None, str 
 
 @dataclass
 class PubMedRecord:
-    """Container for a parsed PubMed article."""
+    """A container for a parsed PubMed article.
+
+    Attributes:
+        pmid: The PubMed ID of the article.
+        doi: The DOI of the article.
+        title: The title of the article.
+        abstract: The abstract of the article.
+        journal: The title of the journal.
+        journal_abbrev: The ISO abbreviation of the journal.
+        volume: The volume of the journal.
+        issue: The issue of the journal.
+        start_page: The starting page of the article.
+        end_page: The ending page of the article.
+        issn: The ISSN of the journal.
+        publication_types: A list of publication types for the article.
+        mesh_descriptors: A list of MeSH descriptors for the article.
+        mesh_qualifiers: A list of MeSH qualifiers for the article.
+        chemical_list: A list of chemicals mentioned in the article.
+        year_completed: The year the record was completed.
+        month_completed: The month the record was completed.
+        day_completed: The day the record was completed.
+        year_revised: The year the record was revised.
+        month_revised: The month the record was revised.
+        day_revised: The day the record was revised.
+        error: An error message if the request failed.
+    """
 
     pmid: str
     doi: str | None
@@ -82,7 +107,11 @@ class PubMedRecord:
     error: str | None = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Return a serialisable representation of the record."""
+        """Returns a serializable representation of the record.
+
+        Returns:
+            A dictionary containing the record's data.
+        """
 
         return {
             "PubMed.PMID": self.pmid,
@@ -254,22 +283,16 @@ def fetch_pubmed_records(
     client: HttpClient,
     batch_size: int = 100,
 ) -> List[PubMedRecord]:
-    """Fetch multiple PubMed records.
+    """Fetches multiple PubMed records.
 
-    Parameters
-    ----------
-    pmids:
-        Sequence of PubMed identifiers to download.
-    client:
-        :class:`HttpClient` instance used for HTTP requests.
-    batch_size:
-        Maximum number of records to request in a single API call.
+    Args:
+        pmids: A sequence of PubMed identifiers to download.
+        client: An HttpClient instance used for HTTP requests.
+        batch_size: The maximum number of records to request in a single API call.
 
-    Returns
-    -------
-    list of :class:`PubMedRecord`
-        Parsed records in the same order as the input identifiers. Any failure
-        is represented by a record whose ``error`` attribute is populated.
+    Returns:
+        A list of PubMedRecord objects, with failed requests represented by
+        records with the `error` attribute populated.
     """
 
     cleaned = [pid for pid in (p.strip() for p in pmids) if pid]
@@ -399,21 +422,16 @@ def score_publication_types(
 def classify_publication(
     publication_types: Iterable[str], *, source: str | None = None
 ) -> str:
-    """Classify a publication into broad categories.
+    """Classifies a publication into broad categories.
 
-    Parameters
-    ----------
-    publication_types:
-        Iterable of publication type strings from one or more sources.
-    source:
-        Optional origin of the types (``"pubmed"``, ``"scholar"`` or
-        ``"openalex"``). When provided it is used to weight evidence during
-        aggregation, otherwise all terms contribute equally.
+    Args:
+        publication_types: An iterable of publication type strings from one or more sources.
+        source: Optional origin of the types ("pubmed", "scholar", or "openalex").
+            When provided, it is used to weight evidence during aggregation;
+            otherwise, all terms contribute equally.
 
-    Returns
-    -------
-    str
-        One of ``{"review", "experimental", "unknown"}``.
+    Returns:
+        One of "review", "experimental", or "unknown".
     """
 
     review_score, experimental_score, _ = score_publication_types(

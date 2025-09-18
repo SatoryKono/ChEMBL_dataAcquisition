@@ -15,7 +15,14 @@ _LOG_LEVELS = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """Parse command-line arguments for the synchronisation tool."""
+    """Parses command-line arguments for the synchronization tool.
+
+    Args:
+        argv: A sequence of command-line arguments. If None, `sys.argv` is used.
+
+    Returns:
+        An `argparse.Namespace` object containing the parsed arguments.
+    """
 
     parser = argparse.ArgumentParser(
         description=(
@@ -45,7 +52,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def configure_logging(level: str) -> None:
-    """Configure the logging framework for the CLI."""
+    """Configures the logging framework for the CLI.
+
+    Args:
+        level: The logging level to set.
+    """
 
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
@@ -54,7 +65,11 @@ def configure_logging(level: str) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Entry point for the constraints synchronisation CLI."""
+    """The entry point for the constraints synchronization CLI.
+
+    Args:
+        argv: A sequence of command-line arguments. If None, `sys.argv` is used.
+    """
 
     args = parse_args(argv)
     configure_logging(args.log_level)

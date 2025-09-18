@@ -17,12 +17,13 @@ import pandas as pd
 
 
 def normalise_targets(items: Iterable[Dict[str, Any]]) -> pd.DataFrame:
-    """Return a DataFrame with a single row per target.
+    """Returns a DataFrame with a single row per target.
 
-    Parameters
-    ----------
-    items:
-        Iterable of target dictionaries as returned by ``/targets``.
+    Args:
+        items: An iterable of target dictionaries as returned by the ``/targets`` endpoint.
+
+    Returns:
+        A pandas DataFrame with normalized target data.
     """
 
     columns = [

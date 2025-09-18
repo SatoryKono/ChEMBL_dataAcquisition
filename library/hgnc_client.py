@@ -130,7 +130,15 @@ def load_config(path: str | Path, *, section: str | None = None) -> Config:
 
 @dataclass
 class HGNCRecord:
-    """Mapping information for a single UniProt accession."""
+    """Represents mapping information for a single UniProt accession.
+
+    Attributes:
+        uniprot_id: The UniProt accession number.
+        hgnc_id: The HGNC identifier.
+        gene_symbol: The official gene symbol.
+        gene_name: The official gene name.
+        protein_name: The recommended protein name from UniProt.
+    """
 
     uniprot_id: str
     hgnc_id: str
@@ -140,7 +148,11 @@ class HGNCRecord:
 
 
 class HGNCClient:
-    """Minimal client for querying the HGNC API."""
+    """A minimal client for querying the HGNC API.
+
+    Args:
+        cfg: The configuration object for the client.
+    """
 
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg

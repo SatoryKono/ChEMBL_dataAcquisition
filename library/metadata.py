@@ -107,23 +107,19 @@ def write_meta_yaml(
     column_count: int,
     meta_path: Path | None = None,
 ) -> Path:
-    """Write dataset metadata next to ``output_path``.
+    """Writes dataset metadata to a YAML file next to the output file.
 
-    Parameters
-    ----------
-    output_path:
-        Path to the generated CSV file.
-    command:
-        Command line invocation responsible for generating the data.
-    config:
-        Normalised configuration dictionary captured from the CLI arguments.
-    row_count:
-        Number of rows persisted to the CSV file.
-    column_count:
-        Number of columns in the CSV file.
-    meta_path:
-        Optional destination for the YAML file.  When omitted, the function
-        writes ``<output_path>.meta.yaml``.
+    Args:
+        output_path: The path to the generated CSV file.
+        command: The command-line invocation that generated the data.
+        config: A normalized configuration dictionary from the CLI arguments.
+        row_count: The number of rows persisted to the CSV file.
+        column_count: The number of columns in the CSV file.
+        meta_path: An optional destination for the YAML file. If omitted, the
+            function writes to `<output_path>.meta.yaml`.
+
+    Returns:
+        The path to the written metadata file.
     """
 
     target = meta_path or output_path.with_suffix(f"{output_path.suffix}.meta.yaml")

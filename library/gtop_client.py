@@ -63,9 +63,14 @@ class GtoPConfig:
 
 
 class GtoPClient:
-    """Client for the GtoPdb REST API."""
+    """A client for the GtoPdb REST API.
+
+    Args:
+        cfg: A GtoPConfig object containing the client configuration.
+    """
 
     def __init__(self, cfg: GtoPConfig) -> None:
+        """Initializes the GtoPClient."""
         self.cfg = cfg
         self.http = HttpClient(
             timeout=cfg.timeout_sec,

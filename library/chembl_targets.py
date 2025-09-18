@@ -97,13 +97,13 @@ class TargetConfig:
 
 
 def normalise_ids(ids: Sequence[str]) -> List[str]:
-    """Return cleaned and deduplicated ChEMBL identifiers.
+    """Returns a list of cleaned and deduplicated ChEMBL identifiers.
 
-    Parameters
-    ----------
-    ids:
-        Raw sequence of identifiers possibly containing duplicates or empty
-        entries.
+    Args:
+        ids: A raw sequence of identifiers, which may contain duplicates or empty entries.
+
+    Returns:
+        A list of cleaned and deduplicated ChEMBL identifiers.
     """
 
     cleaned = []
@@ -322,17 +322,15 @@ def _extract_protein_classifications(payload: Dict[str, Any]) -> List[str]:
 def fetch_targets(
     ids: Sequence[str], cfg: TargetConfig, *, batch_size: int = 20
 ) -> pd.DataFrame:
-    """Fetch ChEMBL targets and return a normalised :class:`~pandas.DataFrame`.
+    """Fetches ChEMBL targets and returns a normalized pandas DataFrame.
 
-    Parameters
-    ----------
-    ids:
-        Sequence of target ChEMBL identifiers.
-    cfg:
-        Configuration governing network behaviour, serialisation options and
-        the set of columns returned in the output.
-    batch_size:
-        Maximum number of identifiers queried per HTTP request.
+    Args:
+        ids: A sequence of target ChEMBL identifiers.
+        cfg: The configuration for the fetch operation.
+        batch_size: The maximum number of identifiers to query per HTTP request.
+
+    Returns:
+        A pandas DataFrame containing the normalized target data.
     """
 
     norm_ids = normalise_ids(ids)

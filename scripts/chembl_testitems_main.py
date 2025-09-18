@@ -105,7 +105,14 @@ def _ensure_output_columns(df: pd.DataFrame, columns: Sequence[str]) -> pd.DataF
 
 
 def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
-    """Parse command line arguments for the molecule pipeline CLI."""
+    """Parses command-line arguments for the molecule pipeline CLI.
+
+    Args:
+        args: A sequence of command-line arguments. If None, `sys.argv` is used.
+
+    Returns:
+        An `argparse.Namespace` object containing the parsed arguments.
+    """
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -235,7 +242,16 @@ def _limited_ids(
 def run_pipeline(
     args: argparse.Namespace, *, command_parts: Sequence[str] | None = None
 ) -> int:
-    """Execute the molecule acquisition pipeline with ``args``."""
+    """Executes the molecule acquisition pipeline with the given arguments.
+
+    Args:
+        args: An `argparse.Namespace` object containing the pipeline arguments.
+        command_parts: A sequence of command-line arguments used to invoke the
+            pipeline. If None, `sys.argv` is used.
+
+    Returns:
+        An exit code, 0 for success and 1 for failure.
+    """
 
     if args.limit is not None and args.limit <= 0:
         raise ValueError("--limit must be a positive integer")
@@ -345,7 +361,14 @@ def run_pipeline(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point used by the CLI and tests."""
+    """The entry point used by the CLI and tests.
+
+    Args:
+        argv: A sequence of command-line arguments. If None, `sys.argv` is used.
+
+    Returns:
+        An exit code, 0 for success and 1 for failure.
+    """
 
     args = parse_args(argv)
     configure_logging(args.log_level, log_format=args.log_format)

@@ -34,13 +34,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Entry point for the command line interface.
+    """The entry point for the command-line interface.
 
-    Parameters
-    ----------
-    argv:
-        Optional list of command line arguments. When ``None`` the arguments
-        provided via the command line are used.
+    Args:
+        argv: An optional list of command-line arguments. If None, the
+            arguments are taken from `sys.argv`.
     """
 
     parser = argparse.ArgumentParser(description="Map ChEMBL IDs to UniProt IDs")
