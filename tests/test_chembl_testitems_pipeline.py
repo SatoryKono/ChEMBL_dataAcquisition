@@ -112,11 +112,15 @@ def test_chembl_testitems_main_end_to_end(
 
     property_fields = ",".join([prop for prop in PUBCHEM_PROPERTIES if prop != "CID"])
     requests_mock.get(
-        f"{pubchem_base}/compound/smiles/C/property/{property_fields}/JSON",
+
+        f"{pubchem_base}/compound/smiles/C/property/"
+        "MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
         json=_pubchem_response(11, "CH4"),
     )
     requests_mock.get(
-        f"{pubchem_base}/compound/smiles/CC/property/{property_fields}/JSON",
+        f"{pubchem_base}/compound/smiles/CC/property/"
+        "MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
+
         json=_pubchem_response(22, "C2H6"),
     )
     requests_mock.get(
