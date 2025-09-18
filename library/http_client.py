@@ -18,7 +18,7 @@ Algorithm Notes
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from importlib import import_module
@@ -27,6 +27,7 @@ from pathlib import Path
 from types import ModuleType
 import time
 
+from threading import RLock
 from typing import Any, Iterable, Mapping, Tuple, cast
 
 
@@ -263,25 +264,35 @@ class RateLimiter:
     rps: float
     last_call: float = 0.0
     blocked_until: float = 0.0
+    lock: RLock = field(default_factory=RLock, init=False, repr=False, compare=False)
 
     def wait(self) -> None:
         """Sleep just enough to satisfy the configured rate limit."""
 
-        now = time.monotonic()
-        if self.blocked_until > now:
-            time.sleep(self.blocked_until - now)
-            now = time.monotonic()
-
-        if self.rps > 0:
-            interval = 1.0 / self.rps
-            delta = now - self.last_call
-            if delta < interval:
-                time.sleep(interval - delta)
+        sleep_for = 0.0
+        while True:
+            with self.lock:
                 now = time.monotonic()
+                wait_until = self.blocked_until if self.blocked_until > now else now
 
-        self.last_call = now
-        if self.blocked_until < now:
-            self.blocked_until = now
+                if self.rps > 0:
+                    interval = 1.0 / self.rps
+                    next_allowed = self.last_call + interval
+                    if next_allowed > wait_until:
+                        wait_until = next_allowed
+
+                if wait_until > now:
+                    sleep_for = wait_until - now
+                else:
+                    current_time = max(now, time.monotonic())
+                    self.last_call = current_time
+                    if self.blocked_until < current_time:
+                        self.blocked_until = current_time
+                    return
+
+            if sleep_for <= 0:
+                continue
+            time.sleep(sleep_for)
 
     def apply_penalty(self, delay_seconds: float | None) -> None:
         """Delay the next request by ``delay_seconds`` when positive.
@@ -297,8 +308,9 @@ class RateLimiter:
         if not delay_seconds or delay_seconds <= 0:
             return
         target = time.monotonic() + delay_seconds
-        if target > self.blocked_until:
-            self.blocked_until = target
+        with self.lock:
+            if target > self.blocked_until:
+                self.blocked_until = target
 
 
 class HttpClient:

@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 read_ids = importlib.import_module("library.io").read_ids
 CsvConfig = importlib.import_module("library.io_utils").CsvConfig
 chembl_testitems_main = importlib.import_module("scripts.chembl_testitems_main").main
+PUBCHEM_PROPERTIES = importlib.import_module("library.testitem_library").PUBCHEM_PROPERTIES
 
 
 def test_read_ids_limit(tmp_path: Path) -> None:
@@ -109,14 +110,13 @@ def test_chembl_testitems_main_end_to_end(
             }
         }
 
+    property_fields = ",".join([prop for prop in PUBCHEM_PROPERTIES if prop != "CID"])
     requests_mock.get(
-        f"{pubchem_base}/compound/smiles/C/property/"
-        "CID,MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
+        f"{pubchem_base}/compound/smiles/C/property/{property_fields}/JSON",
         json=_pubchem_response(11, "CH4"),
     )
     requests_mock.get(
-        f"{pubchem_base}/compound/smiles/CC/property/"
-        "CID,MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
+        f"{pubchem_base}/compound/smiles/CC/property/{property_fields}/JSON",
         json=_pubchem_response(22, "C2H6"),
     )
     requests_mock.get(
