@@ -34,6 +34,36 @@ def _make_args(
     )
 
 
+def test_read_identifier_column_detects_separator(tmp_path: Path) -> None:
+    """_read_identifier_column should retry with an inferred separator."""
+
+    input_csv = tmp_path / "input.csv"
+    input_csv.write_text("DOI;other\n10.1/doi1;value\n", encoding="utf-8")
+
+    values = pm._read_identifier_column(input_csv, "DOI", sep=",", encoding="utf-8")
+
+    assert values == ["10.1/doi1"]
+
+
+def test_read_identifier_column_missing_column(tmp_path: Path) -> None:
+    """_read_identifier_column should raise SystemExit when column is absent."""
+
+    input_csv = tmp_path / "input.csv"
+    pd.DataFrame({"PMID": ["1"]}).to_csv(input_csv, index=False)
+
+    with pytest.raises(SystemExit, match="Column 'DOI' not found in input"):
+        pm._read_identifier_column(input_csv, "DOI", sep=",", encoding="utf-8")
+
+
+def test_normalise_crossref_doi() -> None:
+    """_normalise_crossref_doi should strip prefixes and normalise case."""
+
+    assert pm._normalise_crossref_doi(" HTTPS://doi.org/10.1/DOI1 ") == "10.1/doi1"
+    assert pm._normalise_crossref_doi("doi:10.1/DOI2") == "10.1/doi2"
+    assert pm._normalise_crossref_doi("urn:doi:10.1/DOI3") == "10.1/doi3"
+    assert pm._normalise_crossref_doi(None) is None
+
+
 def test_run_pubmed_creates_output_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -90,10 +120,10 @@ def test_run_pubmed_creates_output_directory(
     crossref_record = CrossrefRecord(
         doi="10.1/doi1",
         type="journal-article",
-        subtype=None,
+        subtype="clinical-trial",
         title="Title",
-        subtitle=None,
-        subject=["Biology"],
+        subtitle="Part A|Part B",
+        subject=["Biology", "Chemistry"],
         error=None,
     )
 
@@ -113,6 +143,10 @@ def test_run_pubmed_creates_output_directory(
     pm.run_pubmed_command(args, config)
 
     assert output_path.exists()
+    df = pd.read_csv(output_path)
+    assert df.loc[0, "crossref.Subtype"] == "clinical-trial"
+    assert df.loc[0, "crossref.Subtitle"] == "Part A|Part B"
+    assert df.loc[0, "crossref.Subject"] == "Biology|Chemistry"
 
 
 def test_run_openalex_command_exports_openalex_only(
@@ -138,10 +172,10 @@ def test_run_openalex_command_exports_openalex_only(
     crossref_record = CrossrefRecord(
         doi="10.1/doi1",
         type="journal-article",
-        subtype=None,
+        subtype="clinical-trial",
         title="Title",
-        subtitle=None,
-        subject=["Biology"],
+        subtitle="Part A|Part B",
+        subject=["Biology", "Chemistry"],
         error=None,
     )
 
@@ -167,6 +201,51 @@ def test_run_openalex_command_exports_openalex_only(
     assert df.loc[0, "OpenAlex.DOI"] == "10.1/doi1"
     assert df.loc[0, "crossref.DOI"] == "10.1/doi1"
     assert df.loc[0, "PubMed.Error"] == pm.OPENALEX_ONLY_PLACEHOLDER_ERROR
+    assert df.loc[0, "crossref.Subtype"] == "clinical-trial"
+    assert df.loc[0, "crossref.Subtitle"] == "Part A|Part B"
+    assert df.loc[0, "crossref.Subject"] == "Biology|Chemistry"
+
+
+def test_run_crossref_command_exports_crossref_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_crossref_command should export Crossref-only metadata."""
+
+    input_csv = tmp_path / "input.csv"
+    pd.DataFrame({"DOI": [" https://doi.org/10.1/doi1 ", "10.1/doi1"]}).to_csv(
+        input_csv, index=False
+    )
+
+    crossref_record = CrossrefRecord(
+        doi="10.1/doi1",
+        type="journal-article",
+        subtype="clinical-trial",
+        title="Title",
+        subtitle="Part A|Part B",
+        subject=["Biology", "Chemistry"],
+        error=None,
+    )
+
+    def fake_fetch(dois: Sequence[str], *, client: Any) -> list[CrossrefRecord]:
+        assert dois == ["10.1/doi1"]
+        return [crossref_record]
+
+    monkeypatch.setattr(pm, "fetch_crossref_records", fake_fetch)
+
+    output_path = tmp_path / "out" / "crossref.csv"
+    args = _make_args(
+        "crossref", input_path=input_csv, output_path=output_path, column="DOI"
+    )
+    config = deepcopy(pm.DEFAULT_CONFIG)
+
+    pm.run_crossref_command(args, config)
+
+    df = pd.read_csv(output_path)
+    assert list(df.columns) == pm.CROSSREF_COLUMNS
+    assert df.loc[0, "crossref.DOI"] == "10.1/doi1"
+    assert df.loc[0, "crossref.Subtype"] == "clinical-trial"
+    assert df.loc[0, "crossref.Subtitle"] == "Part A|Part B"
+    assert df.loc[0, "crossref.Subject"] == "Biology|Chemistry"
 
 
 def test_run_all_merges_chembl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
