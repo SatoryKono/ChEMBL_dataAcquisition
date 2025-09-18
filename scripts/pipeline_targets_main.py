@@ -700,6 +700,10 @@ def main() -> None:
     with open(args.config, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
     global_cache = CacheConfig.from_dict(data.get("http_cache"))
+    enrich_cache = (
+        CacheConfig.from_dict(data.get("uniprot_enrich", {}).get("cache"))
+        or global_cache
+    )
     chembl_cols = list(data.get("chembl", {}).get("columns", []))
     required_cols = [
         "target_chembl_id",
@@ -783,7 +787,7 @@ def main() -> None:
             target_species=target_species,
             progress_callback=pbar.update,
         )
-    enrich_client = UniProtEnrichClient()
+    enrich_client = UniProtEnrichClient(cache_config=enrich_cache)
     out_df = add_uniprot_fields(out_df, enrich_client.fetch_all)
     out_df = merge_chembl_fields(out_df, chembl_df)
     entry_cache: Dict[str, Any] = {}
