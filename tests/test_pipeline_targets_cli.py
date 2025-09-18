@@ -192,6 +192,34 @@ def test_pipeline_targets_cli_writes_outputs(
     assert enrich_call["kwargs"].get("cache_config") is None
 
 
+def _identity_frame(df: pd.DataFrame, *args: Any, **kwargs: Any) -> pd.DataFrame:
+    """Return ``df`` unchanged for monkeypatched processing steps."""
+
+    return df
+
+
+def _dummy_enrich_client(*_args: Any, **_kwargs: Any) -> Any:
+    """Return a dummy enrich client compatible with the pipeline contract."""
+
+    class _Dummy:
+        def fetch_all(self, _accessions: list[str]) -> dict[str, dict[str, Any]]:
+            return {}
+
+    return _Dummy()
+
+
+def _noop_analyze_table_quality(*_args: Any, **_kwargs: Any) -> None:
+    """No-op replacement for :func:`analyze_table_quality` in tests."""
+
+    return None
+
+
+def _fake_write_metadata(*_args: Any, **_kwargs: Any) -> Path:
+    """Return a placeholder metadata path for CLI unit tests."""
+
+    return Path("meta.yaml")
+
+
 def test_pipeline_targets_cli_uses_configured_list_format(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -250,34 +278,15 @@ def test_pipeline_targets_cli_uses_configured_list_format(
 
     monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
 
-    def fake_identity_frame(
-        df: pd.DataFrame, *args: Any, **kwargs: Any
-    ) -> pd.DataFrame:
-        return df
-
-    monkeypatch.setattr(module, "add_uniprot_fields", fake_identity_frame)
-    monkeypatch.setattr(module, "merge_chembl_fields", fake_identity_frame)
-    monkeypatch.setattr(module, "add_activity_fields", fake_identity_frame)
-    monkeypatch.setattr(module, "add_protein_classification", fake_identity_frame)
-
-    def fake_enrich_client(*_args: Any, **_kwargs: Any) -> Any:
-        class _Dummy:
-            def fetch_all(self, _accessions: list[str]) -> dict[str, dict[str, Any]]:
-                return {}
-
-        return _Dummy()
-
-    monkeypatch.setattr(module, "UniProtEnrichClient", fake_enrich_client)
-
-    def fake_analyze_table_quality(*_args: Any, **_kwargs: Any) -> None:
-        return None
-
-    monkeypatch.setattr(module, "analyze_table_quality", fake_analyze_table_quality)
-
-    def fake_write_metadata(*_args: Any, **_kwargs: Any) -> Path:
-        return tmp_path / "meta.yaml"
-
-    monkeypatch.setattr(module, "write_cli_metadata", fake_write_metadata)
+    monkeypatch.setattr(module, "add_uniprot_fields", _identity_frame)
+    monkeypatch.setattr(module, "merge_chembl_fields", _identity_frame)
+    monkeypatch.setattr(module, "add_activity_fields", _identity_frame)
+    monkeypatch.setattr(module, "add_protein_classification", _identity_frame)
+    monkeypatch.setattr(module, "UniProtEnrichClient", _dummy_enrich_client)
+    monkeypatch.setattr(module, "analyze_table_quality", _noop_analyze_table_quality)
+    monkeypatch.setattr(
+        module, "write_cli_metadata", lambda *args, **kwargs: tmp_path / "meta.yaml"
+    )
 
     argv = [
         "pipeline_targets_main",
@@ -293,3 +302,213 @@ def test_pipeline_targets_cli_uses_configured_list_format(
     module.main()
 
     assert serialise_stats["list_format"] == "pipe"
+
+
+def test_pipeline_targets_cli_respects_yaml_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ensure YAML configuration is honoured when overriding flags are absent."""
+
+    module: Any = importlib.import_module("scripts.pipeline_targets_main")
+
+    input_csv = tmp_path / "input.csv"
+    input_csv.write_text("target_chembl_id\nCHEMBL1\n", encoding="utf-8")
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+pipeline:
+  list_format: pipe
+  species_priority:
+    - "Homo sapiens"
+    - "Mus musculus"
+  iuphar:
+    approved_only: true
+    primary_target_only: false
+orthologs:
+  enabled: true
+        """.strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    captured: dict[str, Any] = {}
+
+    class DummyUniClient:
+        def fetch_entry_json(self, accession: str) -> dict[str, Any]:
+            return {}
+
+        def fetch_entries_json(
+            self, accessions: list[str], batch_size: int = 0
+        ) -> dict[str, dict[str, Any]]:
+            return {accession: {} for accession in accessions}
+
+    def fake_build_clients(*_args: Any, **kwargs: Any) -> tuple[Any, ...]:
+        captured["with_orthologs"] = kwargs.get("with_orthologs")
+        return DummyUniClient(), object(), object(), None, None, []
+
+    monkeypatch.setattr(module, "build_clients", fake_build_clients)
+
+    def fake_fetch_targets(
+        ids: list[str], *_args: Any, **_kwargs: Any
+    ) -> pd.DataFrame:
+        return pd.DataFrame({"target_chembl_id": ids})
+
+    monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
+
+    def fake_run_pipeline(
+        ids: list[str], pipeline_cfg: Any, *_args: Any, **_kwargs: Any
+    ) -> pd.DataFrame:
+        captured["list_format"] = pipeline_cfg.list_format
+        captured["species_priority"] = list(pipeline_cfg.species_priority)
+        captured["approved_only"] = pipeline_cfg.iuphar.approved_only
+        captured["primary_target_only"] = pipeline_cfg.iuphar.primary_target_only
+        data: dict[str, Any] = {
+            "target_chembl_id": ids,
+            "uniprot_id_primary": ["P001" for _ in ids],
+            "gene_symbol": ["GENE" for _ in ids],
+        }
+        for column in module.IUPHAR_CLASS_COLUMNS:
+            data[column] = [""] * len(ids)
+        return pd.DataFrame(data)
+
+    monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
+
+    monkeypatch.setattr(module, "add_uniprot_fields", _identity_frame)
+    monkeypatch.setattr(module, "merge_chembl_fields", _identity_frame)
+    monkeypatch.setattr(module, "add_activity_fields", _identity_frame)
+    monkeypatch.setattr(module, "add_protein_classification", _identity_frame)
+    monkeypatch.setattr(module, "UniProtEnrichClient", _dummy_enrich_client)
+    monkeypatch.setattr(module, "analyze_table_quality", _noop_analyze_table_quality)
+    monkeypatch.setattr(
+        module, "write_cli_metadata", lambda *args, **kwargs: tmp_path / "meta.yaml"
+    )
+
+    argv = [
+        "pipeline_targets_main",
+        "--input",
+        str(input_csv),
+        "--output",
+        str(tmp_path / "targets.csv"),
+        "--config",
+        str(config_path),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    module.main()
+
+    assert captured["list_format"] == "pipe"
+    assert captured["species_priority"] == ["Homo sapiens", "Mus musculus"]
+    assert captured["approved_only"] is True
+    assert captured["primary_target_only"] is False
+    assert captured["with_orthologs"] is True
+
+
+def test_pipeline_targets_cli_overrides_specific_flags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CLI flags should update only the targeted configuration fields."""
+
+    module: Any = importlib.import_module("scripts.pipeline_targets_main")
+
+    input_csv = tmp_path / "input.csv"
+    input_csv.write_text("target_chembl_id\nCHEMBL1\n", encoding="utf-8")
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+pipeline:
+  list_format: pipe
+  species_priority:
+    - "Homo sapiens"
+    - "Mus musculus"
+  iuphar:
+    approved_only: true
+    primary_target_only: false
+orthologs:
+  enabled: false
+        """.strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    captured: dict[str, Any] = {}
+
+    class DummyUniClient:
+        def fetch_entry_json(self, accession: str) -> dict[str, Any]:
+            return {}
+
+        def fetch_entries_json(
+            self, accessions: list[str], batch_size: int = 0
+        ) -> dict[str, dict[str, Any]]:
+            return {accession: {} for accession in accessions}
+
+    def fake_build_clients(*_args: Any, **kwargs: Any) -> tuple[Any, ...]:
+        captured["with_orthologs"] = kwargs.get("with_orthologs")
+        return DummyUniClient(), object(), object(), None, None, []
+
+    monkeypatch.setattr(module, "build_clients", fake_build_clients)
+
+    def fake_fetch_targets(
+        ids: list[str], *_args: Any, **_kwargs: Any
+    ) -> pd.DataFrame:
+        return pd.DataFrame({"target_chembl_id": ids})
+
+    monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
+
+    def fake_run_pipeline(
+        ids: list[str], pipeline_cfg: Any, *_args: Any, **_kwargs: Any
+    ) -> pd.DataFrame:
+        captured["list_format"] = pipeline_cfg.list_format
+        captured["species_priority"] = list(pipeline_cfg.species_priority)
+        captured["approved_only"] = pipeline_cfg.iuphar.approved_only
+        captured["primary_target_only"] = pipeline_cfg.iuphar.primary_target_only
+        data: dict[str, Any] = {
+            "target_chembl_id": ids,
+            "uniprot_id_primary": ["P001" for _ in ids],
+            "gene_symbol": ["GENE" for _ in ids],
+        }
+        for column in module.IUPHAR_CLASS_COLUMNS:
+            data[column] = [""] * len(ids)
+        return pd.DataFrame(data)
+
+    monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
+    monkeypatch.setattr(module, "add_uniprot_fields", _identity_frame)
+    monkeypatch.setattr(module, "merge_chembl_fields", _identity_frame)
+    monkeypatch.setattr(module, "add_activity_fields", _identity_frame)
+    monkeypatch.setattr(module, "add_protein_classification", _identity_frame)
+    monkeypatch.setattr(module, "UniProtEnrichClient", _dummy_enrich_client)
+    monkeypatch.setattr(module, "analyze_table_quality", _noop_analyze_table_quality)
+    monkeypatch.setattr(module, "write_cli_metadata", _fake_write_metadata)
+
+    argv = [
+        "pipeline_targets_main",
+        "--input",
+        str(input_csv),
+        "--output",
+        str(tmp_path / "targets.csv"),
+        "--config",
+        str(config_path),
+        "--list-format",
+        "json",
+        "--species",
+        "Canis familiaris, Homo sapiens",
+        "--approved-only",
+        "false",
+        "--primary-target-only",
+        "true",
+        "--with-orthologs",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    module.main()
+
+    assert captured["list_format"] == "json"
+    assert captured["species_priority"] == [
+        "Canis familiaris",
+        "Homo sapiens",
+        "Mus musculus",
+    ]
+    assert captured["approved_only"] is False
+    assert captured["primary_target_only"] is True
+    assert captured["with_orthologs"] is True

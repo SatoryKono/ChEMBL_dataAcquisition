@@ -103,6 +103,70 @@ def merge_chembl_fields(
     return pipeline_df
 
 
+def _parse_species_argument(raw_value: str | None) -> list[str]:
+    """Return CLI-provided species values as an ordered, de-duplicated list.
+
+    Parameters
+    ----------
+    raw_value:
+        Raw command line value provided via ``--species``. Individual entries
+        may be separated by commas. Empty fragments are ignored so accidental
+        trailing separators do not introduce blank species names.
+
+    Returns
+    -------
+    list[str]
+        Cleaned species names preserving their original order of appearance.
+        Duplicate entries are collapsed to the first occurrence to keep the
+        priority list concise.
+    """
+
+    if raw_value is None:
+        return []
+    candidates = [fragment.strip() for fragment in raw_value.split(",")]
+    seen: set[str] = set()
+    cleaned: list[str] = []
+    for candidate in candidates:
+        if not candidate:
+            continue
+        if candidate in seen:
+            continue
+        cleaned.append(candidate)
+        seen.add(candidate)
+    return cleaned
+
+
+def _merge_species_lists(
+    cli_values: Sequence[str], config_values: Sequence[str]
+) -> list[str]:
+    """Combine species lists from CLI and configuration without duplicates.
+
+    Parameters
+    ----------
+    cli_values:
+        Ordered species preference supplied via the command line.
+    config_values:
+        Baseline species priority sourced from the YAML configuration file.
+
+    Returns
+    -------
+    list[str]
+        Combined list where CLI-specified species retain precedence but
+        configuration values are preserved afterwards. Duplicate entries are
+        removed while keeping the order of first appearance across both
+        sequences.
+    """
+
+    combined: list[str] = []
+    seen: set[str] = set()
+    for value in (*cli_values, *config_values):
+        if value in seen:
+            continue
+        combined.append(value)
+        seen.add(value)
+    return combined
+
+
 def _normalise_field_names(value: Any, *, source: str) -> list[str]:
     """Return ``value`` as a list of stripped field names.
 
@@ -645,7 +709,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--approved-only", default=None)
     parser.add_argument("--primary-target-only", default=None)
     parser.add_argument("--with-isoforms", action="store_true")
-    parser.add_argument("--with-orthologs", action="store_true")
+    parser.add_argument("--with-orthologs", action="store_true", default=None)
     parser.add_argument("--iuphar-target", help="Path to _IUPHAR_target.csv")
     parser.add_argument("--iuphar-family", help="Path to _IUPHAR_family.csv")
     parser.add_argument(
@@ -768,8 +832,11 @@ def main() -> None:
     pipeline_cfg = load_pipeline_config(args.config)
     if args.list_format is not None:
         pipeline_cfg.list_format = args.list_format
-    if args.species is not None:
-        pipeline_cfg.species_priority = [args.species]
+    cli_species = _parse_species_argument(args.species)
+    if cli_species:
+        pipeline_cfg.species_priority = _merge_species_lists(
+            cli_species, pipeline_cfg.species_priority
+        )
     pipeline_cfg.iuphar.affinity_parameter = args.affinity_parameter
     if args.approved_only is not None:
         approved_only = args.approved_only.lower()
@@ -786,6 +853,12 @@ def main() -> None:
     # Load optional ChEMBL column configuration and ensure required fields
     with open(args.config, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
+    orthologs_cfg = data.get("orthologs", {})
+    use_orthologs = (
+        args.with_orthologs
+        if args.with_orthologs is not None
+        else bool(orthologs_cfg.get("enabled"))
+    )
     global_cache = CacheConfig.from_dict(data.get("http_cache"))
     enrich_cache = (
         CacheConfig.from_dict(data.get("uniprot_enrich", {}).get("cache"))
@@ -839,7 +912,7 @@ def main() -> None:
     ) = build_clients(
         args.config,
         pipeline_cfg,
-        with_orthologs=args.with_orthologs,
+        with_orthologs=use_orthologs,
         default_cache=global_cache,
     )
 

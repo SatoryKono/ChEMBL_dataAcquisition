@@ -5,18 +5,22 @@ from typing import Dict, Iterable
 
 import pandas as pd
 import yaml
+import pytest
  
 sys.path.insert(0, str(Path("scripts")))
 from pipeline_targets_main import (
-    add_iuphar_classification,
-    add_protein_classification,
+    _merge_species_lists,
+    _parse_species_argument,
     add_activity_fields,
+    add_iuphar_classification,
     add_isoform_fields,
+    add_protein_classification,
     add_uniprot_fields,
     build_clients,
     extract_activity,
     extract_isoform,
     merge_chembl_fields,
+    parse_args,
 )
 from library.pipeline_targets import PipelineConfig
 
@@ -224,4 +228,52 @@ def test_build_clients_infers_uniprot_fields() -> None:
     field_set = {field for field in uni_client.fields.split(",") if field}
 
     assert set(uniprot_columns).issubset(field_set)
+
+
+def test_parse_species_argument_splits_and_deduplicates() -> None:
+    result = _parse_species_argument("Human , ,Mouse , Human ")
+    assert result == ["Human", "Mouse"]
+
+
+def test_merge_species_lists_prioritises_cli_values() -> None:
+    combined = _merge_species_lists(["Mouse", "Human"], ["Human", "Rat"])
+    assert combined == ["Mouse", "Human", "Rat"]
+
+
+def test_parse_args_with_orthologs_flag(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "pipeline_targets_main",
+            "--input",
+            "input.csv",
+            "--output",
+            "output.csv",
+            "--config",
+            str(config_path),
+        ],
+    )
+    args = parse_args()
+    assert args.with_orthologs is None
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "pipeline_targets_main",
+            "--input",
+            "input.csv",
+            "--output",
+            "output.csv",
+            "--config",
+            str(config_path),
+            "--with-orthologs",
+        ],
+    )
+    args_with_flag = parse_args()
+    assert args_with_flag.with_orthologs is True
 
