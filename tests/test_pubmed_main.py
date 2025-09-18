@@ -34,6 +34,15 @@ def _make_args(
     )
 
 
+def test_normalise_crossref_doi() -> None:
+    """_normalise_crossref_doi should strip prefixes and normalise case."""
+
+    assert pm._normalise_crossref_doi(" HTTPS://doi.org/10.1/DOI1 ") == "10.1/doi1"
+    assert pm._normalise_crossref_doi("doi:10.1/DOI2") == "10.1/doi2"
+    assert pm._normalise_crossref_doi("urn:doi:10.1/DOI3") == "10.1/doi3"
+    assert pm._normalise_crossref_doi(None) is None
+
+
 def test_run_pubmed_creates_output_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -90,10 +99,10 @@ def test_run_pubmed_creates_output_directory(
     crossref_record = CrossrefRecord(
         doi="10.1/doi1",
         type="journal-article",
-        subtype=None,
+        subtype="clinical-trial",
         title="Title",
-        subtitle=None,
-        subject=["Biology"],
+        subtitle="Part A|Part B",
+        subject=["Biology", "Chemistry"],
         error=None,
     )
 
@@ -113,6 +122,10 @@ def test_run_pubmed_creates_output_directory(
     pm.run_pubmed_command(args, config)
 
     assert output_path.exists()
+    df = pd.read_csv(output_path)
+    assert df.loc[0, "crossref.Subtype"] == "clinical-trial"
+    assert df.loc[0, "crossref.Subtitle"] == "Part A|Part B"
+    assert df.loc[0, "crossref.Subject"] == "Biology|Chemistry"
 
 
 def test_run_openalex_command_exports_openalex_only(
@@ -138,10 +151,10 @@ def test_run_openalex_command_exports_openalex_only(
     crossref_record = CrossrefRecord(
         doi="10.1/doi1",
         type="journal-article",
-        subtype=None,
+        subtype="clinical-trial",
         title="Title",
-        subtitle=None,
-        subject=["Biology"],
+        subtitle="Part A|Part B",
+        subject=["Biology", "Chemistry"],
         error=None,
     )
 
@@ -167,6 +180,9 @@ def test_run_openalex_command_exports_openalex_only(
     assert df.loc[0, "OpenAlex.DOI"] == "10.1/doi1"
     assert df.loc[0, "crossref.DOI"] == "10.1/doi1"
     assert df.loc[0, "PubMed.Error"] == pm.OPENALEX_ONLY_PLACEHOLDER_ERROR
+    assert df.loc[0, "crossref.Subtype"] == "clinical-trial"
+    assert df.loc[0, "crossref.Subtitle"] == "Part A|Part B"
+    assert df.loc[0, "crossref.Subject"] == "Biology|Chemistry"
 
 
 def test_run_all_merges_chembl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
