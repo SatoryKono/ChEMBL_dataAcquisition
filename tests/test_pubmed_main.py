@@ -34,7 +34,6 @@ def _make_args(
     )
 
 
-
 def test_read_identifier_column_detects_separator(tmp_path: Path) -> None:
     """_read_identifier_column should retry with an inferred separator."""
 
