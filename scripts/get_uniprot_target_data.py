@@ -24,6 +24,8 @@ if __package__ in {None, ""}:
 
 from pipeline_targets_main import _resolve_uniprot_fields
 
+from library.config.uniprot import ConfigError, load_uniprot_target_config
+
 if TYPE_CHECKING:  # pragma: no cover - imported for typing only
     from library.orthologs import EnsemblHomologyClient, OmaClient
     from library.uniprot_normalize import Isoform
@@ -41,6 +43,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _ensure_mapping(value: Any, *, section: str) -> dict[str, Any]:
     """Return ``value`` as a mapping or raise ``ValueError``.
+
+    This helper is retained for backward compatibility with existing tests
+    that monkeypatch the function to inject synthetic configuration data.
 
     Args:
         value: Configuration value to validate.
@@ -142,48 +147,44 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     configure_logging(args.log_level, log_format=args.log_format)
 
-    config_data = yaml.safe_load((ROOT / "config.yaml").read_text())
-    config = _ensure_mapping(config_data, section="root configuration")
-    uniprot_cfg = _ensure_mapping(config.get("uniprot", {}), section="uniprot")
-    output_cfg = _ensure_mapping(config.get("output", {}), section="output")
-    orth_cfg = _ensure_mapping(config.get("orthologs", {}), section="orthologs")
+    config_path = ROOT / "config.yaml"
+    raw_config = yaml.safe_load(config_path.read_text())
+    _ensure_mapping(raw_config, section="root configuration")
 
-    http_cache_raw = config.get("http_cache")
-    http_cache_cfg = (
-        _ensure_mapping(http_cache_raw, section="http_cache")
-        if http_cache_raw is not None
-        else None
-    )
-    global_cache = CacheConfig.from_dict(http_cache_cfg)
+    try:
+        cfg = load_uniprot_target_config(config_path)
+    except ConfigError as exc:  # pragma: no cover - defensive logging
+        LOGGER.error("%s", exc)
+        raise
 
-    list_format = str(output_cfg.get("list_format", "json") or "json")
-    include_seq = bool(
-        args.include_sequence or output_cfg.get("include_sequence", False)
-    )
-    sep_value = args.sep or output_cfg.get("sep") or DEFAULT_SEP
-    if not isinstance(sep_value, str):
-        msg = "CSV separator must be a string"
-        raise ValueError(msg)
-    encoding_value = args.encoding or output_cfg.get("encoding") or DEFAULT_ENCODING
-    if not isinstance(encoding_value, str):
-        msg = "File encoding must be a string"
-        raise ValueError(msg)
-    include_iso = bool(args.with_isoforms or uniprot_cfg.get("include_isoforms", False))
-    use_fasta_stream = bool(uniprot_cfg.get("use_fasta_stream_for_isoform_ids", True))
+    http_cache_mapping = cfg.http_cache.to_cache_dict() if cfg.http_cache else None
+    global_cache = CacheConfig.from_dict(http_cache_mapping)
+
+    list_format = cfg.output.list_format
+    include_seq = bool(args.include_sequence or cfg.output.include_sequence)
+    sep_value = args.sep or cfg.output.sep or DEFAULT_SEP
+    encoding_value = args.encoding or cfg.output.encoding or DEFAULT_ENCODING
+    include_iso = bool(args.with_isoforms or cfg.uniprot.include_isoforms)
+    use_fasta_stream = bool(cfg.uniprot.use_fasta_stream_for_isoform_ids)
 
     # Use configuration defaults when CLI options are omitted
     csv_cfg = CsvConfig(sep=sep_value, encoding=encoding_value, list_format=list_format)
 
+    uniprot_cache = (
+        CacheConfig.from_dict(cfg.uniprot.cache.to_cache_dict())
+        if cfg.uniprot.cache
+        else None
+    )
     client = UniProtClient(
-        base_url=uniprot_cfg.get("base_url", "https://rest.uniprot.org/uniprotkb"),
-        fields=_resolve_uniprot_fields(uniprot_cfg),
+        base_url=cfg.uniprot.base_url,
+        fields=_resolve_uniprot_fields(cfg.uniprot.model_dump()),
         network=NetworkConfig(
-            timeout_sec=uniprot_cfg.get("timeout_sec", 30),
-            max_retries=uniprot_cfg.get("retries", 3),
+            timeout_sec=cfg.uniprot.timeout_sec,
+            max_retries=cfg.uniprot.retries,
             backoff_sec=1.0,
         ),
-        rate_limit=RateLimitConfig(rps=uniprot_cfg.get("rps", 3)),
-        cache=CacheConfig.from_dict(uniprot_cfg.get("cache")) or global_cache,
+        rate_limit=RateLimitConfig(rps=cfg.uniprot.rps),
+        cache=uniprot_cache or global_cache,
     )
 
     input_path = Path(args.input)
@@ -213,39 +214,32 @@ def main(argv: Sequence[str] | None = None) -> None:
     orth_cols: list[str] = []
     orth_rows: list[dict[str, Any]] = []
 
-    if args.with_orthologs and orth_cfg.get("enabled", True):
-        orth_cache_raw = orth_cfg.get("cache")
-        orth_cache_cfg = (
-            _ensure_mapping(orth_cache_raw, section="orthologs.cache")
-            if orth_cache_raw is not None
-            else None
+    if args.with_orthologs and cfg.orthologs.enabled:
+        orth_cache_mapping = (
+            cfg.orthologs.cache.to_cache_dict() if cfg.orthologs.cache else None
         )
-        orth_cache = CacheConfig.from_dict(orth_cache_cfg) or global_cache
+        orth_cache = CacheConfig.from_dict(orth_cache_mapping) or global_cache
         ensembl_client = EnsemblHomologyClient(
             base_url="https://rest.ensembl.org",
             network=NetworkConfig(
-                timeout_sec=orth_cfg.get("timeout_sec", 30),
-                max_retries=orth_cfg.get("retries", 3),
-                backoff_sec=orth_cfg.get("backoff_base_sec", 1.0),
+                timeout_sec=cfg.orthologs.timeout_sec,
+                max_retries=cfg.orthologs.retries,
+                backoff_sec=cfg.orthologs.backoff_base_sec,
             ),
-            rate_limit=RateLimitConfig(rps=orth_cfg.get("rate_limit_rps", 2)),
+            rate_limit=RateLimitConfig(rps=cfg.orthologs.rate_limit_rps),
             cache=orth_cache,
         )
         oma_client = OmaClient(
             base_url="https://omabrowser.org/api",
             network=NetworkConfig(
-                timeout_sec=orth_cfg.get("timeout_sec", 30),
-                max_retries=orth_cfg.get("retries", 3),
-                backoff_sec=orth_cfg.get("backoff_base_sec", 1.0),
+                timeout_sec=cfg.orthologs.timeout_sec,
+                max_retries=cfg.orthologs.retries,
+                backoff_sec=cfg.orthologs.backoff_base_sec,
             ),
-            rate_limit=RateLimitConfig(rps=orth_cfg.get("rate_limit_rps", 2)),
+            rate_limit=RateLimitConfig(rps=cfg.orthologs.rate_limit_rps),
             cache=orth_cache,
         )
-        target_species_raw = orth_cfg.get("target_species", [])
-        if not isinstance(target_species_raw, list):
-            msg = "'orthologs.target_species' must be a list"
-            raise ValueError(msg)
-        target_species = [str(species) for species in target_species_raw]
+        target_species = list(cfg.orthologs.target_species)
         orth_cols = [
             "source_uniprot_id",
             "source_ensembl_gene_id",
