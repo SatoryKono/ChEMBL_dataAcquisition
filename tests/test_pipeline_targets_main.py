@@ -1,10 +1,10 @@
+import json
+import sys
 from pathlib import Path
 from typing import Dict, Iterable
 
-import json
-import sys
-
 import pandas as pd
+import yaml
 
 sys.path.insert(0, str(Path("scripts")))
 from pipeline_targets_main import (
@@ -16,7 +16,9 @@ from pipeline_targets_main import (
     extract_activity,
     extract_isoform,
     merge_chembl_fields,
+    build_clients,
 )
+from library.pipeline_targets import load_pipeline_config
 
 
 def test_merge_chembl_fields_adds_columns():
@@ -196,3 +198,17 @@ def test_add_isoform_fields() -> None:
     assert row["isoform_names"] == "Isoform 1"
     assert row["isoform_ids"] == "P1-1"
     assert row["isoform_synonyms"] == "Alpha"
+
+
+def test_uniprot_rate_limit_uses_section_config() -> None:
+    cfg_path = Path("config.yaml")
+    pipeline_cfg = load_pipeline_config(str(cfg_path))
+    pipeline_cfg.rate_limit_rps = 0.5
+    pipeline_cfg.retries = 1
+    pipeline_cfg.timeout_sec = 1.0
+    uni_client, *_ = build_clients(
+        str(cfg_path), pipeline_cfg, with_orthologs=False, default_cache=None
+    )
+    cfg_data = yaml.safe_load(cfg_path.read_text()) or {}
+    expected_rps = float(cfg_data.get("uniprot", {}).get("rps", 0.0))
+    assert uni_client.rate_limit.rps == expected_rps

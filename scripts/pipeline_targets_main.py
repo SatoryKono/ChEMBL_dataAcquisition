@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import logging
 import sys
 from pathlib import Path
 
-from typing import Any, Callable, Dict, Iterable, List, Sequence
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Sequence, TypeVar, cast
 
 import pandas as pd
 import requests
@@ -46,18 +48,52 @@ from library.cli_common import (
 from library.protein_classifier import classify_protein
 
 
-
-from library.pipeline_targets import (
-    PipelineConfig,
-    load_pipeline_config,
-    run_pipeline,
-)
+from library.pipeline_targets import PipelineConfig, load_pipeline_config, run_pipeline
 
 from library.iuphar import ClassificationRecord, IUPHARClassifier, IUPHARData
 
 
 # Columns produced by :func:`add_iuphar_classification`.
 DEFAULT_LOG_FORMAT = "human"
+
+TRUE_VALUES = {"1", "true", "yes", "on"}
+FALSE_VALUES = {"0", "false", "no", "off"}
+NumericT = TypeVar("NumericT", int, float)
+
+try:  # pragma: no cover - optional import paths for scripts
+    from library.chembl2uniprot.config import (
+        _apply_env_overrides as apply_env_overrides,
+    )
+except ImportError:  # pragma: no cover - script execution fallback
+    from chembl2uniprot.config import (
+        _apply_env_overrides as apply_env_overrides,  # type: ignore[no-redef]
+    )
+
+
+@dataclass
+class NetworkSettings:
+    """Normalised network configuration extracted from a section."""
+
+    timeout_sec: float
+    retries: int
+    backoff_sec: float
+
+
+@dataclass
+class RateLimitSettings:
+    """Rate limiting settings extracted from a configuration section."""
+
+    rps: float
+
+
+@dataclass
+class SectionSettings:
+    """Aggregated network, rate limit and cache settings for a section."""
+
+    config: Dict[str, Any]
+    network: NetworkSettings
+    rate_limit: RateLimitSettings
+    cache: CacheConfig | None
 
 
 IUPHAR_CLASS_COLUMNS = [
@@ -71,6 +107,157 @@ IUPHAR_CLASS_COLUMNS = [
     "iuphar_full_id_path",
     "iuphar_full_name_path",
 ]
+
+
+def _resolve_section_config(data: Mapping[str, Any], section: str) -> Dict[str, Any]:
+    """Return ``section`` configuration with environment overrides applied."""
+
+    raw_section = data.get(section, {})
+    if not isinstance(raw_section, Mapping):
+        return {}
+    section_copy = cast(Dict[str, Any], copy.deepcopy(raw_section))
+    return apply_env_overrides(section_copy, section=section)
+
+
+def _coerce_numeric(
+    value: Any, converter: Callable[[Any], NumericT]
+) -> NumericT | None:
+    """Convert ``value`` using ``converter`` while handling errors."""
+
+    if value is None:
+        return None
+    try:
+        return converter(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _dig(mapping: Mapping[str, Any], path: Sequence[str]) -> Any:
+    """Traverse ``mapping`` following ``path`` and return the value if present."""
+
+    ref: Any = mapping
+    for key in path:
+        if not isinstance(ref, Mapping):
+            return None
+        ref = ref.get(key)
+    return ref
+
+
+def _extract_numeric(
+    config: Mapping[str, Any],
+    paths: Sequence[Sequence[str]],
+    *,
+    default: NumericT,
+    converter: Callable[[Any], NumericT],
+) -> NumericT:
+    """Return the first numeric value found for ``paths`` or ``default``."""
+
+    for path in paths:
+        candidate = _dig(config, path)
+        coerced = _coerce_numeric(candidate, converter)
+        if coerced is not None:
+            return coerced
+    return default
+
+
+def _coerce_bool(value: Any) -> bool | None:
+    """Return a boolean parsed from ``value`` when recognised."""
+
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in TRUE_VALUES:
+            return True
+        if lowered in FALSE_VALUES:
+            return False
+    return None
+
+
+def _prepare_cache_config(data: Any) -> Dict[str, Any] | None:
+    """Normalise cache configuration values for :class:`CacheConfig`."""
+
+    if not isinstance(data, Mapping):
+        return None
+    prepared: Dict[str, Any] = {}
+    for key, value in data.items():
+        if isinstance(key, str) and key.lower() == "enabled":
+            bool_value = _coerce_bool(value)
+            prepared[key] = bool_value if bool_value is not None else value
+        else:
+            prepared[key] = value
+    return prepared
+
+
+def _load_section_settings(
+    data: Mapping[str, Any],
+    section: str,
+    *,
+    pipeline_cfg: PipelineConfig,
+    default_cache: CacheConfig | None = None,
+    default_backoff: float = 1.0,
+) -> SectionSettings:
+    """Return network, rate limit and cache settings for ``section``."""
+
+    section_cfg = _resolve_section_config(data, section)
+    timeout = _extract_numeric(
+        section_cfg,
+        paths=(
+            ("network", "timeout_sec"),
+            ("network", "timeout"),
+            ("timeout_sec",),
+            ("timeout",),
+        ),
+        default=pipeline_cfg.timeout_sec,
+        converter=float,
+    )
+    retries = _extract_numeric(
+        section_cfg,
+        paths=(
+            ("network", "max_retries"),
+            ("network", "retries"),
+            ("retry", "max_attempts"),
+            ("retries",),
+        ),
+        default=pipeline_cfg.retries,
+        converter=int,
+    )
+    backoff = _extract_numeric(
+        section_cfg,
+        paths=(
+            ("network", "backoff_sec"),
+            ("retry", "backoff_sec"),
+            ("backoff_sec",),
+            ("backoff",),
+            ("backoff_base_sec",),
+        ),
+        default=default_backoff,
+        converter=float,
+    )
+    rps = _extract_numeric(
+        section_cfg,
+        paths=(
+            ("rate_limit", "rps"),
+            ("rate", "rps"),
+            ("rps",),
+            ("rate_limit_rps",),
+        ),
+        default=pipeline_cfg.rate_limit_rps,
+        converter=float,
+    )
+    cache_cfg = CacheConfig.from_dict(_prepare_cache_config(section_cfg.get("cache")))
+    if cache_cfg is None:
+        cache_cfg = default_cache
+    return SectionSettings(
+        config=section_cfg,
+        network=NetworkSettings(
+            timeout_sec=timeout,
+            retries=retries,
+            backoff_sec=backoff,
+        ),
+        rate_limit=RateLimitSettings(rps=rps),
+        cache=cache_cfg,
+    )
 
 
 def merge_chembl_fields(
@@ -606,19 +793,32 @@ def build_clients(
 
     with open(cfg_path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
-    global_cache = default_cache or CacheConfig.from_dict(data.get("http_cache"))
-    uni_cfg = data["uniprot"]
-    fields = ",".join(uni_cfg.get("fields", []))
-    uni_cache = CacheConfig.from_dict(uni_cfg.get("cache")) or global_cache
+    http_cache_cfg = _resolve_section_config(data, "http_cache")
+    global_cache = default_cache or CacheConfig.from_dict(
+        _prepare_cache_config(http_cache_cfg)
+    )
+    uni_settings = _load_section_settings(
+        data,
+        "uniprot",
+        pipeline_cfg=pipeline_cfg,
+        default_cache=global_cache,
+    )
+    uni_cfg = uni_settings.config
+    raw_fields = uni_cfg.get("fields", [])
+    if isinstance(raw_fields, str):
+        fields = raw_fields
+    else:
+        fields = ",".join(str(field) for field in raw_fields)
     uni = UniProtClient(
         base_url=uni_cfg["base_url"],
         fields=fields,
         network=UniNetworkConfig(
-            timeout_sec=pipeline_cfg.timeout_sec,
-            max_retries=pipeline_cfg.retries,
+            timeout_sec=uni_settings.network.timeout_sec,
+            max_retries=uni_settings.network.retries,
+            backoff_sec=uni_settings.network.backoff_sec,
         ),
-        rate_limit=UniRateConfig(rps=pipeline_cfg.rate_limit_rps),
-        cache=uni_cache,
+        rate_limit=UniRateConfig(rps=uni_settings.rate_limit.rps),
+        cache=uni_settings.cache,
     )
 
     # The HGNC configuration is nested under the top-level "hgnc" section
@@ -626,22 +826,33 @@ def build_clients(
     # entire configuration dictionary to ``HGNCServiceConfig``, which would
     # otherwise raise ``TypeError`` due to unexpected keys.
     hcfg = load_hgnc_config(cfg_path, section="hgnc")
-    hcfg.network.timeout_sec = pipeline_cfg.timeout_sec
-    hcfg.network.max_retries = pipeline_cfg.retries
-    hcfg.rate_limit.rps = pipeline_cfg.rate_limit_rps
-    hcfg.cache = (
-        hcfg.cache
-        or CacheConfig.from_dict(data.get("hgnc", {}).get("cache"))
-        or global_cache
+    hgnc_settings = _load_section_settings(
+        data,
+        "hgnc",
+        pipeline_cfg=pipeline_cfg,
+        default_cache=global_cache,
     )
+    hgnc_base_url = _dig(hgnc_settings.config, ("hgnc", "base_url"))
+    if isinstance(hgnc_base_url, str):
+        hcfg.hgnc.base_url = hgnc_base_url
+    hcfg.network.timeout_sec = hgnc_settings.network.timeout_sec
+    hcfg.network.max_retries = hgnc_settings.network.retries
+    hcfg.rate_limit.rps = hgnc_settings.rate_limit.rps
+    hcfg.cache = hgnc_settings.cache
     hgnc = HGNCClient(hcfg)
 
+    gtop_settings = _load_section_settings(
+        data,
+        "gtop",
+        pipeline_cfg=pipeline_cfg,
+        default_cache=global_cache,
+    )
     gcfg = GtoPConfig(
-        base_url=data["gtop"]["base_url"],
-        timeout_sec=pipeline_cfg.timeout_sec,
-        max_retries=pipeline_cfg.retries,
-        rps=pipeline_cfg.rate_limit_rps,
-        cache=CacheConfig.from_dict(data.get("gtop", {}).get("cache")) or global_cache,
+        base_url=gtop_settings.config["base_url"],
+        timeout_sec=gtop_settings.network.timeout_sec,
+        max_retries=gtop_settings.network.retries,
+        rps=gtop_settings.rate_limit.rps,
+        cache=gtop_settings.cache,
     )
     gtop = GtoPClient(gcfg)
 
@@ -649,27 +860,36 @@ def build_clients(
     oma_client: OmaClient | None = None
     target_species: list[str] = []
     if with_orthologs:
-        orth_cfg = data.get("orthologs", {})
-        orth_cache = CacheConfig.from_dict(orth_cfg.get("cache")) or global_cache
+        orth_settings = _load_section_settings(
+            data,
+            "orthologs",
+            pipeline_cfg=pipeline_cfg,
+            default_cache=global_cache,
+        )
+        orth_cfg = orth_settings.config
         ens_client = EnsemblHomologyClient(
             base_url="https://rest.ensembl.org",
             network=UniNetworkConfig(
-                timeout_sec=pipeline_cfg.timeout_sec,
-                max_retries=pipeline_cfg.retries,
+                timeout_sec=orth_settings.network.timeout_sec,
+                max_retries=orth_settings.network.retries,
+                backoff_sec=orth_settings.network.backoff_sec,
             ),
-            rate_limit=UniRateConfig(rps=pipeline_cfg.rate_limit_rps),
-            cache=orth_cache,
+            rate_limit=UniRateConfig(rps=orth_settings.rate_limit.rps),
+            cache=orth_settings.cache,
         )
         oma_client = OmaClient(
             base_url="https://omabrowser.org/api",
             network=UniNetworkConfig(
-                timeout_sec=pipeline_cfg.timeout_sec,
-                max_retries=pipeline_cfg.retries,
+                timeout_sec=orth_settings.network.timeout_sec,
+                max_retries=orth_settings.network.retries,
+                backoff_sec=orth_settings.network.backoff_sec,
             ),
-            rate_limit=UniRateConfig(rps=pipeline_cfg.rate_limit_rps),
-            cache=orth_cache,
+            rate_limit=UniRateConfig(rps=orth_settings.rate_limit.rps),
+            cache=orth_settings.cache,
         )
-        target_species = list(orth_cfg.get("target_species", []))
+        target_species = [
+            str(species) for species in orth_cfg.get("target_species", [])
+        ]
     return uni, hgnc, gtop, ens_client, oma_client, target_species
 
 
@@ -816,7 +1036,6 @@ def main() -> None:
     cols = [c for c in out_df.columns if c not in IUPHAR_CLASS_COLUMNS]
     out_df = out_df[cols + IUPHAR_CLASS_COLUMNS]
 
- 
     sort_candidates = [
         "target_chembl_id",
         "uniprot_id_primary",
@@ -847,7 +1066,7 @@ def main() -> None:
         command_parts=tuple(sys.argv),
         meta_path=meta_path,
     )
- 
+
 
 if __name__ == "__main__":
     main()
