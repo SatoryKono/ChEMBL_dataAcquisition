@@ -73,6 +73,52 @@ IUPHAR_CLASS_COLUMNS = [
 ]
 
 
+_INVALID_IDENTIFIER_TOKENS = {
+    "",
+    "nan",
+    "none",
+    "null",
+    "na",
+    "n/a",
+}
+
+
+def _normalise_identifier_series(series: pd.Series) -> pd.Series:
+    """Return ``series`` as a cleaned string series with invalid entries removed.
+
+    Parameters
+    ----------
+    series:
+        Raw pandas series containing identifiers. The series may include
+        ``NaN`` values, empty strings, or string literals representing missing
+        data (for example ``"nan"`` or ``"None"``).
+
+    Returns
+    -------
+    pandas.Series
+        Series matching the original index where valid identifiers are
+        returned as stripped strings. Entries considered missing are replaced
+        by empty strings so downstream consumers can safely rely on
+        truthiness checks without special casing ``NaN`` values.
+    """
+
+    if series.empty:
+        return pd.Series([], index=series.index, dtype=object)
+
+    cleaned = series.dropna()
+    if cleaned.empty:
+        return pd.Series([""] * len(series), index=series.index, dtype=object)
+
+    text_values = cleaned.astype(str).map(str.strip)
+    valid = ~text_values.str.lower().isin(_INVALID_IDENTIFIER_TOKENS)
+    text_values = text_values[valid]
+
+    result = pd.Series([""] * len(series), index=series.index, dtype=object)
+    if not text_values.empty:
+        result.update(text_values.astype(object))
+    return result
+
+
 def merge_chembl_fields(
     pipeline_df: pd.DataFrame, chembl_df: pd.DataFrame
 ) -> pd.DataFrame:
@@ -359,7 +405,11 @@ def add_protein_classification(
         "protein_class_pred_confidence",
     ]
 
-    ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str)).astype(str)
+    raw_ids = pipeline_df.get(
+        "uniprot_id_primary",
+        pd.Series([""] * len(pipeline_df), index=pipeline_df.index, dtype=object),
+    )
+    ids = _normalise_identifier_series(raw_ids)
     unique_ids = [acc for acc in dict.fromkeys(ids) if acc]
     logger = logging.getLogger(__name__)
     entry_map: Dict[str, Any] = {}
@@ -459,7 +509,11 @@ def add_uniprot_fields(
         "TCDB": "TCDB",
     }
 
-    ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str)).astype(str)
+    raw_ids = pipeline_df.get(
+        "uniprot_id_primary",
+        pd.Series([""] * len(pipeline_df), index=pipeline_df.index, dtype=object),
+    )
+    ids = _normalise_identifier_series(raw_ids)
     mapping = fetch_all([i for i in ids if i])
 
     for out_col, src_col in col_map.items():
@@ -544,7 +598,11 @@ def add_activity_fields(
         columns populated. Existing columns are preserved.
     """
 
-    ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str)).astype(str)
+    raw_ids = pipeline_df.get(
+        "uniprot_id_primary",
+        pd.Series([""] * len(pipeline_df), index=pipeline_df.index, dtype=object),
+    )
+    ids = _normalise_identifier_series(raw_ids)
     cache: Dict[str, dict[str, str]] = {}
     for acc in ids:
         if not acc or acc in cache:
@@ -658,7 +716,11 @@ def add_isoform_fields(
         ``isoform_synonyms`` columns populated. Existing columns are preserved.
     """
 
-    ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str)).astype(str)
+    raw_ids = pipeline_df.get(
+        "uniprot_id_primary",
+        pd.Series([""] * len(pipeline_df), index=pipeline_df.index, dtype=object),
+    )
+    ids = _normalise_identifier_series(raw_ids)
     cache: Dict[str, dict[str, str]] = {}
     for acc in ids:
         if not acc or acc in cache:
@@ -723,7 +785,10 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional metadata YAML path",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.batch_size <= 0:
+        parser.error("--batch-size must be a positive integer")
+    return args
 
 
 def build_clients(
@@ -919,9 +984,8 @@ def main() -> None:
     df = pd.read_csv(args.input, sep=args.sep, encoding=args.encoding)
     if args.id_column not in df.columns:
         raise ValueError(f"Missing required column '{args.id_column}'")
-    ids_series = df[args.id_column].astype(str).map(str.strip)
-    ids_series = ids_series[ids_series != ""]
-    ids: List[str] = list(dict.fromkeys(ids_series))
+    ids_series = _normalise_identifier_series(df[args.id_column])
+    ids: List[str] = [acc for acc in dict.fromkeys(ids_series) if acc]
 
     # Fetch comprehensive ChEMBL data once and reuse it in the pipeline
     chembl_df = fetch_targets(ids, chembl_cfg, batch_size=args.batch_size)
@@ -996,9 +1060,7 @@ def main() -> None:
         out_df = out_df.sort_values(sort_columns).reset_index(drop=True)
 
     output_path = ensure_output_dir(Path(args.output).expanduser().resolve())
-    serialised_df = serialise_dataframe(
-        out_df, list_format=pipeline_cfg.list_format
-    )
+    serialised_df = serialise_dataframe(out_df, list_format=pipeline_cfg.list_format)
     serialised_df.to_csv(
         output_path,
         index=False,

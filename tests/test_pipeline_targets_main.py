@@ -6,7 +6,7 @@ from typing import Dict, Iterable
 import pandas as pd
 import yaml
 import pytest
- 
+
 sys.path.insert(0, str(Path("scripts")))
 from pipeline_targets_main import (
     _merge_species_lists,
@@ -90,10 +90,23 @@ def test_add_protein_classification_fetches_once() -> None:
         calls.append(collected)
         return {acc: samples["gpcr"] for acc in collected}
 
-    df = pd.DataFrame({"uniprot_id_primary": ["P00000", "", "P00000"]})
+    df = pd.DataFrame(
+        {
+            "uniprot_id_primary": [
+                "P00000",
+                "",
+                None,
+                pd.NA,
+                " NaN ",
+                "None",
+                "Q11111",
+                "P00000",
+            ]
+        }
+    )
     add_protein_classification(df, fetcher)
     assert len(calls) == 1
-    assert calls[0] == ["P00000"]
+    assert calls[0] == ["P00000", "Q11111"]
 
 
 def test_add_uniprot_fields() -> None:
@@ -165,6 +178,22 @@ def test_add_activity_fields() -> None:
     row = out.iloc[0]
     assert row["reactions"] == "X = Y"
     assert row["reaction_ec_numbers"] == "4.4.4.4"
+
+
+def test_add_activity_fields_skips_invalid_ids() -> None:
+    calls: list[str] = []
+
+    def fetch_entry(accession: str) -> dict:
+        calls.append(accession)
+        return {}
+
+    df = pd.DataFrame(
+        {
+            "uniprot_id_primary": [pd.NA, "", "NaN", "P00001", " None ", "P00001"],
+        }
+    )
+    add_activity_fields(df, fetch_entry)
+    assert calls == ["P00001"]
 
 
 def test_extract_isoform() -> None:
@@ -240,7 +269,9 @@ def test_merge_species_lists_prioritises_cli_values() -> None:
     assert combined == ["Mouse", "Human", "Rat"]
 
 
-def test_parse_args_with_orthologs_flag(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_parse_args_with_orthologs_flag(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text("{}\n", encoding="utf-8")
 
@@ -277,3 +308,32 @@ def test_parse_args_with_orthologs_flag(monkeypatch: pytest.MonkeyPatch, tmp_pat
     args_with_flag = parse_args()
     assert args_with_flag.with_orthologs is True
 
+
+def test_parse_args_rejects_non_positive_batch_size(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("{}\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "pipeline_targets_main",
+            "--input",
+            "input.csv",
+            "--output",
+            "output.csv",
+            "--config",
+            str(config_path),
+            "--batch-size",
+            "0",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        parse_args()
+
+    assert exc.value.code == 2
+    captured = capsys.readouterr()
+    assert "--batch-size must be a positive integer" in captured.err

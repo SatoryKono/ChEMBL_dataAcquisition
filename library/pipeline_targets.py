@@ -110,6 +110,16 @@ DEFAULT_COLUMNS = [
 ]
 
 
+_INVALID_IDENTIFIER_TOKENS = {
+    "",
+    "nan",
+    "none",
+    "null",
+    "na",
+    "n/a",
+}
+
+
 @dataclass
 class IupharConfig:
     """Settings for querying the IUPHAR/GtoP service."""
@@ -202,6 +212,36 @@ def load_pipeline_config(path: str) -> PipelineConfig:
 
 # ---------------------------------------------------------------------------
 # Utility functions
+
+
+def _clean_target_ids(ids: Sequence[Any]) -> List[str]:
+    """Return identifiers stripped of ``None`` and placeholder values.
+
+    Parameters
+    ----------
+    ids:
+        Sequence of raw identifiers which may include ``None``, empty strings,
+        or textual placeholders such as ``"nan"`` or ``"None"``.
+
+    Returns
+    -------
+    list[str]
+        List containing the cleaned identifiers while preserving their input
+        order. Entries matching :data:`_INVALID_IDENTIFIER_TOKENS` are
+        discarded.
+    """
+
+    cleaned: List[str] = []
+    for raw in ids:
+        if raw is None:
+            continue
+        text = str(raw).strip()
+        if not text:
+            continue
+        if text.lower() in _INVALID_IDENTIFIER_TOKENS:
+            continue
+        cleaned.append(text)
+    return cleaned
 
 
 def _serialise_list(items: Sequence[Any], list_format: str) -> str:
@@ -401,8 +441,12 @@ def run_pipeline(
         Can be used to update external progress indicators.
     """
 
+    valid_ids = _clean_target_ids(ids)
+    if not valid_ids:
+        return pd.DataFrame(columns=cfg.columns)
+
     chembl_cfg = chembl_config or TargetConfig(list_format=cfg.list_format)
-    chembl_df = chembl_fetcher(ids, chembl_cfg)
+    chembl_df = chembl_fetcher(valid_ids, chembl_cfg)
     records: List[Dict[str, Any]] = []
     for row in chembl_df.to_dict(orient="records"):
         chembl_id = row.get("target_chembl_id", "")
