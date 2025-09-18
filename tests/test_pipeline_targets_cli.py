@@ -108,8 +108,15 @@ def test_pipeline_targets_cli_writes_outputs(
             data[column] = ""
         return data
 
+    enrich_call: dict[str, Any] = {}
+
     def fake_build_clients(*_args: Any, **_kwargs: Any) -> tuple[Any, ...]:
-        return DummyUniClient(), object(), object(), None, None, []
+        def _factory(*args: Any, **kwargs: Any) -> DummyEnrichClient:
+            enrich_call["args"] = args
+            enrich_call["kwargs"] = kwargs
+            return DummyEnrichClient()
+
+        return DummyUniClient(), object(), object(), None, None, [], _factory
 
     captured: dict[str, Any] = {"call_count": 0}
 
@@ -122,15 +129,6 @@ def test_pipeline_targets_cli_writes_outputs(
     monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
     monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
-
-    enrich_call: dict[str, Any] = {}
-
-    def fake_enrich_client(*args: Any, **kwargs: Any) -> DummyEnrichClient:
-        enrich_call["args"] = args
-        enrich_call["kwargs"] = kwargs
-        return DummyEnrichClient()
-
-    monkeypatch.setattr(module, "UniProtEnrichClient", fake_enrich_client)
     monkeypatch.setattr(module, "analyze_table_quality", fake_analyze_table_quality)
 
     argv = [
@@ -235,7 +233,15 @@ def test_pipeline_targets_cli_filters_invalid_ids(
             return {acc: {} for acc in accessions}
 
     def fake_build_clients(*_args: Any, **_kwargs: Any) -> tuple[Any, ...]:
-        return object(), object(), object(), None, None, []
+        return (
+            object(),
+            object(),
+            object(),
+            None,
+            None,
+            [],
+            lambda *a, **k: DummyEnrichClient(),
+        )
 
     monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
     monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
@@ -252,7 +258,6 @@ def test_pipeline_targets_cli_filters_invalid_ids(
 
     monkeypatch.setattr(module, "add_iuphar_classification", _ensure_iuphar_columns)
     monkeypatch.setattr(module, "add_protein_classification", _identity_frame)
-    monkeypatch.setattr(module, "UniProtEnrichClient", lambda *a, **k: DummyEnrichClient())
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
     monkeypatch.setattr(module, "analyze_table_quality", lambda *args, **kwargs: None)
     monkeypatch.setattr(
@@ -361,7 +366,15 @@ def test_pipeline_targets_cli_uses_configured_list_format(
             return {accession: {} for accession in accessions}
 
     def fake_build_clients(*_args: Any, **_kwargs: Any) -> tuple[Any, ...]:
-        return DummyUniClient(), object(), object(), None, None, []
+        return (
+            DummyUniClient(),
+            object(),
+            object(),
+            None,
+            None,
+            [],
+            lambda *a, **k: _dummy_enrich_client(),
+        )
 
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
 
@@ -386,7 +399,6 @@ def test_pipeline_targets_cli_uses_configured_list_format(
     monkeypatch.setattr(module, "merge_chembl_fields", _identity_frame)
     monkeypatch.setattr(module, "add_activity_fields", _identity_frame)
     monkeypatch.setattr(module, "add_protein_classification", _identity_frame)
-    monkeypatch.setattr(module, "UniProtEnrichClient", _dummy_enrich_client)
     monkeypatch.setattr(module, "analyze_table_quality", _noop_analyze_table_quality)
     monkeypatch.setattr(
         module, "write_cli_metadata", lambda *args, **kwargs: tmp_path / "meta.yaml"
@@ -449,7 +461,15 @@ orthologs:
 
     def fake_build_clients(*_args: Any, **kwargs: Any) -> tuple[Any, ...]:
         captured["with_orthologs"] = kwargs.get("with_orthologs")
-        return DummyUniClient(), object(), object(), None, None, []
+        return (
+            DummyUniClient(),
+            object(),
+            object(),
+            None,
+            None,
+            [],
+            lambda *a, **k: _dummy_enrich_client(),
+        )
 
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
 
@@ -480,7 +500,6 @@ orthologs:
     monkeypatch.setattr(module, "merge_chembl_fields", _identity_frame)
     monkeypatch.setattr(module, "add_activity_fields", _identity_frame)
     monkeypatch.setattr(module, "add_protein_classification", _identity_frame)
-    monkeypatch.setattr(module, "UniProtEnrichClient", _dummy_enrich_client)
     monkeypatch.setattr(module, "analyze_table_quality", _noop_analyze_table_quality)
     monkeypatch.setattr(
         module, "write_cli_metadata", lambda *args, **kwargs: tmp_path / "meta.yaml"
@@ -547,7 +566,15 @@ orthologs:
 
     def fake_build_clients(*_args: Any, **kwargs: Any) -> tuple[Any, ...]:
         captured["with_orthologs"] = kwargs.get("with_orthologs")
-        return DummyUniClient(), object(), object(), None, None, []
+        return (
+            DummyUniClient(),
+            object(),
+            object(),
+            None,
+            None,
+            [],
+            lambda *a, **k: _dummy_enrich_client(),
+        )
 
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
 
@@ -577,7 +604,6 @@ orthologs:
     monkeypatch.setattr(module, "merge_chembl_fields", _identity_frame)
     monkeypatch.setattr(module, "add_activity_fields", _identity_frame)
     monkeypatch.setattr(module, "add_protein_classification", _identity_frame)
-    monkeypatch.setattr(module, "UniProtEnrichClient", _dummy_enrich_client)
     monkeypatch.setattr(module, "analyze_table_quality", _noop_analyze_table_quality)
     monkeypatch.setattr(module, "write_cli_metadata", _fake_write_metadata)
 
@@ -612,6 +638,115 @@ orthologs:
     assert captured["approved_only"] is False
     assert captured["primary_target_only"] is True
     assert captured["with_orthologs"] is True
+
+
+def test_pipeline_targets_cli_network_overrides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Network-related CLI overrides should propagate to the enrich client."""
+
+    module: Any = importlib.import_module("scripts.pipeline_targets_main")
+
+    input_csv = tmp_path / "input.csv"
+    input_csv.write_text("target_chembl_id\nCHEMBL1\n", encoding="utf-8")
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("{}\n", encoding="utf-8")
+
+    expected_timeout = 45.5
+    expected_retries = 7
+    expected_rate = 3.5
+
+    captured: dict[str, Any] = {}
+
+    class DummyUniClient:
+        def fetch_entry_json(self, accession: str) -> dict[str, Any]:
+            return {}
+
+        def fetch_entries_json(
+            self, accessions: list[str], batch_size: int = 0
+        ) -> dict[str, dict[str, Any]]:
+            return {accession: {} for accession in accessions}
+
+    def fake_build_clients(
+        cfg_path: str,
+        pipeline_cfg: Any,
+        *,
+        with_orthologs: bool = False,
+        default_cache: Any = None,
+    ) -> tuple[Any, ...]:
+        captured["timeout"] = pipeline_cfg.timeout_sec
+        captured["retries"] = pipeline_cfg.retries
+        captured["rate_limit"] = pipeline_cfg.rate_limit_rps
+
+        def enrich_factory(*_args: Any, **kwargs: Any) -> Any:
+            captured["factory_timeout"] = pipeline_cfg.timeout_sec
+            captured["factory_retries"] = pipeline_cfg.retries
+            captured["factory_rate"] = pipeline_cfg.rate_limit_rps
+            captured["enrich_kwargs"] = kwargs
+            return _dummy_enrich_client()
+
+        return (
+            DummyUniClient(),
+            object(),
+            object(),
+            None,
+            None,
+            [],
+            enrich_factory,
+        )
+
+    monkeypatch.setattr(module, "build_clients", fake_build_clients)
+
+    def fake_fetch_targets(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
+        return pd.DataFrame({"target_chembl_id": ids})
+
+    monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
+
+    def fake_run_pipeline(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
+        data: dict[str, Any] = {
+            "target_chembl_id": ids,
+            "uniprot_id_primary": ["P001" for _ in ids],
+            "gene_symbol": ["GENE" for _ in ids],
+        }
+        for column in module.IUPHAR_CLASS_COLUMNS:
+            data[column] = [""] * len(ids)
+        return pd.DataFrame(data)
+
+    monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
+    monkeypatch.setattr(module, "add_uniprot_fields", _identity_frame)
+    monkeypatch.setattr(module, "merge_chembl_fields", _identity_frame)
+    monkeypatch.setattr(module, "add_activity_fields", _identity_frame)
+    monkeypatch.setattr(module, "add_protein_classification", _identity_frame)
+    monkeypatch.setattr(module, "analyze_table_quality", _noop_analyze_table_quality)
+    monkeypatch.setattr(module, "write_cli_metadata", _fake_write_metadata)
+
+    argv = [
+        "pipeline_targets_main",
+        "--input",
+        str(input_csv),
+        "--output",
+        str(tmp_path / "targets.csv"),
+        "--config",
+        str(config_path),
+        "--timeout-sec",
+        str(expected_timeout),
+        "--retries",
+        str(expected_retries),
+        "--rate-limit-rps",
+        str(expected_rate),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    module.main()
+
+    assert captured["timeout"] == pytest.approx(expected_timeout)
+    assert captured["retries"] == expected_retries
+    assert captured["rate_limit"] == pytest.approx(expected_rate)
+    assert captured["factory_timeout"] == pytest.approx(expected_timeout)
+    assert captured["factory_retries"] == expected_retries
+    assert captured["factory_rate"] == pytest.approx(expected_rate)
+    assert captured["enrich_kwargs"]["cache_config"] is None
 
 
 def test_pipeline_targets_cli_accepts_null_sections(
@@ -652,7 +787,15 @@ uniprot_enrich: null
     def fake_build_clients(*_args: Any, **kwargs: Any) -> tuple[Any, ...]:
         captured["with_orthologs"] = kwargs.get("with_orthologs")
         captured["default_cache"] = kwargs.get("default_cache")
-        return DummyUniClient(), object(), object(), None, None, []
+        return (
+            DummyUniClient(),
+            object(),
+            object(),
+            None,
+            None,
+            [],
+            lambda *a, **k: _dummy_enrich_client(),
+        )
 
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
 
@@ -677,7 +820,6 @@ uniprot_enrich: null
     monkeypatch.setattr(module, "merge_chembl_fields", _identity_frame)
     monkeypatch.setattr(module, "add_activity_fields", _identity_frame)
     monkeypatch.setattr(module, "add_protein_classification", _identity_frame)
-    monkeypatch.setattr(module, "UniProtEnrichClient", _dummy_enrich_client)
     monkeypatch.setattr(module, "analyze_table_quality", _noop_analyze_table_quality)
     monkeypatch.setattr(module, "write_cli_metadata", _fake_write_metadata)
 

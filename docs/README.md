@@ -213,6 +213,12 @@ enrichment follows the ``orthologs.enabled`` setting unless either
 ``--with-orthologs`` or ``--no-with-orthologs`` is supplied, providing an easy
 way to enable or disable the feature without editing YAML files.
 
+Environment variables prefixed with ``CHEMBL_DA__PIPELINE__`` offer an
+alternative override mechanism when editing configuration files is not
+practical. For instance ``CHEMBL_DA__PIPELINE__LIST_FORMAT=pipe`` switches list
+serialisation globally, while ``CHEMBL_DA__PIPELINE__IUPHAR__APPROVED_ONLY=true``
+enables the corresponding IUPHAR filter.
+
 Optional sections such as ``orthologs``, ``chembl`` or ``uniprot_enrich`` can be
 set to ``null`` in the configuration file when they are not required. The
 pipeline falls back to sensible defaults in this case while still allowing the

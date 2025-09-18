@@ -1,12 +1,12 @@
 import json
 import sys
 from pathlib import Path
-from typing import Dict, Iterable
+from typing import Any, Dict, Iterable
 
 import pandas as pd
 import yaml
 import pytest
- 
+
 sys.path.insert(0, str(Path("scripts")))
 from pipeline_targets_main import (
     _merge_species_lists,
@@ -16,7 +16,6 @@ from pipeline_targets_main import (
     add_isoform_fields,
     add_protein_classification,
     add_uniprot_fields,
-    build_clients,
     extract_activity,
     extract_isoform,
     merge_chembl_fields,
@@ -232,15 +231,56 @@ def test_add_isoform_fields() -> None:
     assert row["isoform_synonyms"] == "Alpha"
 
 
-def test_build_clients_infers_uniprot_fields() -> None:
-    pipeline_cfg = PipelineConfig()
-    uni_client, *_ = build_clients("config.yaml", pipeline_cfg)
+def test_build_clients_infers_uniprot_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pipeline_cfg = PipelineConfig(timeout_sec=12.0, retries=4, rate_limit_rps=1.5)
+    import pipeline_targets_main as module
+
+    captured: dict[str, Any] = {}
+
+    def fake_enrich_client(*_args: Any, **kwargs: Any) -> object:
+        captured["kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr(module, "UniProtEnrichClient", fake_enrich_client)
+
+    (
+        uni_client,
+        _hgnc_client,
+        _gtop_client,
+        _ens_client,
+        _oma_client,
+        _target_species,
+        enrich_factory,
+    ) = module.build_clients("config.yaml", pipeline_cfg)
 
     config = yaml.safe_load(Path("config.yaml").read_text())
     uniprot_columns = config["uniprot"]["columns"]
     field_set = {field for field in uni_client.fields.split(",") if field}
 
     assert set(uniprot_columns).issubset(field_set)
+
+    enrich_factory()
+    assert captured["kwargs"]["request_timeout"] == pytest.approx(
+        pipeline_cfg.timeout_sec
+    )
+    assert captured["kwargs"]["max_retries"] == pipeline_cfg.retries
+    assert captured["kwargs"]["rate_limit_rps"] == pytest.approx(
+        pipeline_cfg.rate_limit_rps
+    )
+
+
+def test_build_clients_uses_uniprot_rate_limit_from_config() -> None:
+    pipeline_cfg = PipelineConfig()
+    pipeline_cfg.rate_limit_rps = 0.25
+
+    uni_client, *_ = build_clients("config.yaml", pipeline_cfg)
+
+    config = yaml.safe_load(Path("config.yaml").read_text())
+    configured_rps = float(config["uniprot"]["rps"])
+
+    assert uni_client.rate_limit.rps == configured_rps
 
 
 def test_parse_species_argument_splits_and_deduplicates() -> None:
@@ -253,7 +293,9 @@ def test_merge_species_lists_prioritises_cli_values() -> None:
     assert combined == ["Mouse", "Human", "Rat"]
 
 
-def test_parse_args_with_orthologs_flag(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_parse_args_with_orthologs_flag(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text("orthologs:\n  enabled: true\n", encoding="utf-8")
 
@@ -326,4 +368,5 @@ def test_parse_args_rejects_non_positive_batch_size(
     )
     with pytest.raises(SystemExit):
         parse_args()
+
 
