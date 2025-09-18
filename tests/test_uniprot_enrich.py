@@ -5,6 +5,8 @@ import pandas as pd
 import pytest
 import requests_mock
 
+from library.http_client import CacheConfig, HttpClient  # type: ignore  # noqa: E402
+from library.uniprot_enrich.enrich import UniProtClient  # type: ignore  # noqa: E402
 from uniprot_enrich import enrich_uniprot
 
 MOCK_ENTRY = {
@@ -148,3 +150,26 @@ def test_enrich_uniprot(data_file: Path) -> None:
         enrich_uniprot.__globals__["OUTPUT_COLUMNS"]
     )
     assert list(df.columns) == expected_cols
+
+
+def test_fetch_all_uses_http_cache(tmp_path: Path) -> None:
+    cache = CacheConfig(
+        enabled=True,
+        path=str(tmp_path / "cache" / "uniprot"),
+        ttl_seconds=60,
+    )
+    http_client = HttpClient(timeout=1.0, max_retries=1, rps=0.0, cache_config=cache)
+    client = UniProtClient(http_client=http_client)
+    url = "https://rest.uniprot.org/uniprotkb/P12345?format=json"
+    with requests_mock.Mocker() as m:
+        m.get(url, json=MOCK_ENTRY)
+        m.get(
+            "https://rest.uniprot.org/uniprotkb/Q99999?format=json",
+            json=MOCK_SECONDARY,
+        )
+        client.fetch_all(["P12345"])
+        assert m.call_count == 2
+        # Clear in-memory cache to validate HTTP layer caching behaviour.
+        client.cache.clear()
+        client.fetch_all(["P12345"])
+        assert m.call_count == 2

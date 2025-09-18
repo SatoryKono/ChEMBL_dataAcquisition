@@ -1,9 +1,7 @@
 import logging
-import random
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, Iterable, List, Optional
 from pathlib import Path
+from typing import Dict, Iterable, List, Optional
 
 import pandas as pd
 import requests  # type: ignore[import-untyped]
@@ -12,6 +10,11 @@ try:
     from data_profiling import analyze_table_quality
 except ModuleNotFoundError:  # pragma: no cover
     from ..data_profiling import analyze_table_quality
+
+try:  # pragma: no cover - support script execution without package context
+    from ..http_client import CacheConfig, HttpClient
+except (ModuleNotFoundError, ImportError):  # pragma: no cover
+    from library.http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
 
 OUTPUT_COLUMNS = [
     "uniprotkb_Id",
@@ -96,8 +99,9 @@ class UniProtClient:
 
     Attributes
     ----------
-    session:
-        A `requests.Session` object for making HTTP requests.
+    http_client:
+        High level HTTP client handling retries, rate limiting, and optional
+        persistent caching.
     max_workers:
         The maximum number of threads to use for concurrent requests.
     base_url:
@@ -110,12 +114,24 @@ class UniProtClient:
 
     def __init__(
         self,
-        session: Optional[requests.Session] = None,
+        http_client: Optional[HttpClient] = None,
+        *,
+        cache_config: Optional[CacheConfig] = None,
         max_workers: int = 4,
         base_url: str = "https://rest.uniprot.org/uniprotkb",
         list_sep: str = "|",
+        request_timeout: float = 30.0,
+        max_retries: int = 5,
+        rate_limit_rps: float = 0.0,
+        session: Optional[requests.Session] = None,
     ) -> None:
-        self.session = session or requests.Session()
+        self.http_client = http_client or HttpClient(
+            timeout=request_timeout,
+            max_retries=max_retries,
+            rps=rate_limit_rps,
+            cache_config=cache_config,
+            session=session,
+        )
         self.max_workers = max_workers
         self.base_url = base_url.rstrip("/")
         self.cache: Dict[str, Dict[str, str]] = {}
@@ -143,25 +159,12 @@ class UniProtClient:
         Optional[requests.Response]
             The HTTP response object if the request is successful, otherwise None.
         """
-        last_exc: Optional[Exception] = None
-        for attempt in range(5):
-            try:
-                resp = self.session.request(method, url, timeout=30, **kwargs)
-            except requests.RequestException as exc:  # network errors
-                last_exc = exc
-                wait = (2**attempt) + random.random()
-                time.sleep(wait)
-                continue
-            if resp.status_code == 200:
-                return resp
-            if resp.status_code in {429, 500, 502, 503, 504}:
-                wait = (2**attempt) + random.random()
-                time.sleep(wait)
-                continue
-            return resp
-        if last_exc:
-            raise RuntimeError(f"Failed to fetch {url}: {last_exc}")
-        return None
+        try:
+            response = self.http_client.request(method.lower(), url, **kwargs)
+        except requests.RequestException as exc:
+            LOGGER.warning("Request failed for %s: %s", url, exc)
+            return None
+        return response
 
     def _fetch_single(self, accession: str) -> Optional[dict]:
         """Fetch a single UniProt entry by its accession number.

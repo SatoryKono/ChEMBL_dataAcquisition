@@ -35,9 +35,7 @@ def test_pipeline_targets_cli_writes_outputs(
         serialise_stats["columns"] = list(df.columns)
         return original_serialise(df, list_format)
 
-    monkeypatch.setattr(
-        module, "serialise_dataframe", tracking_serialise_dataframe
-    )
+    monkeypatch.setattr(module, "serialise_dataframe", tracking_serialise_dataframe)
 
     original_write_metadata = module.write_cli_metadata
     metadata_stats: dict[str, Any] = {"calls": 0}
@@ -48,9 +46,7 @@ def test_pipeline_targets_cli_writes_outputs(
         metadata_stats["kwargs"] = kwargs
         return original_write_metadata(*args, **kwargs)
 
-    monkeypatch.setattr(
-        module, "write_cli_metadata", tracking_write_cli_metadata
-    )
+    monkeypatch.setattr(module, "write_cli_metadata", tracking_write_cli_metadata)
 
     input_csv = tmp_path / "input.csv"
     input_csv.write_text(
@@ -126,7 +122,15 @@ def test_pipeline_targets_cli_writes_outputs(
     monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
     monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
-    monkeypatch.setattr(module, "UniProtEnrichClient", lambda: DummyEnrichClient())
+
+    enrich_call: dict[str, Any] = {}
+
+    def fake_enrich_client(*args: Any, **kwargs: Any) -> DummyEnrichClient:
+        enrich_call["args"] = args
+        enrich_call["kwargs"] = kwargs
+        return DummyEnrichClient()
+
+    monkeypatch.setattr(module, "UniProtEnrichClient", fake_enrich_client)
     monkeypatch.setattr(module, "analyze_table_quality", fake_analyze_table_quality)
 
     argv = [
@@ -152,9 +156,9 @@ def test_pipeline_targets_cli_writes_outputs(
     assert list(result_df["target_chembl_id"]) == ["CHEMBL1", "CHEMBL2", "CHEMBL2"]
     assert list(result_df["uniprot_id_primary"]) == ["P100", "P010", "P200"]
     assert result_df["synonyms_all"].tolist() == [
-        "[\"a-first\",\"b-first\"]",
-        "[\"m-middle\"]",
-        "[\"z-last\"]",
+        '["a-first","b-first"]',
+        '["m-middle"]',
+        '["z-last"]',
     ]
     assert result_df["cross_references"].tolist() == [
         '{"source": "first"}',
@@ -185,3 +189,4 @@ def test_pipeline_targets_cli_writes_outputs(
     assert serialise_stats["list_format"] == "json"
     assert metadata_stats["calls"] == 1
     assert metadata_stats["kwargs"].get("meta_path") is None
+    assert enrich_call["kwargs"].get("cache_config") is None
