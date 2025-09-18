@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 from typing import Iterable, List
+from urllib.parse import quote
 
 import requests  # type: ignore[import-untyped]
 import pandas as pd
@@ -152,9 +153,9 @@ def test_add_pubchem_data_fetches_cid_after_property_failure(
         ]
     )
 
+    property_suffix = ",".join(prop for prop in PUBCHEM_PROPERTIES if prop != "CID")
     requests_mock.get(
-        f"{PUBCHEM_BASE_URL}/compound/smiles/C/property/"
-        "CID,MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
+        f"{PUBCHEM_BASE_URL}/compound/smiles/C/property/{property_suffix}/JSON",
         status_code=500,
         json={"Fault": "error"},
     )
@@ -168,6 +169,59 @@ def test_add_pubchem_data_fetches_cid_after_property_failure(
     assert requests_mock.call_count == 2
     assert enriched.loc[0, "pubchem_cid"] == 123
     assert pd.isna(enriched.loc[0, "pubchem_molecular_formula"])
+
+
+def test_add_pubchem_data_falls_back_to_post_on_bad_request(
+    requests_mock: requests_mock_lib.Mocker,
+) -> None:
+    smiles = "C/C=C(/C=O)[C@@H](CC=O)CC(=O)OCCc1ccc(O)cc1"
+    encoded = quote(smiles, safe="")
+    df = pd.DataFrame(
+        [
+            {"molecule_chembl_id": "CHEMBL1", "canonical_smiles": smiles},
+        ]
+    )
+
+    property_suffix = ",".join(prop for prop in PUBCHEM_PROPERTIES if prop != "CID")
+    requests_mock.get(
+        f"{PUBCHEM_BASE_URL}/compound/smiles/{encoded}/property/{property_suffix}/JSON",
+        status_code=400,
+        json={"Fault": {"Message": "Bad Request"}},
+    )
+    requests_mock.post(
+        f"{PUBCHEM_BASE_URL}/compound/smiles/property/{property_suffix}/JSON",
+        json={
+            "PropertyTable": {
+                "Properties": [
+                    {
+                        "MolecularFormula": "C17H20O5",
+                        "MolecularWeight": 304.0,
+                        "TPSA": 72.83,
+                        "XLogP": 2.5,
+                        "HBondDonorCount": 1,
+                        "HBondAcceptorCount": 5,
+                        "RotatableBondCount": 6,
+                    }
+                ]
+            }
+        },
+    )
+    requests_mock.get(
+        f"{PUBCHEM_BASE_URL}/compound/smiles/{encoded}/cids/JSON",
+        status_code=400,
+        json={"Fault": {"Message": "Bad Request"}},
+    )
+    requests_mock.post(
+        f"{PUBCHEM_BASE_URL}/compound/smiles/cids/JSON",
+        json={"IdentifierList": {"CID": [11652416]}},
+    )
+
+    enriched = add_pubchem_data(df, http_client_config={"max_retries": 1, "rps": 0.0})
+
+    assert requests_mock.call_count == 4
+    assert [req.method for req in requests_mock.request_history].count("POST") == 2
+    assert enriched.loc[0, "pubchem_cid"] == 11652416
+    assert enriched.loc[0, "pubchem_molecular_formula"] == "C17H20O5"
 
 
 def test_add_pubchem_data_handles_missing_smiles() -> None:
