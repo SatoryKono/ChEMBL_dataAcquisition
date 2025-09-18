@@ -110,6 +110,9 @@ DEFAULT_COLUMNS = [
 ]
 
 
+_INVALID_ID_TOKENS = {"", "nan", "none", "null"}
+
+
 @dataclass
 class IupharConfig:
     """Settings for querying the IUPHAR/GtoP service."""
@@ -357,6 +360,37 @@ def _select_primary(
 # Core orchestration
 
 
+def _normalise_target_ids(ids: Sequence[str]) -> List[str]:
+    """Return target identifiers stripped of placeholders and whitespace.
+
+    Parameters
+    ----------
+    ids:
+        Sequence of raw identifiers potentially containing empty strings or
+        placeholder tokens such as ``"nan"``.
+
+    Returns
+    -------
+    list[str]
+        Cleaned identifiers preserving the original order with placeholder
+        values removed.
+    """
+
+    cleaned: List[str] = []
+    for raw in ids:
+        if raw is None:
+            continue
+        if isinstance(raw, float) and isnan(raw):
+            continue
+        candidate = str(raw).strip()
+        if not candidate:
+            continue
+        if candidate.lower() in _INVALID_ID_TOKENS:
+            continue
+        cleaned.append(candidate)
+    return cleaned
+
+
 def run_pipeline(
     ids: Sequence[str],
     cfg: PipelineConfig,
@@ -399,8 +433,17 @@ def run_pipeline(
     progress_callback:
         Optional callback receiving the incremental count of processed records.
         Can be used to update external progress indicators.
+
+    Raises
+    ------
+    ValueError
+        If ``ids`` does not contain any valid identifiers after normalisation.
     """
 
+    ids = _normalise_target_ids(ids)
+    if not ids:
+        msg = "No valid target identifiers provided."
+        raise ValueError(msg)
     chembl_cfg = chembl_config or TargetConfig(list_format=cfg.list_format)
     chembl_df = chembl_fetcher(ids, chembl_cfg)
     records: List[Dict[str, Any]] = []

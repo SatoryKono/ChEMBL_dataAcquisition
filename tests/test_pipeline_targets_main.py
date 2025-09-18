@@ -1,7 +1,7 @@
 import json
 import sys
 from pathlib import Path
-from typing import Dict, Iterable
+from typing import Any, Dict, Iterable
 
 import pandas as pd
 import yaml
@@ -90,6 +90,30 @@ def test_add_protein_classification_fetches_once() -> None:
     add_protein_classification(df, fetcher)
     assert len(calls) == 1
     assert calls[0] == ["P00000"]
+
+
+def test_add_uniprot_fields_skips_invalid_identifiers() -> None:
+    df = pd.DataFrame(
+        {
+            "uniprot_id_primary": [
+                "P12345",
+                "",
+                "NONE",
+                float("nan"),
+                " NaN ",
+            ]
+        }
+    )
+    captured: Dict[str, Any] = {}
+
+    def fake_fetch_all(accessions: Iterable[str]) -> Dict[str, Dict[str, str]]:
+        captured["ids"] = list(accessions)
+        return {"P12345": {"recommended_name": "Protein X"}}
+
+    result = add_uniprot_fields(df.copy(), fake_fetch_all)
+    assert captured["ids"] == ["P12345"]
+    assert result.loc[0, "recommendedName"] == "Protein X"
+    assert result.loc[1:, "recommendedName"].tolist() == ["", "", "", ""]
 
 
 def test_add_uniprot_fields() -> None:

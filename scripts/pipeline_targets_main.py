@@ -73,6 +73,37 @@ IUPHAR_CLASS_COLUMNS = [
 ]
 
 
+_INVALID_ID_STRINGS = {"", "nan", "none", "null"}
+
+
+def _normalise_identifier_series(series: pd.Series) -> pd.Series:
+    """Return ``series`` as stripped strings with placeholder values removed.
+
+    Parameters
+    ----------
+    series:
+        Input series potentially containing missing values, whitespace padded
+        identifiers or textual placeholders such as ``"NaN"``.
+
+    Returns
+    -------
+    pandas.Series
+        Series of strings sharing the original index where invalid entries are
+        replaced by empty strings.
+    """
+
+    if series.empty:
+        return pd.Series(dtype=str)
+    non_null = series.dropna()
+    if non_null.empty:
+        return pd.Series([""] * len(series), index=series.index, dtype=str)
+    as_str = non_null.astype(str).map(str.strip)
+    cleaned = as_str.mask(as_str.str.lower().isin(_INVALID_ID_STRINGS), "")
+    result = pd.Series([""] * len(series), index=series.index, dtype=str)
+    result.loc[cleaned.index] = cleaned
+    return result
+
+
 def merge_chembl_fields(
     pipeline_df: pd.DataFrame, chembl_df: pd.DataFrame
 ) -> pd.DataFrame:
@@ -295,8 +326,9 @@ def add_protein_classification(
         "protein_class_pred_confidence",
     ]
 
-    ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str)).astype(str)
-    unique_ids = [acc for acc in dict.fromkeys(ids) if acc]
+    raw_ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str))
+    ids = _normalise_identifier_series(raw_ids)
+    unique_ids = [acc for acc in dict.fromkeys(ids.tolist()) if acc]
     logger = logging.getLogger(__name__)
     entry_map: Dict[str, Any] = {}
     fetched_entries: Dict[str, Any] = {}
@@ -395,14 +427,19 @@ def add_uniprot_fields(
         "TCDB": "TCDB",
     }
 
-    ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str)).astype(str)
-    mapping = fetch_all([i for i in ids if i])
+    raw_ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str))
+    ids = _normalise_identifier_series(raw_ids)
+    id_list = ids.tolist()
+    valid_ids = [i for i in id_list if i]
+    mapping: Dict[str, Dict[str, str]] = {}
+    if valid_ids:
+        mapping = fetch_all(valid_ids) or {}
 
     for out_col, src_col in col_map.items():
         if out_col in pipeline_df.columns:
             # Respect existing columns to avoid overwriting prior values.
             continue
-        pipeline_df[out_col] = [mapping.get(i, {}).get(src_col, "") for i in ids]
+        pipeline_df[out_col] = [mapping.get(i, {}).get(src_col, "") for i in id_list]
     return pipeline_df
 
 
@@ -480,9 +517,10 @@ def add_activity_fields(
         columns populated. Existing columns are preserved.
     """
 
-    ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str)).astype(str)
+    raw_ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str))
+    ids = _normalise_identifier_series(raw_ids)
     cache: Dict[str, dict[str, str]] = {}
-    for acc in ids:
+    for acc in ids.tolist():
         if not acc or acc in cache:
             continue
         entry = fetch_entry(acc)
@@ -492,9 +530,10 @@ def add_activity_fields(
             else {"reactions": "", "reaction_ec_numbers": ""}
         )
     pipeline_df = pipeline_df.copy()
-    pipeline_df["reactions"] = [cache.get(i, {}).get("reactions", "") for i in ids]
+    id_list = ids.tolist()
+    pipeline_df["reactions"] = [cache.get(i, {}).get("reactions", "") for i in id_list]
     pipeline_df["reaction_ec_numbers"] = [
-        cache.get(i, {}).get("reaction_ec_numbers", "") for i in ids
+        cache.get(i, {}).get("reaction_ec_numbers", "") for i in id_list
     ]
     return pipeline_df
 
@@ -594,9 +633,10 @@ def add_isoform_fields(
         ``isoform_synonyms`` columns populated. Existing columns are preserved.
     """
 
-    ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str)).astype(str)
+    raw_ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str))
+    ids = _normalise_identifier_series(raw_ids)
     cache: Dict[str, dict[str, str]] = {}
-    for acc in ids:
+    for acc in ids.tolist():
         if not acc or acc in cache:
             continue
         entry = fetch_entry(acc)
@@ -610,14 +650,15 @@ def add_isoform_fields(
             }
         )
     pipeline_df = pipeline_df.copy()
+    id_list = ids.tolist()
     pipeline_df["isoform_names"] = [
-        cache.get(i, {}).get("isoform_names", "None") for i in ids
+        cache.get(i, {}).get("isoform_names", "None") for i in id_list
     ]
     pipeline_df["isoform_ids"] = [
-        cache.get(i, {}).get("isoform_ids", "None") for i in ids
+        cache.get(i, {}).get("isoform_ids", "None") for i in id_list
     ]
     pipeline_df["isoform_synonyms"] = [
-        cache.get(i, {}).get("isoform_synonyms", "None") for i in ids
+        cache.get(i, {}).get("isoform_synonyms", "None") for i in id_list
     ]
     return pipeline_df
 
@@ -659,7 +700,10 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional metadata YAML path",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.batch_size <= 0:
+        parser.error("--batch-size must be a positive integer")
+    return args
 
 
 def build_clients(
@@ -846,9 +890,8 @@ def main() -> None:
     df = pd.read_csv(args.input, sep=args.sep, encoding=args.encoding)
     if args.id_column not in df.columns:
         raise ValueError(f"Missing required column '{args.id_column}'")
-    ids_series = df[args.id_column].astype(str).map(str.strip)
-    ids_series = ids_series[ids_series != ""]
-    ids: List[str] = list(dict.fromkeys(ids_series))
+    ids_series = _normalise_identifier_series(df[args.id_column])
+    ids: List[str] = [value for value in dict.fromkeys(ids_series.tolist()) if value]
 
     # Fetch comprehensive ChEMBL data once and reuse it in the pipeline
     chembl_df = fetch_targets(ids, chembl_cfg, batch_size=args.batch_size)
