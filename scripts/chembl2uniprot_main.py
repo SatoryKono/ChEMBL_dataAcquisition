@@ -29,15 +29,8 @@ if __package__ in {None, ""}:
     _ensure_project_root()
 
 from chembl2uniprot.mapping import map_chembl_to_uniprot  # noqa: E402
-from library.logging_utils import configure_logging  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-DEFAULT_LOG_LEVEL = "INFO"
-DEFAULT_SEP = ","
-DEFAULT_ENCODING = "utf-8"
-DEFAULT_LOG_FORMAT = "human"
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -60,30 +53,38 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument(
         "--log-level",
-        default=DEFAULT_LOG_LEVEL,
+        default=None,
         help="Logging level (e.g. INFO, DEBUG)",
     )
     parser.add_argument(
         "--log-format",
-        default=DEFAULT_LOG_FORMAT,
+        default=None,
         choices=["human", "json"],
         help="Logging output format",
     )
     parser.add_argument(
         "--sep",
-        default=DEFAULT_SEP,
+        default=None,
         help="CSV field separator",
     )
     parser.add_argument(
         "--encoding",
-        default=DEFAULT_ENCODING,
+        default=None,
         help="File encoding for CSV input and output",
     )
     args = parser.parse_args(argv)
 
-    configure_logging(args.log_level, log_format=args.log_format)
-
     schema = ROOT / "schemas" / "config.schema.json"
+    runtime_overrides = {
+        key: value
+        for key, value in {
+            "log_level": args.log_level,
+            "log_format": args.log_format,
+            "sep": args.sep,
+            "encoding": args.encoding,
+        }.items()
+        if value is not None
+    }
     if args.config:
         config_path = Path(args.config)
         schema_path = config_path.with_name("config.schema.json")
@@ -92,10 +93,7 @@ def main(argv: list[str] | None = None) -> None:
             output_csv_path=Path(args.output) if args.output else None,
             config_path=config_path,
             schema_path=schema_path,
-            log_level=args.log_level,
-            log_format=args.log_format,
-            sep=args.sep,
-            encoding=args.encoding,
+            **runtime_overrides,
         )
     else:
         cfg_path = ROOT / "config.yaml"
@@ -105,10 +103,7 @@ def main(argv: list[str] | None = None) -> None:
             config_path=cfg_path,
             schema_path=schema,
             config_section="chembl2uniprot",
-            log_level=args.log_level,
-            log_format=args.log_format,
-            sep=args.sep,
-            encoding=args.encoding,
+            **runtime_overrides,
         )
 
     print(output)
