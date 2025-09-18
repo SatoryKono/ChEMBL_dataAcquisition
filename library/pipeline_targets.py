@@ -110,6 +110,8 @@ DEFAULT_COLUMNS = [
     "timestamp_utc",
 ]
 
+_INVALID_IDENTIFIER_LITERALS = frozenset({"", "nan", "none", "null", "na", "n/a"})
+
 
 @dataclass
 class IupharConfig:
@@ -463,6 +465,31 @@ def _load_serialised_list(serialised: Any | None, list_format: str) -> List[Any]
     raise ValueError(f"Unsupported list_format: {list_format}")
 
 
+def _normalise_identifier_value(value: Any) -> str:
+    """Return a cleaned identifier string or ``""`` when invalid."""
+
+    if pd.isna(value):
+        return ""
+    text = str(value).strip()
+    if text.lower() in _INVALID_IDENTIFIER_LITERALS:
+        return ""
+    return text
+
+
+def _clean_identifier_sequence(values: Sequence[Any]) -> list[str]:
+    """Return unique, order-preserving identifiers from ``values``."""
+
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        identifier = _normalise_identifier_value(raw)
+        if not identifier or identifier in seen:
+            continue
+        seen.add(identifier)
+        cleaned.append(identifier)
+    return cleaned
+
+
 def _select_primary(
     entries: List[Dict[str, Any]], priority: Sequence[str]
 ) -> Dict[str, Any] | None:
@@ -541,7 +568,11 @@ def run_pipeline(
     """
 
     chembl_cfg = chembl_config or TargetConfig(list_format=cfg.list_format)
-    chembl_df = chembl_fetcher(ids, chembl_cfg)
+    cleaned_ids = _clean_identifier_sequence(ids)
+    if not cleaned_ids:
+        chembl_df = pd.DataFrame(columns=chembl_cfg.columns)
+    else:
+        chembl_df = chembl_fetcher(cleaned_ids, chembl_cfg)
     records: List[Dict[str, Any]] = []
     for row in chembl_df.to_dict(orient="records"):
         chembl_id = row.get("target_chembl_id", "")

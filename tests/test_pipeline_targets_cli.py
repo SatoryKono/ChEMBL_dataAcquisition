@@ -198,6 +198,116 @@ def _identity_frame(df: pd.DataFrame, *args: Any, **kwargs: Any) -> pd.DataFrame
     return df
 
 
+def test_pipeline_targets_cli_filters_invalid_ids(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module: Any = importlib.import_module("scripts.pipeline_targets_main")
+
+    input_csv = tmp_path / "input.csv"
+    input_csv.write_text(
+        "target_chembl_id\nCHEMBL10\nnan\nCHEMBL11\nNone\n\nCHEMBL10\n",
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("{}\n", encoding="utf-8")
+
+    captured: dict[str, Any] = {}
+
+    def fake_fetch_targets(ids: list[str], cfg: Any, batch_size: int) -> pd.DataFrame:
+        captured["ids"] = list(ids)
+        return pd.DataFrame({"target_chembl_id": ids})
+
+    def fake_run_pipeline(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "target_chembl_id": ids,
+                "uniprot_id_primary": [f"P{i}" for i in range(len(ids))],
+                "gene_symbol": [f"GENE{i}" for i in range(len(ids))],
+                "hgnc_id": [f"HGNC:{i}" for i in range(len(ids))],
+            }
+        )
+
+    class DummyEnrichClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover - simple
+            pass
+
+        def fetch_all(self, accessions: list[str]) -> dict[str, dict[str, str]]:  # pragma: no cover - simple
+            return {acc: {} for acc in accessions}
+
+    def fake_build_clients(*_args: Any, **_kwargs: Any) -> tuple[Any, ...]:
+        return object(), object(), object(), None, None, []
+
+    monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
+    monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
+    monkeypatch.setattr(module, "add_uniprot_fields", _identity_frame)
+    monkeypatch.setattr(module, "merge_chembl_fields", lambda df, _: df)
+    monkeypatch.setattr(module, "add_activity_fields", _identity_frame)
+    monkeypatch.setattr(module, "add_isoform_fields", _identity_frame)
+    def _ensure_iuphar_columns(df: pd.DataFrame, *args: Any, **kwargs: Any) -> pd.DataFrame:
+        frame = df.copy()
+        for column in module.IUPHAR_CLASS_COLUMNS:
+            if column not in frame.columns:
+                frame[column] = ""
+        return frame
+
+    monkeypatch.setattr(module, "add_iuphar_classification", _ensure_iuphar_columns)
+    monkeypatch.setattr(module, "add_protein_classification", _identity_frame)
+    monkeypatch.setattr(module, "UniProtEnrichClient", lambda *a, **k: DummyEnrichClient())
+    monkeypatch.setattr(module, "build_clients", fake_build_clients)
+    monkeypatch.setattr(module, "analyze_table_quality", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        module,
+        "write_cli_metadata",
+        lambda *args, **kwargs: tmp_path / "meta.yaml",
+    )
+
+    argv = [
+        "pipeline_targets_main",
+        "--input",
+        str(input_csv),
+        "--output",
+        str(tmp_path / "out.csv"),
+        "--config",
+        str(config_path),
+        "--iuphar-target",
+        str(Path("tests/data/iuphar_target.csv")),
+        "--iuphar-family",
+        str(Path("tests/data/iuphar_family.csv")),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    module.main()
+
+    assert captured.get("ids") == ["CHEMBL10", "CHEMBL11"]
+
+
+def test_pipeline_targets_cli_rejects_invalid_batch_size(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module: Any = importlib.import_module("scripts.pipeline_targets_main")
+
+    input_csv = tmp_path / "input.csv"
+    input_csv.write_text("target_chembl_id\nCHEMBL1\n", encoding="utf-8")
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("{}\n", encoding="utf-8")
+
+    argv = [
+        "pipeline_targets_main",
+        "--input",
+        str(input_csv),
+        "--output",
+        str(tmp_path / "out.csv"),
+        "--config",
+        str(config_path),
+        "--batch-size",
+        "0",
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    with pytest.raises(SystemExit):
+        module.main()
+
+
 def _dummy_enrich_client(*_args: Any, **_kwargs: Any) -> Any:
     """Return a dummy enrich client compatible with the pipeline contract."""
 

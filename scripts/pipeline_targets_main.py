@@ -72,6 +72,52 @@ IUPHAR_CLASS_COLUMNS = [
     "iuphar_full_name_path",
 ]
 
+_INVALID_IDENTIFIER_LITERALS = frozenset({"", "nan", "none", "null", "na", "n/a"})
+
+
+def _normalise_identifier_value(value: Any) -> str:
+    """Return a stripped identifier or an empty string when invalid."""
+
+    if pd.isna(value):
+        return ""
+    text = str(value).strip()
+    if text.lower() in _INVALID_IDENTIFIER_LITERALS:
+        return ""
+    return text
+
+
+def _prepare_identifier_series(
+    series: pd.Series | None,
+) -> tuple[pd.Series, list[str]]:
+    """Return a normalised identifier series and unique valid identifiers.
+
+    Parameters
+    ----------
+    series:
+        Source series containing identifier values. ``None`` yields an empty
+        series and identifier list.
+
+    Returns
+    -------
+    tuple[pandas.Series, list[str]]
+        Normalised series preserving the original index and a list of unique
+        identifiers suitable for network requests. Invalid entries such as
+        blanks, ``None`` literals or ``NaN`` values are removed from the list
+        and represented as empty strings within the series.
+    """
+
+    if series is None:
+        empty = pd.Series(dtype=str)
+        return empty, []
+    normalised = series.map(_normalise_identifier_value)
+    non_null = series.dropna()
+    if non_null.empty:
+        return normalised, []
+    trimmed = non_null.astype(str).map(str.strip)
+    mask = ~trimmed.str.lower().isin(_INVALID_IDENTIFIER_LITERALS)
+    unique_ids = list(dict.fromkeys(trimmed[mask]))
+    return normalised, unique_ids
+
 
 def merge_chembl_fields(
     pipeline_df: pd.DataFrame, chembl_df: pd.DataFrame
@@ -430,8 +476,12 @@ def add_protein_classification(
         "protein_class_pred_confidence",
     ]
 
-    ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str)).astype(str)
-    unique_ids = [acc for acc in dict.fromkeys(ids) if acc]
+    raw_ids = (
+        pipeline_df["uniprot_id_primary"]
+        if "uniprot_id_primary" in pipeline_df.columns
+        else pd.Series([""] * len(pipeline_df), index=pipeline_df.index, dtype=object)
+    )
+    ids, unique_ids = _prepare_identifier_series(raw_ids)
     logger = logging.getLogger(__name__)
     entry_map: Dict[str, Any] = {}
     fetched_entries: Dict[str, Any] = {}
@@ -533,8 +583,13 @@ def add_uniprot_fields(
         "TCDB": "TCDB",
     }
 
-    ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str)).astype(str)
-    mapping = fetch_all([i for i in ids if i])
+    raw_ids = (
+        pipeline_df["uniprot_id_primary"]
+        if "uniprot_id_primary" in pipeline_df.columns
+        else pd.Series([""] * len(pipeline_df), index=pipeline_df.index, dtype=object)
+    )
+    ids, unique_ids = _prepare_identifier_series(raw_ids)
+    mapping = fetch_all(unique_ids) if unique_ids else {}
 
     for out_col, src_col in col_map.items():
         if out_col in pipeline_df.columns:
@@ -618,11 +673,14 @@ def add_activity_fields(
         columns populated. Existing columns are preserved.
     """
 
-    ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str)).astype(str)
+    raw_ids = (
+        pipeline_df["uniprot_id_primary"]
+        if "uniprot_id_primary" in pipeline_df.columns
+        else pd.Series([""] * len(pipeline_df), index=pipeline_df.index, dtype=object)
+    )
+    ids, unique_ids = _prepare_identifier_series(raw_ids)
     cache: Dict[str, dict[str, str]] = {}
-    for acc in ids:
-        if not acc or acc in cache:
-            continue
+    for acc in unique_ids:
         entry = fetch_entry(acc)
         cache[acc] = (
             extract_activity(entry)
@@ -732,11 +790,14 @@ def add_isoform_fields(
         ``isoform_synonyms`` columns populated. Existing columns are preserved.
     """
 
-    ids = pipeline_df.get("uniprot_id_primary", pd.Series(dtype=str)).astype(str)
+    raw_ids = (
+        pipeline_df["uniprot_id_primary"]
+        if "uniprot_id_primary" in pipeline_df.columns
+        else pd.Series([""] * len(pipeline_df), index=pipeline_df.index, dtype=object)
+    )
+    ids, unique_ids = _prepare_identifier_series(raw_ids)
     cache: Dict[str, dict[str, str]] = {}
-    for acc in ids:
-        if not acc or acc in cache:
-            continue
+    for acc in unique_ids:
         entry = fetch_entry(acc)
         cache[acc] = (
             extract_isoform(entry)
@@ -825,7 +886,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Optional metadata YAML path",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.batch_size <= 0:
+        parser.error("--batch-size must be a positive integer")
+    return args
 
 
 def build_clients(
@@ -1048,9 +1112,8 @@ def main() -> None:
     df = pd.read_csv(args.input, sep=args.sep, encoding=args.encoding)
     if args.id_column not in df.columns:
         raise ValueError(f"Missing required column '{args.id_column}'")
-    ids_series = df[args.id_column].astype(str).map(str.strip)
-    ids_series = ids_series[ids_series != ""]
-    ids: List[str] = list(dict.fromkeys(ids_series))
+    _, unique_ids = _prepare_identifier_series(df[args.id_column])
+    ids: List[str] = list(unique_ids)
 
     # Fetch comprehensive ChEMBL data once and reuse it in the pipeline
     chembl_df = fetch_targets(ids, chembl_cfg, batch_size=args.batch_size)
