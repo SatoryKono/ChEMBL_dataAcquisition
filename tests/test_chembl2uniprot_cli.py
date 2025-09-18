@@ -13,6 +13,8 @@ import pytest
 
 import chembl2uniprot_main
 
+from chembl2uniprot.mapping import BatchMappingResult
+
 SCHEMA_SOURCE = Path(__file__).parent / "data" / "config" / "config.schema.json"
 CONFIG_TEMPLATE = """
 io:
@@ -80,7 +82,10 @@ def test_cli_handles_large_input_without_memory_spikes(
 
     def fake_map_batch(ids, *_args, **_kwargs):  # type: ignore[no-untyped-def]
         batch_sizes.append(len(ids))
-        return {identifier: [f"UP{next(counter)}"] for identifier in ids}
+        return BatchMappingResult(
+            mapping={identifier: [f"UP{next(counter)}"] for identifier in ids},
+            failed_ids=[],
+        )
 
     import chembl2uniprot.mapping as mapping_module
 
@@ -137,3 +142,119 @@ def test_cli_handles_large_input_without_memory_spikes(
         first_rows = [next(reader) for _ in range(3)]
 
     assert [row["mapped_uniprot_id"] for row in first_rows] == ["UP0", "UP1", "UP2"]
+
+
+def test_cli_success_runs_mapping(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    input_path = tmp_path / "input.csv"
+    output_path = tmp_path / "output.csv"
+    config_path = tmp_path / "config.yaml"
+    schema_path = tmp_path / "config.schema.json"
+
+    config_path.write_text(CONFIG_TEMPLATE.format(batch_size=10), encoding="utf-8")
+    schema_path.write_text(SCHEMA_SOURCE.read_text(encoding="utf-8"), encoding="utf-8")
+
+    with input_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["target_chembl_id"])
+        writer.writerow(["CHEMBL1"])
+        writer.writerow(["CHEMBL2"])
+
+    def fake_map_batch(ids, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return BatchMappingResult(
+            mapping={identifier: [f"UP_{identifier}"] for identifier in ids},
+            failed_ids=[],
+        )
+
+    import chembl2uniprot.mapping as mapping_module
+
+    monkeypatch.setattr(mapping_module, "_map_batch", fake_map_batch)
+    monkeypatch.setattr(
+        mapping_module, "analyze_table_quality", lambda *args, **kwargs: (None, None)
+    )
+
+    chembl2uniprot_main.main(
+        [
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--config",
+            str(config_path),
+            "--log-level",
+            "ERROR",
+            "--log-format",
+            "human",
+            "--sep",
+            ",",
+            "--encoding",
+            "utf-8",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert str(output_path) in captured.out
+
+    with output_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+
+    assert rows == [
+        {"target_chembl_id": "CHEMBL1", "mapped_uniprot_id": "UP_CHEMBL1"},
+        {"target_chembl_id": "CHEMBL2", "mapped_uniprot_id": "UP_CHEMBL2"},
+    ]
+
+
+def test_cli_empty_input_skips_mapping(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    input_path = tmp_path / "input.csv"
+    output_path = tmp_path / "output.csv"
+    config_path = tmp_path / "config.yaml"
+    schema_path = tmp_path / "config.schema.json"
+
+    config_path.write_text(CONFIG_TEMPLATE.format(batch_size=5), encoding="utf-8")
+    schema_path.write_text(SCHEMA_SOURCE.read_text(encoding="utf-8"), encoding="utf-8")
+
+    with input_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["target_chembl_id"])
+
+    def fail_map_batch(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("_map_batch should not be called for empty inputs")
+
+    import chembl2uniprot.mapping as mapping_module
+
+    monkeypatch.setattr(mapping_module, "_map_batch", fail_map_batch)
+    monkeypatch.setattr(
+        mapping_module, "analyze_table_quality", lambda *args, **kwargs: (None, None)
+    )
+
+    chembl2uniprot_main.main(
+        [
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--config",
+            str(config_path),
+            "--log-level",
+            "ERROR",
+            "--log-format",
+            "human",
+            "--sep",
+            ",",
+            "--encoding",
+            "utf-8",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert str(output_path) in captured.out
+
+    with output_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+
+    assert rows == []

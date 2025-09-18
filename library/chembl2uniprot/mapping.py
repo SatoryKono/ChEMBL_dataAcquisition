@@ -659,19 +659,8 @@ def map_chembl_to_uniprot(
     rate_limiter = RateLimiter(cfg.uniprot.rate_limit.rps)
 
     mapping: Dict[str, List[str]] = {}
- 
-    failed_identifiers: List[str] = []
-    for batch in _chunked(unique_ids, batch_size):
-        batch_result = _map_batch(batch, cfg.uniprot, rate_limiter, timeout, retry_cfg)
-        mapping.update(batch_result.mapping)
-        failed_identifiers.extend(batch_result.failed_ids)
 
-    if failed_identifiers:
-        LOGGER.warning(
-            "UniProt mapping reported %d failed identifiers: %s",
-            len(failed_identifiers),
-            failed_identifiers,
-        )
+    failed_identifiers: List[str] = []
     unique_count = 0
     try:
         id_iter = _stream_unique_ids(
@@ -679,19 +668,27 @@ def map_chembl_to_uniprot(
         )
         for batch in _chunked(id_iter, batch_size):
             unique_count += len(batch)
-            batch_mapping = _map_batch(
+            batch_result = _map_batch(
                 batch, cfg.uniprot, rate_limiter, timeout, retry_cfg
             )
-            for key, value in batch_mapping.items():
+            for key, value in batch_result.mapping.items():
                 if not key:
                     continue
                 normalised_key = str(key).strip()
                 if not normalised_key:
                     continue
                 mapping[normalised_key] = value
+            failed_identifiers.extend(batch_result.failed_ids)
     except KeyError as exc:
         msg = f"Missing required column '{chembl_col}' in input CSV"
         raise ValueError(msg) from exc
+
+    if failed_identifiers:
+        LOGGER.warning(
+            "UniProt mapping reported %d failed identifiers: %s",
+            len(failed_identifiers),
+            failed_identifiers,
+        )
 
     LOGGER.info("Processing %d unique ChEMBL IDs", unique_count)
 
