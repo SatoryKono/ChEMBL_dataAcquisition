@@ -242,7 +242,7 @@ def test_merge_species_lists_prioritises_cli_values() -> None:
 
 def test_parse_args_with_orthologs_flag(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("{}\n", encoding="utf-8")
+    config_path.write_text("orthologs:\n  enabled: true\n", encoding="utf-8")
 
     monkeypatch.setattr(
         sys,
@@ -258,7 +258,7 @@ def test_parse_args_with_orthologs_flag(monkeypatch: pytest.MonkeyPatch, tmp_pat
         ],
     )
     args = parse_args()
-    assert args.with_orthologs is None
+    assert args.with_orthologs is True
 
     monkeypatch.setattr(
         sys,
@@ -276,4 +276,21 @@ def test_parse_args_with_orthologs_flag(monkeypatch: pytest.MonkeyPatch, tmp_pat
     )
     args_with_flag = parse_args()
     assert args_with_flag.with_orthologs is True
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "pipeline_targets_main",
+            "--input",
+            "input.csv",
+            "--output",
+            "output.csv",
+            "--config",
+            str(config_path),
+            "--no-with-orthologs",
+        ],
+    )
+    args_without_flag = parse_args()
+    assert args_without_flag.with_orthologs is False
 

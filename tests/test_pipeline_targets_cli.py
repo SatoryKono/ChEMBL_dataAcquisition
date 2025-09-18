@@ -229,9 +229,7 @@ def test_pipeline_targets_cli_uses_configured_list_format(
 
     serialise_stats: dict[str, Any] = {}
 
-    def fake_serialise_dataframe(
-        df: pd.DataFrame, list_format: str
-    ) -> pd.DataFrame:
+    def fake_serialise_dataframe(df: pd.DataFrame, list_format: str) -> pd.DataFrame:
         serialise_stats["list_format"] = list_format
         return df
 
@@ -257,16 +255,12 @@ def test_pipeline_targets_cli_uses_configured_list_format(
 
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
 
-    def fake_fetch_targets(
-        ids: list[str], *_args: Any, **_kwargs: Any
-    ) -> pd.DataFrame:
+    def fake_fetch_targets(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
         return pd.DataFrame({"target_chembl_id": ids})
 
     monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
 
-    def fake_run_pipeline(
-        ids: list[str], *_args: Any, **_kwargs: Any
-    ) -> pd.DataFrame:
+    def fake_run_pipeline(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
         data: dict[str, Any] = {
             "target_chembl_id": ids,
             "uniprot_id_primary": ["P001" for _ in ids],
@@ -349,9 +343,7 @@ orthologs:
 
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
 
-    def fake_fetch_targets(
-        ids: list[str], *_args: Any, **_kwargs: Any
-    ) -> pd.DataFrame:
+    def fake_fetch_targets(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
         return pd.DataFrame({"target_chembl_id": ids})
 
     monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
@@ -449,9 +441,7 @@ orthologs:
 
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
 
-    def fake_fetch_targets(
-        ids: list[str], *_args: Any, **_kwargs: Any
-    ) -> pd.DataFrame:
+    def fake_fetch_targets(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
         return pd.DataFrame({"target_chembl_id": ids})
 
     monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
@@ -512,3 +502,87 @@ orthologs:
     assert captured["approved_only"] is False
     assert captured["primary_target_only"] is True
     assert captured["with_orthologs"] is True
+
+
+def test_pipeline_targets_cli_accepts_null_sections(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The CLI should tolerate optional sections set to ``null`` in YAML."""
+
+    module: Any = importlib.import_module("scripts.pipeline_targets_main")
+
+    input_csv = tmp_path / "input.csv"
+    input_csv.write_text("target_chembl_id\nCHEMBL1\n", encoding="utf-8")
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+pipeline:
+  columns: null
+  iuphar: null
+orthologs: null
+chembl: null
+uniprot_enrich: null
+        """.strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    captured: dict[str, Any] = {}
+
+    class DummyUniClient:
+        def fetch_entry_json(self, accession: str) -> dict[str, Any]:
+            return {}
+
+        def fetch_entries_json(
+            self, accessions: list[str], batch_size: int = 0
+        ) -> dict[str, dict[str, Any]]:
+            return {accession: {} for accession in accessions}
+
+    def fake_build_clients(*_args: Any, **kwargs: Any) -> tuple[Any, ...]:
+        captured["with_orthologs"] = kwargs.get("with_orthologs")
+        captured["default_cache"] = kwargs.get("default_cache")
+        return DummyUniClient(), object(), object(), None, None, []
+
+    monkeypatch.setattr(module, "build_clients", fake_build_clients)
+
+    def fake_fetch_targets(ids: list[str], cfg: Any, batch_size: int) -> pd.DataFrame:
+        captured["chembl_columns"] = list(cfg.columns)
+        return pd.DataFrame({"target_chembl_id": ids})
+
+    monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
+
+    def fake_run_pipeline(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
+        data: dict[str, Any] = {
+            "target_chembl_id": ids,
+            "uniprot_id_primary": ["P001" for _ in ids],
+            "gene_symbol": ["GENE" for _ in ids],
+        }
+        for column in module.IUPHAR_CLASS_COLUMNS:
+            data[column] = [""] * len(ids)
+        return pd.DataFrame(data)
+
+    monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
+    monkeypatch.setattr(module, "add_uniprot_fields", _identity_frame)
+    monkeypatch.setattr(module, "merge_chembl_fields", _identity_frame)
+    monkeypatch.setattr(module, "add_activity_fields", _identity_frame)
+    monkeypatch.setattr(module, "add_protein_classification", _identity_frame)
+    monkeypatch.setattr(module, "UniProtEnrichClient", _dummy_enrich_client)
+    monkeypatch.setattr(module, "analyze_table_quality", _noop_analyze_table_quality)
+    monkeypatch.setattr(module, "write_cli_metadata", _fake_write_metadata)
+
+    argv = [
+        "pipeline_targets_main",
+        "--input",
+        str(input_csv),
+        "--output",
+        str(tmp_path / "targets.csv"),
+        "--config",
+        str(config_path),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    module.main()
+
+    assert captured["with_orthologs"] is False
+    assert "target_chembl_id" in captured["chembl_columns"]

@@ -206,6 +206,18 @@ covering identifiers, taxonomy, sequence features, cross-references and a brief
 IUPHAR summary.  Lists are serialised as JSON arrays and sorted to guarantee
 reproducible files.  See the source for the full column list.
 
+The CLI honours defaults from ``config.yaml`` but command line switches always
+take precedence. For example ``--list-format`` overrides ``pipeline.list_format``
+and ``--species`` prepends values to ``pipeline.species_priority``. Ortholog
+enrichment follows the ``orthologs.enabled`` setting unless either
+``--with-orthologs`` or ``--no-with-orthologs`` is supplied, providing an easy
+way to enable or disable the feature without editing YAML files.
+
+Optional sections such as ``orthologs``, ``chembl`` or ``uniprot_enrich`` can be
+set to ``null`` in the configuration file when they are not required. The
+pipeline falls back to sensible defaults in this case while still allowing the
+sections to be re-enabled later without removing placeholder keys.
+
 
 ## CSV output conventions
 
