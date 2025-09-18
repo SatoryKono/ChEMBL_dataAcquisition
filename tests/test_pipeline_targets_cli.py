@@ -12,6 +12,8 @@ import pandas as pd
 import pytest
 import yaml  # type: ignore[import-untyped]
 
+from library.pipeline_targets import PipelineConfigBundle
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -35,9 +37,7 @@ def test_pipeline_targets_cli_writes_outputs(
         serialise_stats["columns"] = list(df.columns)
         return original_serialise(df, list_format)
 
-    monkeypatch.setattr(
-        module, "serialise_dataframe", tracking_serialise_dataframe
-    )
+    monkeypatch.setattr(module, "serialise_dataframe", tracking_serialise_dataframe)
 
     original_write_metadata = module.write_cli_metadata
     metadata_stats: dict[str, Any] = {"calls": 0}
@@ -48,9 +48,7 @@ def test_pipeline_targets_cli_writes_outputs(
         metadata_stats["kwargs"] = kwargs
         return original_write_metadata(*args, **kwargs)
 
-    monkeypatch.setattr(
-        module, "write_cli_metadata", tracking_write_cli_metadata
-    )
+    monkeypatch.setattr(module, "write_cli_metadata", tracking_write_cli_metadata)
 
     input_csv = tmp_path / "input.csv"
     input_csv.write_text(
@@ -76,7 +74,7 @@ def test_pipeline_targets_cli_writes_outputs(
 
     def fake_load_pipeline_config(_: str) -> Any:
         cfg = module.PipelineConfig()
-        return cfg
+        return PipelineConfigBundle(cfg, {})
 
     def fake_fetch_targets(ids: list[str], _: Any, batch_size: int) -> pd.DataFrame:
         return pd.DataFrame(
@@ -122,7 +120,9 @@ def test_pipeline_targets_cli_writes_outputs(
         captured["table"] = table.copy()
         captured["table_name"] = table_name
 
-    monkeypatch.setattr(module, "load_pipeline_config", fake_load_pipeline_config)
+    monkeypatch.setattr(
+        module, "load_pipeline_config_with_sections", fake_load_pipeline_config
+    )
     monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
     monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
@@ -152,9 +152,9 @@ def test_pipeline_targets_cli_writes_outputs(
     assert list(result_df["target_chembl_id"]) == ["CHEMBL1", "CHEMBL2", "CHEMBL2"]
     assert list(result_df["uniprot_id_primary"]) == ["P100", "P010", "P200"]
     assert result_df["synonyms_all"].tolist() == [
-        "[\"a-first\",\"b-first\"]",
-        "[\"m-middle\"]",
-        "[\"z-last\"]",
+        '["a-first","b-first"]',
+        '["m-middle"]',
+        '["z-last"]',
     ]
     assert result_df["cross_references"].tolist() == [
         '{"source": "first"}',
@@ -185,3 +185,26 @@ def test_pipeline_targets_cli_writes_outputs(
     assert serialise_stats["list_format"] == "json"
     assert metadata_stats["calls"] == 1
     assert metadata_stats["kwargs"].get("meta_path") is None
+
+
+def test_uniprot_rate_limit_env_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Environment override adjusts UniProt client rate limit."""
+
+    module: Any = importlib.import_module("scripts.pipeline_targets_main")
+    config_path = ROOT / "config.yaml"
+
+    monkeypatch.setenv("CHEMBL_DA__UNIPROT__RATE_LIMIT__RPS", "7.5")
+
+    cfg_bundle = module.load_pipeline_config_with_sections(str(config_path))
+    sections = dict(cfg_bundle.sections)
+    global_cache = module.CacheConfig.from_dict(sections.get("http_cache"))
+    uni_client, *_rest = module.build_clients(
+        sections,
+        cfg_bundle.pipeline,
+        with_orthologs=False,
+        default_cache=global_cache,
+    )
+
+    assert uni_client.rate_limit.rps == pytest.approx(7.5)

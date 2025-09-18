@@ -7,11 +7,10 @@ import logging
 import sys
 from pathlib import Path
 
-from typing import Any, Callable, Dict, Iterable, List, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Sequence
 
 import pandas as pd
 import requests
-import yaml
 from tqdm.auto import tqdm
 
 if __package__ in {None, ""}:
@@ -22,7 +21,14 @@ if __package__ in {None, ""}:
 
 from library.chembl_targets import TargetConfig, fetch_targets
 from library.gtop_client import GtoPClient, GtoPConfig
-from library.hgnc_client import HGNCClient, load_config as load_hgnc_config
+from library.hgnc_client import (
+    HGNCClient,
+    Config as HgncConfig,
+    HGNCServiceConfig,
+    NetworkConfig as HgncNetworkConfig,
+    RateLimitConfig as HgncRateLimitConfig,
+    OutputConfig as HgncOutputConfig,
+)
 from library.uniprot_client import (
     NetworkConfig as UniNetworkConfig,
     RateLimitConfig as UniRateConfig,
@@ -48,7 +54,7 @@ from library.protein_classifier import classify_protein
 
 from library.pipeline_targets import (
     PipelineConfig,
-    load_pipeline_config,
+    load_pipeline_config_with_sections,
     run_pipeline,
 )
 
@@ -100,6 +106,36 @@ def merge_chembl_fields(
             how="left",
         )
     return pipeline_df
+
+
+def _build_hgnc_config(section: Mapping[str, Any]) -> HgncConfig:
+    """Construct :class:`HgncConfig` from a configuration mapping."""
+
+    if not isinstance(section, Mapping):
+        msg = "HGNC configuration must be provided as a mapping"
+        raise TypeError(msg)
+    service_cfg = section.get("hgnc", {})
+    network_cfg = section.get("network", {})
+    rate_limit_cfg = section.get("rate_limit", {})
+    output_cfg = section.get("output", {})
+    try:
+        service = HGNCServiceConfig(**service_cfg)
+        network = HgncNetworkConfig(
+            timeout_sec=float(network_cfg.get("timeout_sec", 30.0)),
+            max_retries=int(network_cfg.get("max_retries", 3)),
+        )
+        rate_limit = HgncRateLimitConfig(rps=float(rate_limit_cfg.get("rps", 1.0)))
+        output = HgncOutputConfig(**output_cfg)
+    except TypeError as exc:  # pragma: no cover - defensive programming
+        raise ValueError("Invalid HGNC configuration section") from exc
+    cache_cfg = CacheConfig.from_dict(section.get("cache"))
+    return HgncConfig(
+        hgnc=service,
+        network=network,
+        rate_limit=rate_limit,
+        output=output,
+        cache=cache_cfg,
+    )
 
 
 def add_iuphar_classification(
@@ -575,7 +611,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_clients(
-    cfg_path: str,
+    config_sections: Mapping[str, Any],
     pipeline_cfg: PipelineConfig,
     *,
     with_orthologs: bool = False,
@@ -592,8 +628,9 @@ def build_clients(
 
     Parameters
     ----------
-    cfg_path:
-        Path to the YAML configuration file.
+    config_sections:
+        Parsed configuration mapping returned by
+        :func:`library.pipeline_targets.load_pipeline_config_with_sections`.
     pipeline_cfg:
         High-level pipeline configuration controlling retries and rate limits.
     with_orthologs:
@@ -603,12 +640,18 @@ def build_clients(
         specify its own cache settings.
     """
 
-    with open(cfg_path, "r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh) or {}
+    data: Dict[str, Any] = dict(config_sections)
     global_cache = default_cache or CacheConfig.from_dict(data.get("http_cache"))
-    uni_cfg = data["uniprot"]
-    fields = ",".join(uni_cfg.get("fields", []))
+    uni_cfg = dict(data.get("uniprot", {}))
+    fields_cfg = uni_cfg.get("fields", [])
+    fields = ",".join(fields_cfg) if isinstance(fields_cfg, list) else str(fields_cfg)
     uni_cache = CacheConfig.from_dict(uni_cfg.get("cache")) or global_cache
+    uni_rate_limit = pipeline_cfg.rate_limit_rps
+    uni_rate_cfg = uni_cfg.get("rate_limit")
+    if isinstance(uni_rate_cfg, Mapping) and "rps" in uni_rate_cfg:
+        uni_rate_limit = float(uni_rate_cfg["rps"])
+    elif "rps" in uni_cfg:
+        uni_rate_limit = float(uni_cfg["rps"])
     uni = UniProtClient(
         base_url=uni_cfg["base_url"],
         fields=fields,
@@ -616,7 +659,7 @@ def build_clients(
             timeout_sec=pipeline_cfg.timeout_sec,
             max_retries=pipeline_cfg.retries,
         ),
-        rate_limit=UniRateConfig(rps=pipeline_cfg.rate_limit_rps),
+        rate_limit=UniRateConfig(rps=uni_rate_limit),
         cache=uni_cache,
     )
 
@@ -624,7 +667,7 @@ def build_clients(
     # in the YAML file. Explicitly select this section to avoid passing the
     # entire configuration dictionary to ``HGNCServiceConfig``, which would
     # otherwise raise ``TypeError`` due to unexpected keys.
-    hcfg = load_hgnc_config(cfg_path, section="hgnc")
+    hcfg = _build_hgnc_config(data.get("hgnc", {}))
     hcfg.network.timeout_sec = pipeline_cfg.timeout_sec
     hcfg.network.max_retries = pipeline_cfg.retries
     hcfg.rate_limit.rps = pipeline_cfg.rate_limit_rps
@@ -677,7 +720,8 @@ def main() -> None:
 
     args = parse_args()
     configure_logging(args.log_level, log_format=args.log_format)
-    pipeline_cfg = load_pipeline_config(args.config)
+    cfg_bundle = load_pipeline_config_with_sections(args.config)
+    pipeline_cfg = cfg_bundle.pipeline
     pipeline_cfg.list_format = args.list_format
     pipeline_cfg.species_priority = [args.species]
     pipeline_cfg.iuphar.affinity_parameter = args.affinity_parameter
@@ -691,10 +735,9 @@ def main() -> None:
     pipeline_cfg.include_isoforms = False
 
     # Load optional ChEMBL column configuration and ensure required fields
-    with open(args.config, "r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh) or {}
-    global_cache = CacheConfig.from_dict(data.get("http_cache"))
-    chembl_cols = list(data.get("chembl", {}).get("columns", []))
+    sections = dict(cfg_bundle.sections)
+    global_cache = CacheConfig.from_dict(sections.get("http_cache"))
+    chembl_cols = list(sections.get("chembl", {}).get("columns", []))
     required_cols = [
         "target_chembl_id",
         "pref_name",
@@ -715,7 +758,7 @@ def main() -> None:
     for col in required_cols:
         if col not in columns:
             columns.append(col)
-    chembl_cache = CacheConfig.from_dict(data.get("chembl", {}).get("cache"))
+    chembl_cache = CacheConfig.from_dict(sections.get("chembl", {}).get("cache"))
     chembl_cfg: TargetConfig = TargetConfig(
         list_format=pipeline_cfg.list_format,
         columns=columns,
@@ -728,7 +771,7 @@ def main() -> None:
     # declare their own column lists without having to manually duplicate them
     # under ``pipeline.columns``.
     for section in ("uniprot", "gtop", "hgnc"):
-        for col in data.get(section, {}).get("columns", []):
+        for col in sections.get(section, {}).get("columns", []):
             if col not in pipeline_cfg.columns:
                 pipeline_cfg.columns.append(col)
 
@@ -740,7 +783,7 @@ def main() -> None:
         oma_client,
         target_species,
     ) = build_clients(
-        args.config,
+        sections,
         pipeline_cfg,
         with_orthologs=args.with_orthologs,
         default_cache=global_cache,
