@@ -34,6 +34,28 @@ def _make_args(
     )
 
 
+
+def test_read_identifier_column_detects_separator(tmp_path: Path) -> None:
+    """_read_identifier_column should retry with an inferred separator."""
+
+    input_csv = tmp_path / "input.csv"
+    input_csv.write_text("DOI;other\n10.1/doi1;value\n", encoding="utf-8")
+
+    values = pm._read_identifier_column(input_csv, "DOI", sep=",", encoding="utf-8")
+
+    assert values == ["10.1/doi1"]
+
+
+def test_read_identifier_column_missing_column(tmp_path: Path) -> None:
+    """_read_identifier_column should raise SystemExit when column is absent."""
+
+    input_csv = tmp_path / "input.csv"
+    pd.DataFrame({"PMID": ["1"]}).to_csv(input_csv, index=False)
+
+    with pytest.raises(SystemExit, match="Column 'DOI' not found in input"):
+        pm._read_identifier_column(input_csv, "DOI", sep=",", encoding="utf-8")
+
+
 def test_normalise_crossref_doi() -> None:
     """_normalise_crossref_doi should strip prefixes and normalise case."""
 

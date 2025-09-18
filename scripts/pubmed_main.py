@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import logging
 import sys
@@ -317,14 +318,115 @@ def _build_global_parser(
     return parser
 
 
+class ColumnNotFoundError(Exception):
+    """Raised when the expected column is not present in the CSV file."""
+
+    def __init__(self, column: str, available: Sequence[str]):
+        super().__init__(f"Column '{column}' not found in input")
+        self.column = column
+        self.available = list(available)
+
+
+def _detect_csv_separator(
+    path: Path, *, encoding: str, sample_size: int = 65536
+) -> str | None:
+    """Detect the delimiter used in a CSV file.
+
+    Parameters
+    ----------
+    path:
+        CSV file path.
+    encoding:
+        Text encoding used to decode the file.
+    sample_size:
+        Maximum number of characters inspected when inferring the delimiter.
+
+    Returns
+    -------
+    str | None
+        The detected delimiter if inference succeeds, otherwise :data:`None`.
+    """
+
+    with path.open("r", encoding=encoding, newline="") as handle:
+        sample = handle.read(sample_size)
+    if not sample:
+        return None
+    sniffer = csv.Sniffer()
+    try:
+        dialect = sniffer.sniff(sample, delimiters=",\t;|")
+    except csv.Error:
+        return None
+    return dialect.delimiter
+
+
+def _read_csv_column(path: Path, column: str, *, sep: str, encoding: str) -> pd.Series:
+    """Return a single column from a CSV file as a string series."""
+
+    try:
+        frame = pd.read_csv(
+            path,
+            sep=sep,
+            encoding=encoding,
+            dtype=str,
+            usecols=[column],
+        )
+    except ValueError as error:
+        if "Usecols do not match columns" in str(error):
+            header = pd.read_csv(
+                path,
+                sep=sep,
+                encoding=encoding,
+                dtype=str,
+                nrows=0,
+            )
+            raise ColumnNotFoundError(column, header.columns.tolist()) from error
+        raise
+    return frame[column].fillna("")
+
+
 def _read_identifier_column(
     path: Path, column: str, *, sep: str, encoding: str
 ) -> List[str]:
-    df = pd.read_csv(path, sep=sep, encoding=encoding, dtype=str)
-    if column not in df.columns:
-        msg = f"Column '{column}' not found in input"
-        raise SystemExit(msg)
-    values = [str(value).strip() for value in df[column].fillna("")]
+    try:
+        series = _read_csv_column(path, column, sep=sep, encoding=encoding)
+    except (pd.errors.ParserError, ColumnNotFoundError) as error:
+        detected_sep = _detect_csv_separator(path, encoding=encoding)
+        if detected_sep and detected_sep != sep:
+            LOGGER.warning(
+                (
+                    "Failed to parse %s with separator %r; retrying with detected "
+                    "separator %r"
+                ),
+                path,
+                sep,
+                detected_sep,
+            )
+            try:
+                series = _read_csv_column(
+                    path, column, sep=detected_sep, encoding=encoding
+                )
+            except ColumnNotFoundError as retry_error:
+                available = ", ".join(retry_error.available) or "<no columns>"
+                msg = f"Column '{column}' not found in input. Available columns: {available}"
+                raise SystemExit(msg) from retry_error
+            except pd.errors.ParserError as retry_error:
+                msg = (
+                    f"Failed to parse '{path}' using detected separator {detected_sep!r}: "
+                    f"{retry_error}"
+                )
+                raise SystemExit(msg) from retry_error
+        else:
+            if isinstance(error, ColumnNotFoundError):
+                available = ", ".join(error.available) or "<no columns>"
+                msg = f"Column '{column}' not found in input. Available columns: {available}"
+                raise SystemExit(msg) from error
+            msg = (
+                f"Failed to parse '{path}' using separator {sep!r}: {error}. "
+                "Provide --sep/--encoding options or update the configuration to match "
+                "the input format."
+            )
+            raise SystemExit(msg) from error
+    values = [str(value).strip() for value in series]
     return [value for value in values if value]
 
 
