@@ -103,7 +103,16 @@ def _normalise_numeric(property_name: str, value: Any) -> Any:
 
 
 def _prepare_columns(properties: Sequence[str]) -> Dict[str, str]:
-    return {prop: f"pubchem_{_to_snake_case(prop)}" for prop in properties}
+    """Return a mapping from PubChem property names to column headers."""
+
+    unique_properties = list(dict.fromkeys(properties))
+    return {prop: f"pubchem_{_to_snake_case(prop)}" for prop in unique_properties}
+
+
+PUBCHEM_PROPERTY_COLUMN_MAP: Dict[str, str] = _prepare_columns(PUBCHEM_PROPERTIES)
+PUBCHEM_PROPERTY_COLUMNS: tuple[str, ...] = tuple(
+    PUBCHEM_PROPERTY_COLUMN_MAP[prop] for prop in PUBCHEM_PROPERTIES
+)
 
 
 def _int_from_config(config: Mapping[str, Any], key: str, default: int) -> int:
@@ -214,22 +223,40 @@ class _PubChemRequest:
 
         headers = {"Accept": "application/json", "User-Agent": self.user_agent}
         try:
-
-            response = self.session.get(url, timeout=self.timeout, headers=headers)
-            if response.status_code == 404:
+            response = self.http_client.request(
+                "get", url, timeout=self.timeout, headers=headers
+            )
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status == 404:
                 LOGGER.debug(
                     "PubChem returned 404 for %s while fetching %s", smiles, context
                 )
                 return None
-            response.raise_for_status()
-        except requests.HTTPError:
+            status_msg = f" {status}" if status is not None else ""
             LOGGER.warning(
-                "HTTP error when requesting PubChem %s for %s", context, smiles
+                "HTTP error%s when requesting PubChem %s for %s", status_msg, context, smiles
             )
             return None
         except requests.RequestException:
             LOGGER.warning(
                 "Network error when requesting PubChem %s for %s", context, smiles
+            )
+            return None
+
+        if response.status_code == 404:
+            LOGGER.debug(
+                "PubChem returned 404 for %s while fetching %s", smiles, context
+            )
+            return None
+
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            status_msg = f" {status}" if status is not None else ""
+            LOGGER.warning(
+                "HTTP error%s when requesting PubChem %s for %s", status_msg, context, smiles
             )
             return None
 
@@ -247,7 +274,8 @@ class _PubChemRequest:
         encoded = quote(smiles, safe="")
         results: dict[str, object] = {}
 
-        property_fields = list(dict.fromkeys(self.properties))
+        requested_properties = list(dict.fromkeys(self.properties))
+        property_fields = [prop for prop in requested_properties if prop != "CID"]
         property_success = False
         if property_fields:
             url = (
@@ -263,7 +291,12 @@ class _PubChemRequest:
                         results[prop] = _normalise_numeric(prop, record.get(prop))
                     property_success = True
 
-        if property_success and "CID" in self.properties and results.get("CID") is None:
+        if "CID" in requested_properties and results.get("CID") is None:
+            if not property_success:
+                LOGGER.debug(
+                    "Retrying PubChem CID lookup for %s after property request failed",
+                    smiles,
+                )
             cid_url = f"{self.base_url.rstrip('/')}/compound/smiles/{encoded}/cids/JSON"
             payload = self._get_json(cid_url, smiles=smiles, context="CID list")
             if payload is not None:
@@ -390,4 +423,8 @@ def add_pubchem_data(
     return enriched
 
 
-__all__ = ["add_pubchem_data", "PUBCHEM_PROPERTIES"]
+__all__ = [
+    "add_pubchem_data",
+    "PUBCHEM_PROPERTIES",
+    "PUBCHEM_PROPERTY_COLUMNS",
+]
