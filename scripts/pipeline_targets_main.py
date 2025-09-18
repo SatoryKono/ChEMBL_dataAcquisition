@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, Iterable, List, Sequence
 
 import pandas as pd
 import requests
-import yaml  # type: ignore[import]
+import yaml
 from tqdm.auto import tqdm
 
 if __package__ in {None, ""}:
@@ -44,7 +44,6 @@ from library.cli_common import (
 )
 
 from library.protein_classifier import classify_protein
-
 
 
 from library.pipeline_targets import (
@@ -816,7 +815,6 @@ def main() -> None:
     cols = [c for c in out_df.columns if c not in IUPHAR_CLASS_COLUMNS]
     out_df = out_df[cols + IUPHAR_CLASS_COLUMNS]
 
- 
     sort_candidates = [
         "target_chembl_id",
         "uniprot_id_primary",
@@ -847,7 +845,7 @@ def main() -> None:
         command_parts=tuple(sys.argv),
         meta_path=meta_path,
     )
- 
+
 
 if __name__ == "__main__":
     main()

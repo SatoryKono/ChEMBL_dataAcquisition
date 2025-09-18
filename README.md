@@ -53,6 +53,24 @@ inspect the slowest tests:
 pytest --maxfail=1 --durations=10
 ```
 
+## Code Quality Checks
+
+Static analysis and formatting are enforced via pre-commit hooks. To run the
+individual tools manually execute:
+
+```bash
+ruff check .
+ruff format .  # or `black .` to match the configured formatter
+mypy --strict --ignore-missing-imports .
+pytest
+```
+
+Alternatively, execute all checks in one go with:
+
+```bash
+pre-commit run --all-files
+```
+
 ## Installation
 
 1.  Create and activate a virtual environment:
