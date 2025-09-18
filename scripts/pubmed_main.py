@@ -40,7 +40,7 @@ from library.semantic_scholar_client import (
     fetch_semantic_scholar_records,
 )
 from library.openalex_client import OpenAlexRecord, fetch_openalex_records
-from library.crossref_client import fetch_crossref_records
+from library.crossref_client import CrossrefRecord, fetch_crossref_records
 from library.logging_utils import configure_logging
 
 LOGGER = logging.getLogger("pubmed_main")
@@ -83,12 +83,24 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "workers": 1,
         "column_pubmed": "PMID",
         "column_chembl": "document_chembl_id",
+        "column_crossref": "DOI",
         "status_forcelist": [408, 409, 429, 500, 502, 503, 504],
     },
 }
 
 
 OPENALEX_ONLY_PLACEHOLDER_ERROR = "PubMed metadata not requested (OpenAlex-only run)"
+
+
+CROSSREF_COLUMNS = [
+    "crossref.DOI",
+    "crossref.Type",
+    "crossref.Subtype",
+    "crossref.Title",
+    "crossref.Subtitle",
+    "crossref.Subject",
+    "crossref.Error",
+]
 
 
 def _build_semantic_scholar_dataframe(
@@ -115,6 +127,31 @@ def _build_semantic_scholar_dataframe(
         if column not in df.columns:
             df[column] = pd.NA
     df = df.reindex(columns=SEMANTIC_SCHOLAR_COLUMNS)
+    return df
+
+
+def _build_crossref_dataframe(records: Sequence[CrossrefRecord]) -> pd.DataFrame:
+    """Return a DataFrame containing Crossref metadata only.
+
+    Parameters
+    ----------
+    records:
+        Sequence of parsed Crossref responses.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Normalised table containing Crossref-only metadata columns.
+    """
+
+    if records:
+        df = pd.DataFrame([record.to_dict() for record in records])
+    else:
+        df = pd.DataFrame(columns=CROSSREF_COLUMNS)
+    for column in CROSSREF_COLUMNS:
+        if column not in df.columns:
+            df[column] = pd.NA
+    df = df.reindex(columns=CROSSREF_COLUMNS)
     return df
 
 
@@ -431,6 +468,51 @@ def _write_output(
     LOGGER.info("Wrote %d rows to %s", len(df), output_path)
     LOGGER.info("Metadata report saved to %s", meta_path)
     return report
+
+
+def run_crossref_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    """Write Crossref metadata for the provided DOI values to disk.
+
+    Parameters
+    ----------
+    args:
+        Parsed command-line options produced by :func:`build_parser`.
+    config:
+        Effective configuration mapping produced by :func:`load_config` with
+        CLI overrides already applied.
+    """
+
+    io_cfg = config["io"]
+    column = args.column or config["pipeline"].get("column_crossref", "DOI")
+    doi_values = _read_identifier_column(
+        args.input, column, sep=io_cfg["sep"], encoding=io_cfg["encoding"]
+    )
+    LOGGER.info("Loaded %d DOI values", len(doi_values))
+
+    # Normalise DOIs to the canonical lower-case format used for Crossref lookups
+    # while preserving the first occurrence ordering for deterministic fetches.
+    seen: set[str] = set()
+    dois: List[str] = []
+    for value in doi_values:
+        normalised = _normalise_crossref_doi(value)
+        if not normalised or normalised in seen:
+            continue
+        seen.add(normalised)
+        dois.append(normalised)
+
+    if not dois:
+        LOGGER.warning("No valid DOI values found; writing empty Crossref output")
+
+    crossref_cfg = config["crossref"]
+    crossref_client = _create_http_client(crossref_cfg)
+    records = fetch_crossref_records(dois, client=crossref_client)
+
+    df = _build_crossref_dataframe(records)
+    df = dataframe_to_strings(df)
+    df = df.sort_values("crossref.DOI", na_position="last").reset_index(drop=True)
+    _write_output(
+        df, output_path=args.output, sep=io_cfg["sep"], encoding=io_cfg["encoding"]
+    )
 
 
 def run_openalex_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
@@ -752,6 +834,13 @@ def build_parser() -> argparse.ArgumentParser:
     openalex_parser.add_argument("--openalex-rps", type=float, default=None)
     openalex_parser.add_argument("--crossref-rps", type=float, default=None)
 
+    crossref_parser = subparsers.add_parser(
+        "crossref",
+        help="Fetch Crossref metadata only",
+        parents=[common_parser],
+    )
+    crossref_parser.add_argument("--crossref-rps", type=float, default=None)
+
     chembl_parser = subparsers.add_parser(
         "chembl",
         help="Download ChEMBL document metadata",
@@ -815,12 +904,13 @@ def apply_cli_overrides(args: argparse.Namespace, config: Dict[str, Any]) -> Non
         openalex_rps = _cli_option(args, "openalex_rps", "global_openalex_rps")
         if openalex_rps is not None:
             config["openalex"]["rps"] = float(openalex_rps)
-        crossref_rps = _cli_option(args, "crossref_rps", "global_crossref_rps")
-        if crossref_rps is not None:
-            config["crossref"]["rps"] = float(crossref_rps)
         workers = _cli_option(args, "workers", "global_workers")
         if workers is not None:
             config["pipeline"]["workers"] = int(workers)
+    if args.command in {"pubmed", "all", "openalex", "crossref"}:
+        crossref_rps = _cli_option(args, "crossref_rps", "global_crossref_rps")
+        if crossref_rps is not None:
+            config["crossref"]["rps"] = float(crossref_rps)
     if args.command in {"pubmed", "all", "scholar"}:
         scholar_rps = _cli_option(
             args,
@@ -897,6 +987,8 @@ def main() -> None:
         run_pubmed_command(args, config)
     elif args.command == "openalex":
         run_openalex_command(args, config)
+    elif args.command == "crossref":
+        run_crossref_command(args, config)
     elif args.command == "chembl":
         run_chembl_command(args, config)
     elif args.command == "scholar":
