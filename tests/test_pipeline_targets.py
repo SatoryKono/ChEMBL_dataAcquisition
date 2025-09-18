@@ -10,7 +10,12 @@ import pytest
 import requests
 
 from hgnc_client import HGNCRecord
-from pipeline_targets import PipelineConfig, run_pipeline
+from pipeline_targets import (
+    DEFAULT_COLUMNS,
+    PipelineConfig,
+    load_pipeline_config,
+    run_pipeline,
+)
 
 sys.path.insert(0, str(Path("scripts")))
 from pipeline_targets_main import add_protein_classification
@@ -104,6 +109,39 @@ def make_chembl_df(accessions: List[str]) -> pd.DataFrame:
             }
         ]
     )
+
+
+def test_load_pipeline_config_handles_null_sections(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        """
+pipeline:
+  columns: null
+  iuphar: null
+  species_priority: null
+        """.strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    cfg = load_pipeline_config(str(cfg_path))
+    assert cfg.columns == DEFAULT_COLUMNS
+    assert cfg.species_priority == ["Human", "Homo sapiens"]
+    assert cfg.iuphar.approved_only is None
+    assert cfg.iuphar.primary_target_only is True
+
+
+def test_load_pipeline_config_rejects_invalid_types(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "config_invalid.yaml"
+    cfg_path.write_text(
+        """
+pipeline:
+  retries: not-a-number
+        """.strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(TypeError, match="pipeline.retries"):
+        load_pipeline_config(str(cfg_path))
 
 
 def test_pipeline_single_target(monkeypatch):

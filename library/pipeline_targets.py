@@ -5,6 +5,7 @@ import logging
 from math import isnan
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
 from typing import Any, Callable, Dict, List, Sequence
 
 import pandas as pd
@@ -168,6 +169,110 @@ class PipelineConfig:
 # Configuration helpers
 
 
+def _ensure_mapping(
+    value: Any, *, context: str, allow_none: bool = True
+) -> dict[str, Any]:
+    """Return ``value`` as a dictionary ensuring it is a mapping."""
+
+    if value is None:
+        if allow_none:
+            return {}
+        msg = f"Expected '{context}' to be a mapping, not null"
+        raise TypeError(msg)
+    if isinstance(value, MappingABC):
+        return dict(value)
+    msg = f"Expected '{context}' to be a mapping, not {type(value).__name__!s}"
+    raise TypeError(msg)
+
+
+def _ensure_float(value: Any, *, context: str, default: float) -> float:
+    """Return a floating-point configuration value with validation."""
+
+    if value is None:
+        return float(default)
+    if isinstance(value, bool):
+        msg = f"Expected '{context}' to be a float, not {type(value).__name__!s}"
+        raise TypeError(msg)
+    if isinstance(value, (int, float)):
+        return float(value)
+    msg = f"Expected '{context}' to be numeric, not {type(value).__name__!s}"
+    raise TypeError(msg)
+
+
+def _ensure_int(value: Any, *, context: str, default: int) -> int:
+    """Return an integer configuration value with validation."""
+
+    if value is None:
+        return int(default)
+    if isinstance(value, bool):
+        msg = f"Expected '{context}' to be an integer, not {type(value).__name__!s}"
+        raise TypeError(msg)
+    if isinstance(value, int):
+        return int(value)
+    msg = f"Expected '{context}' to be an integer, not {type(value).__name__!s}"
+    raise TypeError(msg)
+
+
+def _ensure_bool(value: Any, *, context: str, default: bool) -> bool:
+    """Return a boolean configuration value with validation."""
+
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    msg = f"Expected '{context}' to be a boolean, not {type(value).__name__!s}"
+    raise TypeError(msg)
+
+
+def _ensure_optional_bool(value: Any, *, context: str) -> bool | None:
+    """Return an optional boolean configuration value with validation."""
+
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    msg = f"Expected '{context}' to be a boolean or null, not {type(value).__name__!s}"
+    raise TypeError(msg)
+
+
+def _ensure_str(value: Any, *, context: str, default: str) -> str:
+    """Return a string configuration value with validation."""
+
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value
+    msg = f"Expected '{context}' to be a string, not {type(value).__name__!s}"
+    raise TypeError(msg)
+
+
+def _ensure_str_sequence(
+    value: Any,
+    *,
+    context: str,
+    default: Sequence[str] | None = None,
+) -> List[str]:
+    """Return ``value`` as a list of strings ensuring valid element types."""
+
+    if value is None:
+        return list(default) if default is not None else []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, SequenceABC) and not isinstance(value, (bytes, bytearray)):
+        result: List[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                msg = (
+                    f"Expected entries of '{context}' to be strings, "
+                    f"found {type(item).__name__!s}"
+                )
+                raise TypeError(msg)
+            result.append(item)
+        return result
+    msg = f"Expected '{context}' to be a sequence of strings"
+    raise TypeError(msg)
+
+
 def load_pipeline_config(path: str) -> PipelineConfig:
     """Load ``PipelineConfig`` from a YAML file."""
 
@@ -175,23 +280,57 @@ def load_pipeline_config(path: str) -> PipelineConfig:
 
     with open(path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
-    cfg = data.get("pipeline", {})
-    iuphar = cfg.get("iuphar", {})
+    config_root = _ensure_mapping(
+        data, context="pipeline configuration", allow_none=False
+    )
+    cfg = _ensure_mapping(config_root.get("pipeline"), context="pipeline")
+    iuphar_cfg = _ensure_mapping(cfg.get("iuphar"), context="pipeline.iuphar")
     cfg_kwargs: Dict[str, Any] = {
-        "rate_limit_rps": cfg.get("rate_limit_rps", 2.0),
-        "retries": cfg.get("retries", 3),
-        "timeout_sec": cfg.get("timeout_sec", 30.0),
-        "species_priority": list(
-            cfg.get("species_priority", ["Human", "Homo sapiens"])
+        "rate_limit_rps": _ensure_float(
+            cfg.get("rate_limit_rps"), context="pipeline.rate_limit_rps", default=2.0
         ),
-        "list_format": cfg.get("list_format", "json"),
-        "include_sequence": cfg.get("include_sequence", False),
-        "include_isoforms": cfg.get("include_isoforms", False),
-        "columns": list(cfg.get("columns", DEFAULT_COLUMNS)),
+        "retries": _ensure_int(
+            cfg.get("retries"), context="pipeline.retries", default=3
+        ),
+        "timeout_sec": _ensure_float(
+            cfg.get("timeout_sec"), context="pipeline.timeout_sec", default=30.0
+        ),
+        "species_priority": _ensure_str_sequence(
+            cfg.get("species_priority"),
+            context="pipeline.species_priority",
+            default=["Human", "Homo sapiens"],
+        ),
+        "list_format": _ensure_str(
+            cfg.get("list_format"), context="pipeline.list_format", default="json"
+        ),
+        "include_sequence": _ensure_bool(
+            cfg.get("include_sequence"),
+            context="pipeline.include_sequence",
+            default=False,
+        ),
+        "include_isoforms": _ensure_bool(
+            cfg.get("include_isoforms"),
+            context="pipeline.include_isoforms",
+            default=False,
+        ),
+        "columns": _ensure_str_sequence(
+            cfg.get("columns"), context="pipeline.columns", default=DEFAULT_COLUMNS
+        ),
         "iuphar": IupharConfig(
-            affinity_parameter=iuphar.get("affinity_parameter", "pKi"),
-            approved_only=iuphar.get("approved_only"),
-            primary_target_only=iuphar.get("primary_target_only", True),
+            affinity_parameter=_ensure_str(
+                iuphar_cfg.get("affinity_parameter"),
+                context="pipeline.iuphar.affinity_parameter",
+                default="pKi",
+            ),
+            approved_only=_ensure_optional_bool(
+                iuphar_cfg.get("approved_only"),
+                context="pipeline.iuphar.approved_only",
+            ),
+            primary_target_only=_ensure_bool(
+                iuphar_cfg.get("primary_target_only"),
+                context="pipeline.iuphar.primary_target_only",
+                default=True,
+            ),
         ),
     }
     timestamp_cfg = cfg.get("timestamp_utc")
