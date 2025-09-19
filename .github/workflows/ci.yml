@@ -28,7 +28,7 @@ jobs:
       - name: Ruff
         run: ruff check .
       - name: Mypy
-        run: mypy --strict library/chembl2uniprot
+        run: mypy --strict library/chembl2uniprot library/config
       - name: Pytest
         run: pytest
 

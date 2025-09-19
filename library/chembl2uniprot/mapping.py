@@ -24,7 +24,20 @@ from pathlib import Path
 
 from urllib.parse import urljoin
 
-from typing import Any, Dict, Iterable, Iterator, List, Set, cast, Literal, Sequence
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Literal,
+    Sequence,
+    Set,
+    Tuple,
+    cast,
+)
 
 import hashlib
 import json
@@ -52,34 +65,59 @@ from .config import (
 from .logging_utils import configure_logging
 
 try:  # pragma: no cover - import resolution varies between runtime contexts
-    from http_client import (  # type: ignore[import-not-found]
-        DEFAULT_STATUS_FORCELIST,
-        RateLimiter,
-        RetryAfterWaitStrategy,
-        retry_after_from_response,
-    )
-except ImportError:  # pragma: no cover - fallback when executed as a package
     from ..http_client import (
         DEFAULT_STATUS_FORCELIST,
         RateLimiter,
         RetryAfterWaitStrategy,
         retry_after_from_response,
     )
+except ImportError:  # pragma: no cover - fallback when executed without package context
+    from http_client import (  # type: ignore[import-not-found]
+        DEFAULT_STATUS_FORCELIST,
+        RateLimiter,
+        RetryAfterWaitStrategy,
+        retry_after_from_response,
+    )
 
-try:
-    from cli_common import ensure_output_dir, resolve_cli_sidecar_paths
-except ModuleNotFoundError:  # pragma: no cover
-    from ..cli_common import ensure_output_dir, resolve_cli_sidecar_paths
+if TYPE_CHECKING:
+    from ..cli_common import (
+        ensure_output_dir as _ensure_output_dir,
+        resolve_cli_sidecar_paths as _resolve_cli_sidecar_paths,
+    )
+    from ..data_profiling import analyze_table_quality as _analyze_table_quality
+    from ..metadata import write_meta_yaml as _write_meta_yaml
+else:
+    try:
+        from ..cli_common import (
+            ensure_output_dir as _ensure_output_dir,
+            resolve_cli_sidecar_paths as _resolve_cli_sidecar_paths,
+        )
+    except (ModuleNotFoundError, ImportError):  # pragma: no cover
+        from cli_common import (  # type: ignore[import-not-found]
+            ensure_output_dir as _ensure_output_dir,
+            resolve_cli_sidecar_paths as _resolve_cli_sidecar_paths,
+        )
 
-try:
-    from data_profiling import analyze_table_quality
-except ModuleNotFoundError:  # pragma: no cover
-    from ..data_profiling import analyze_table_quality
+    try:
+        from ..data_profiling import analyze_table_quality as _analyze_table_quality
+    except (ModuleNotFoundError, ImportError):  # pragma: no cover
+        from data_profiling import analyze_table_quality as _analyze_table_quality
 
-try:
-    from metadata import write_meta_yaml
-except ModuleNotFoundError:  # pragma: no cover
-    from ..metadata import write_meta_yaml
+    try:
+        from ..metadata import write_meta_yaml as _write_meta_yaml
+    except (ModuleNotFoundError, ImportError):  # pragma: no cover
+        from metadata import write_meta_yaml as _write_meta_yaml
+
+ensure_output_dir = cast(Callable[[Path], Path], _ensure_output_dir)
+resolve_cli_sidecar_paths = cast(
+    Callable[[Path], Tuple[Path, Path, Path]], _resolve_cli_sidecar_paths
+)
+analyze_table_quality = cast(
+    Callable[..., Tuple[pd.DataFrame, pd.DataFrame]],
+    _analyze_table_quality,
+)
+write_meta_yaml = cast(Callable[..., Path], _write_meta_yaml)
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -362,13 +400,18 @@ def _request_with_retry(
             reason,
         )
 
-    @retry(
-        reraise=True,
-        retry=retry_if_exception_type(requests.RequestException),
-        stop=stop_after_attempt(max_attempts),
-        wait=wait_strategy,
-        before_sleep=_log_retry,
+    retry_wrapper = cast(
+        Callable[[Callable[[], requests.Response]], Callable[[], requests.Response]],
+        retry(
+            reraise=True,
+            retry=retry_if_exception_type(requests.RequestException),
+            stop=stop_after_attempt(max_attempts),
+            wait=wait_strategy,
+            before_sleep=_log_retry,
+        ),
     )
+
+    @retry_wrapper
     def _do_request() -> requests.Response:
         # Honour the rate limit before each network call, including retries.
         rate_limiter.wait()
