@@ -11,11 +11,11 @@ import argparse
 import logging
 import sys
 
- 
+
 from itertools import chain, islice
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
- 
+
 
 from datetime import datetime
 from pathlib import Path
@@ -164,7 +164,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="Path to write normalised isoform table",
     )
     parser.add_argument(
-        "--with-orthologs", action="store_true", help="Retrieve ortholog information"
+        "--with-orthologs",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Enable or disable ortholog enrichment. Defaults to the YAML "
+            "configuration when the flag is omitted."
+        ),
     )
     parser.add_argument(
         "--orthologs-output", help="Path to write normalised ortholog table"
@@ -274,7 +280,36 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     output_path = ensure_output_dir(output_path)
     meta_path, _, quality_base = resolve_cli_sidecar_paths(output_path)
-    if args.with_orthologs and cfg.orthologs.enabled:
+
+    metadata_warnings: list[str] = []
+    cli_override: bool | None
+    if isinstance(args.with_orthologs, bool):
+        cli_override = args.with_orthologs
+    else:
+        cli_override = None
+    config_with_orthologs = bool(cfg.orthologs.enabled)
+    use_orthologs = (
+        config_with_orthologs if cli_override is None else bool(cli_override)
+    )
+    if cli_override is not None and bool(cli_override) != config_with_orthologs:
+        warning_message = (
+            "Ortholog enrichment enabled via CLI override although configuration "
+            "disables it."
+            if use_orthologs
+            else "Ortholog enrichment disabled via CLI override although "
+            "configuration enables it."
+        )
+        LOGGER.warning(
+            warning_message,
+            extra={
+                "cli_with_orthologs": bool(cli_override),
+                "config_with_orthologs": config_with_orthologs,
+            },
+        )
+        metadata_warnings.append(warning_message)
+    args.with_orthologs = use_orthologs
+
+    if use_orthologs:
         orthologs_path = ensure_output_dir(orthologs_path)
     if include_iso:
         iso_out_path = ensure_output_dir(iso_out_path)
@@ -300,6 +335,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             meta_path=meta_path,
             status="error",
             error=message,
+            warnings=metadata_warnings,
         )
         raise SystemExit(1) from None
 
@@ -323,7 +359,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     orth_cols: list[str] = []
     orth_rows: list[dict[str, Any]] = []
 
-    if args.with_orthologs and cfg.orthologs.enabled:
+    if use_orthologs:
         orth_cache_mapping = (
             cfg.orthologs.cache.to_cache_dict() if cfg.orthologs.cache else None
         )
@@ -380,7 +416,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                         acc,
                         extra={"uniprot_id": acc},
                     )
-                    row = {c: "" for c in cols}
+                    row: dict[str, Any] = {c: "" for c in cols}
                     row["uniprot_id"] = acc
                     if ensembl_client:
                         row["orthologs_json"] = []
@@ -484,6 +520,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             meta_path=meta_path,
             status="error",
             error=error_message,
+            warnings=metadata_warnings,
         )
         raise SystemExit(2) from exc
 
@@ -503,9 +540,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         serialised_orth_df = serialise_dataframe(
             orth_df, list_format=csv_cfg.list_format
         )
-        orth_meta_path, _, orth_quality_base = resolve_cli_sidecar_paths(
-            orthologs_path
-        )
+        orth_meta_path, _, orth_quality_base = resolve_cli_sidecar_paths(orthologs_path)
         analyze_table_quality(serialised_orth_df, table_name=str(orth_quality_base))
         write_cli_metadata(
             orthologs_path,
@@ -514,6 +549,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             namespace=args,
             command_parts=command_parts,
             meta_path=orth_meta_path,
+            warnings=metadata_warnings,
         )
         LOGGER.info(
             "Ortholog table written to %s",
@@ -552,9 +588,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         write_rows(iso_out_path, iso_rows, iso_cols, csv_cfg)
         iso_df = pd.DataFrame(iso_rows, columns=iso_cols)
-        serialised_iso_df = serialise_dataframe(
-            iso_df, list_format=csv_cfg.list_format
-        )
+        serialised_iso_df = serialise_dataframe(iso_df, list_format=csv_cfg.list_format)
         iso_meta_path, _, iso_quality_base = resolve_cli_sidecar_paths(iso_out_path)
         analyze_table_quality(serialised_iso_df, table_name=str(iso_quality_base))
         write_cli_metadata(
@@ -564,6 +598,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             namespace=args,
             command_parts=command_parts,
             meta_path=iso_meta_path,
+            warnings=metadata_warnings,
         )
 
     analyze_table_quality(serialised_df, table_name=str(quality_base))
@@ -575,6 +610,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         namespace=args,
         command_parts=command_parts,
         meta_path=meta_path,
+        warnings=metadata_warnings,
     )
 
     LOGGER.info(

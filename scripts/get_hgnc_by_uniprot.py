@@ -16,7 +16,10 @@ if __package__ in {None, ""}:
 import pandas as pd
 
 from hgnc_client import map_uniprot_to_hgnc  # noqa: E402
-from library.cli_common import resolve_cli_sidecar_paths, write_cli_metadata  # noqa: E402
+from library.cli_common import (
+    resolve_cli_sidecar_paths,
+    write_cli_metadata,
+)  # noqa: E402
 from library.logging_utils import configure_logging  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -103,11 +106,13 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     errors: list[dict[str, str]] = []
     if "uniprot_id" in df.columns and "hgnc_id" in df.columns:
-        missing_mask = df["hgnc_id"].isna() | (df["hgnc_id"].astype(str).str.strip() == "")
+        missing_mask = df["hgnc_id"].isna() | (
+            df["hgnc_id"].astype(str).str.strip() == ""
+        )
         for uniprot_id in df.loc[missing_mask, "uniprot_id"].astype(str):
             errors.append(
                 {
-                    "uniprot_id": uniprot_id,
+                    "uniprot_id": str(uniprot_id),
                     "error": "HGNC identifier missing",
                 }
             )
