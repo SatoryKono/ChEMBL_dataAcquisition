@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -22,12 +23,18 @@ from library.chembl_cell_lines import (  # noqa: E402
     CellLineConfig,
     CellLineError,
 )
+from library.cli_common import (  # noqa: E402
+    resolve_cli_sidecar_paths,
+    write_cli_metadata,
+)
 from library.logging_utils import configure_logging  # noqa: E402
 
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_SEP = ","
 DEFAULT_ENCODING = "utf-8"
 DEFAULT_COLUMN = "cell_chembl_id"
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _iter_unique(values: Iterable[str]) -> Iterable[str]:
@@ -85,6 +92,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="Path to write the JSON lines output",
     )
     parser.add_argument(
+        "--errors-output",
+        default=None,
+        help="Optional path for the JSON error report",
+    )
+    parser.add_argument(
+        "--meta-output",
+        default=None,
+        help="Optional path for the generated .meta.yaml file",
+    )
+    parser.add_argument(
         "--log-level",
         default=DEFAULT_LOG_LEVEL,
         help="Logging level",
@@ -119,24 +136,56 @@ def main(argv: Sequence[str] | None = None) -> None:
     if not ids:
         raise ValueError("No cell line identifiers provided")
 
+    command_parts = [sys.argv[0], *(argv or sys.argv[1:])]
+
     output_path = Path(
         args.output if args.output else f"output_input_{datetime.utcnow():%Y%m%d}.json"
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    meta_path, errors_path, _ = resolve_cli_sidecar_paths(
+        output_path,
+        meta_output=args.meta_output,
+        errors_output=args.errors_output,
+    )
+    errors_path.parent.mkdir(parents=True, exist_ok=True)
 
     client = CellLineClient(
         CellLineConfig(
             base_url=args.base_url,
         )
     )
+    records_written = 0
+    field_names: set[str] = set()
+    errors: list[dict[str, str]] = []
     with output_path.open("w", encoding=args.encoding) as handle:
         for identifier in ids:
             try:
                 record = client.fetch_cell_line(identifier)
             except (CellLineError, ValueError) as exc:
-                raise SystemExit(str(exc)) from exc
+                error_message = str(exc)
+                LOGGER.warning(
+                    "Failed to fetch cell line %s: %s", identifier, error_message
+                )
+                errors.append({"cell_line_id": identifier, "error": error_message})
+                continue
             handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True))
             handle.write("\n")
+            records_written += 1
+            if isinstance(record, dict):
+                field_names.update(str(key) for key in record)
+
+    with errors_path.open("w", encoding="utf-8") as error_handle:
+        json.dump(errors, error_handle, ensure_ascii=False, indent=2, sort_keys=True)
+
+    write_cli_metadata(
+        output_path,
+        row_count=records_written,
+        column_count=len(field_names),
+        namespace=args,
+        command_parts=command_parts,
+        meta_path=meta_path,
+    )
 
     print(output_path)
 
