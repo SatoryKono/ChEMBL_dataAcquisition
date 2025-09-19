@@ -1,5 +1,7 @@
 """Integration tests for the pipeline targets CLI entry point."""
 
+# ruff: noqa: E402  # Module imports follow a runtime path mutation necessary for tests.
+
 from __future__ import annotations
 
 import hashlib
