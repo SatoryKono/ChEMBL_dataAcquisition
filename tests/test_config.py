@@ -83,6 +83,13 @@ def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     assert loaded.logging.format == "human"
 
 
+def test_env_override_invalid_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Schema validation rejects invalid values injected via environment."""
+    monkeypatch.setenv("CHEMBL_BATCH__SIZE", "0")
+    with pytest.raises(ValueError, match="batch.size"):
+        load_and_validate_config(CONFIG)
+
+
 def test_env_override_project_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
     """Project-scoped environment variables target combined configurations."""
     monkeypatch.setenv("CHEMBL_DA__CHEMBL2UNIPROT__BATCH__SIZE", "6")
