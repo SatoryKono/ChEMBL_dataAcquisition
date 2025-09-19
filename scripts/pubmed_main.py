@@ -567,7 +567,7 @@ def _write_output(
     report = cast(Dict[str, Any], quality_report(df))
     report["file_sha256"] = checksum
     report["output"] = str(output_path)
-    meta_path = output_path.with_suffix(output_path.suffix + ".meta.json")
+    meta_path = output_path.with_name(f"{output_path.name}.meta.json")
     save_quality_report(meta_path, report)
     LOGGER.info("Wrote %d rows to %s", len(df), output_path)
     LOGGER.info("Metadata report saved to %s", meta_path)

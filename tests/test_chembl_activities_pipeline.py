@@ -219,7 +219,7 @@ def test_chembl_activities_main_end_to_end(
     df = pd.read_csv(output_csv)
     assert sorted(df["activity_chembl_id"].tolist()) == ["CHEMBL1", "CHEMBL2"]
 
-    meta_file = output_csv.with_suffix(".csv.meta.yaml")
+    meta_file = output_csv.with_name(f"{output_csv.name}.meta.yaml")
     assert meta_file.exists()
 
     second_exit = chembl_activities_main(
@@ -243,9 +243,10 @@ def test_chembl_activities_main_end_to_end(
     assert determinism["matches_previous"] is True
     assert determinism["previous_sha256"] == determinism["current_sha256"]
 
-    quality_report = Path(f"{output_csv.with_suffix('')}_quality_report_table.csv")
+    base_path = output_csv.with_name(output_csv.stem)
+    quality_report = Path(f"{base_path}_quality_report_table.csv")
     assert quality_report.exists()
     corr_report = Path(
-        f"{output_csv.with_suffix('')}_data_correlation_report_table.csv"
+        f"{base_path}_data_correlation_report_table.csv"
     )
     assert corr_report.exists()

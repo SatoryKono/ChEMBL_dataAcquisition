@@ -16,6 +16,7 @@ from chembl_targets import TargetConfig, fetch_targets  # noqa: E402
 from library.cli_common import (  # noqa: E402
     analyze_table_quality,
     ensure_output_dir,
+    resolve_cli_sidecar_paths,
     serialise_dataframe,
     write_cli_metadata,
 )
@@ -125,9 +126,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     rows = serialised.to_dict(orient="records")
     write_rows(output_path, rows, columns, csv_cfg)
 
-    analyze_table_quality(serialised, table_name=str(output_path.with_suffix("")))
+    meta_path, _, quality_base = resolve_cli_sidecar_paths(
+        output_path,
+        meta_output=args.meta_output,
+    )
+    analyze_table_quality(serialised, table_name=str(quality_base))
 
-    meta_path = Path(args.meta_output).expanduser().resolve() if args.meta_output else None
     write_cli_metadata(
         output_path,
         row_count=int(serialised.shape[0]),

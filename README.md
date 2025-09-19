@@ -305,9 +305,11 @@ python scripts/chembl_activities_main.py \
     --log-format json
 ```
 
-Validation errors are persisted to `<output>.errors.json` while dataset metadata
-is written to `<output>.meta.yaml`. Quality and correlation reports are produced
-alongside the main CSV file.
+Validation errors are persisted to `<output_filename>.errors.json`, where
+`<output_filename>` includes the complete original name (for example,
+`dataset.tar.gz.errors.json`). Dataset metadata is written to
+`<output_filename>.meta.yaml`, and quality plus correlation reports are produced
+alongside the main CSV file using the same base filename.
 
 ### Performance smoke testing
 

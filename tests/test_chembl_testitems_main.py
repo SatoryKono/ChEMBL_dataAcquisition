@@ -92,7 +92,7 @@ def test_run_pipeline_passes_pubchem_http_client_config(
         captured["meta_row_count"] = row_count
         captured["meta_column_count"] = column_count
         captured["meta_path"] = meta_path
-        return output_path.with_suffix(".csv.meta.yaml")
+        return output_path.with_name(f"{output_path.name}.meta.yaml")
 
     monkeypatch.setattr(module, "ChemblClient", DummyClient)
     monkeypatch.setattr(module, "get_testitems", fake_get_testitems)
