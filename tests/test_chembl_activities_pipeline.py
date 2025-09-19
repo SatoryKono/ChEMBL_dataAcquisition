@@ -26,7 +26,8 @@ ChemblClient = importlib.import_module("library.chembl_client").ChemblClient
 get_activities = importlib.import_module("library.chembl_library").get_activities
 read_ids = importlib.import_module("library.io").read_ids
 CsvConfig = importlib.import_module("library.io_utils").CsvConfig
-chembl_activities_main = importlib.import_module("scripts.chembl_activities_main").main
+chembl_activities_module = importlib.import_module("scripts.chembl_activities_main")
+chembl_activities_main = chembl_activities_module.main
 
 
 def test_read_ids_limit(tmp_path: Path) -> None:
@@ -155,6 +156,11 @@ def test_validate_activities_handles_numpy_payloads(tmp_path: Path) -> None:
     assert validated.loc[0, "activity_properties"] == []
     assert validated.loc[0, "target_components"] == [{"name": "component"}]
     assert pd.isna(validated.loc[0, "standard_value"])
+
+
+def test_parse_args_rejects_dictionary() -> None:
+    with pytest.raises(SystemExit):
+        chembl_activities_module.parse_args(["--dictionary", "dict.csv"])
 
 
 def test_chembl_activities_main_dry_run(tmp_path: Path) -> None:

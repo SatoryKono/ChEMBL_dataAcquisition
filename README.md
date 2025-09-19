@@ -238,6 +238,9 @@ optionally enriches the results with PubChem descriptors.  In addition to the
 existing `--pubchem-timeout`, `--pubchem-base-url`, and `--pubchem-user-agent`
 flags, the following options fine-tune the PubChem HTTP client:
 
+> **Note:** The placeholder `--dictionary` switch has been removed because the
+> pipeline never read enrichment dictionaries from disk.
+
 * `--pubchem-max-retries` – maximum retry attempts before giving up (default:
   `3`).
 * `--pubchem-rps` – allowed PubChem requests per second (default: `5.0`).
@@ -324,6 +327,10 @@ python scripts/chembl_activities_main.py \
     --log-level DEBUG \
     --log-format json
 ```
+
+> **Note:** The legacy `--dictionary` flag has been removed because the
+> pipeline does not consume external lookup tables. Supply enriched identifiers
+> upstream if dictionary-driven augmentation is required.
 
 Validation errors are persisted to `<output_filename>.errors.json`, where
 `<output_filename>` includes the complete original name (for example,

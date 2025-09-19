@@ -113,11 +113,6 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         help="Maximum number of identifiers to process",
     )
     parser.add_argument(
-        "--dictionary",
-        default=None,
-        help="Optional dictionary file for downstream enrichment",
-    )
-    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Read and validate the input file without fetching or writing output",
