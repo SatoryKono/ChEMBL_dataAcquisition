@@ -250,7 +250,9 @@ The `scripts/` directory contains several other scripts for performing specific 
     serialise the records as JSON lines.
 *   `get_uniprot_target_data.py`: Retrieve and normalize detailed information about UniProt targets.
     The input CSV must expose a `uniprot_id` column unless `--column` is used to
-    point at an alternative header.
+    point at an alternative header. When the provided input path does not
+    reference an existing file, the CLI logs a clear error message and exits with
+    a status code of `1` so that automation can detect the failure immediately.
 *   `get_hgnc_by_uniprot.py`: Map UniProt accessions to HGNC identifiers.
 *   `dump_gtop_target.py`: Download comprehensive GtoPdb target information.
 *   `protein_classify_main.py`: Classify proteins based on UniProt data.
