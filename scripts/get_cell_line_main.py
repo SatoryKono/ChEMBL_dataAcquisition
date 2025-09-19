@@ -29,6 +29,8 @@ from library.cli_common import (  # noqa: E402
 )
 from library.logging_utils import configure_logging  # noqa: E402
 
+LOGGER = logging.getLogger(__name__)
+
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_SEP = ","
 DEFAULT_ENCODING = "utf-8"
@@ -57,6 +59,56 @@ def _load_ids_from_csv(path: Path, column: str, sep: str, encoding: str) -> list
         raise ValueError(f"Missing column '{column}' in {path}")
     series = df[column].dropna()
     return [str(item).strip() for item in series if str(item).strip()]
+
+
+def _run(args: argparse.Namespace) -> None:
+    """Fetch requested cell line metadata and persist it to disk."""
+
+    if not args.sep:
+        raise ValueError("--sep must be a non-empty delimiter")
+    if not args.encoding:
+        raise ValueError("--encoding must be provided")
+    if not args.column or not str(args.column).strip():
+        raise ValueError("--column must name a non-empty column")
+
+    ids = list(args.cell_line_ids)
+    if args.input:
+        input_path = Path(args.input).expanduser()
+        if not input_path.exists() or not input_path.is_file():
+            raise FileNotFoundError(f"Input file {input_path.resolve()} does not exist")
+        ids.extend(
+            _load_ids_from_csv(
+                input_path.resolve(), args.column, args.sep, args.encoding
+            )
+        )
+
+    ids = list(_iter_unique(i for i in ids if i))
+    if not ids:
+        raise ValueError("No cell line identifiers provided")
+
+    output_path = (
+        Path(
+            args.output
+            if args.output
+            else f"output_input_{datetime.utcnow():%Y%m%d}.json"
+        )
+        .expanduser()
+        .resolve()
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    client = CellLineClient(
+        CellLineConfig(
+            base_url=args.base_url,
+        )
+    )
+    with output_path.open("w", encoding=args.encoding) as handle:
+        for identifier in ids:
+            record = client.fetch_cell_line(identifier)
+            handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True))
+            handle.write("\n")
+
+    print(output_path)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -125,6 +177,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     configure_logging(args.log_level)
 
+ 
     ids = list(args.cell_line_ids)
     if args.input:
         input_path = Path(args.input)
@@ -188,7 +241,16 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     print(output_path)
-
+ 
+    try:
+        _run(args)
+    except (FileNotFoundError, ValueError, CellLineError) as exc:
+        LOGGER.error("%s", exc)
+        raise SystemExit(1) from exc
+    except Exception as exc:  # pragma: no cover - defensive guard
+        LOGGER.exception("Unexpected error while downloading cell line metadata")
+        raise SystemExit(1) from exc
+ 
 
 if __name__ == "__main__":  # pragma: no cover
     main()
