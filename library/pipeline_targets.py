@@ -5,7 +5,7 @@ import logging
 from math import isnan
 from datetime import UTC, datetime
 from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
-from typing import Any, Callable, Dict, List, MutableMapping, Sequence
+from typing import Any, Callable, Dict, List, Mapping, MutableMapping, Sequence
 
 import pandas as pd
 from typing import TYPE_CHECKING
@@ -472,6 +472,23 @@ def _clean_identifier_sequence(values: Sequence[Any]) -> list[str]:
     return cleaned
 
 
+def _has_isoform_annotation(entry: Mapping[str, Any]) -> bool:
+    """Return ``True`` if ``entry`` describes alternative isoform products."""
+
+    comments = entry.get("comments")
+    if not isinstance(comments, SequenceABC):
+        return False
+    for comment in comments:
+        if not isinstance(comment, MappingABC):
+            continue
+        if comment.get("commentType") != "ALTERNATIVE_PRODUCTS":
+            continue
+        isoforms = comment.get("isoforms")
+        if isinstance(isoforms, SequenceABC) and isoforms:
+            return True
+    return False
+
+
 def _select_primary(
     entries: List[Dict[str, Any]], priority: Sequence[str]
 ) -> Dict[str, Any] | None:
@@ -519,6 +536,7 @@ def run_pipeline(
     target_species: Sequence[str] | None = None,
     progress_callback: Callable[[int], None] | None = None,
     entry_cache: MutableMapping[str, Any] | None = None,
+    batch_size: int = 25,
 ) -> pd.DataFrame:
     """Orchestrates data acquisition for a sequence of ChEMBL target identifiers.
 
@@ -539,10 +557,16 @@ def run_pipeline(
             When supplied, the cache is updated with records retrieved during the
             pipeline execution so that downstream enrichment steps can reuse the
             data without additional network requests.
+        batch_size: Maximum number of UniProt accessions retrieved per batch
+            request. The value must be greater than zero.
 
     Returns:
         A pandas DataFrame containing the orchestrated data.
     """
+
+    if batch_size <= 0:
+        msg = "batch_size must be a positive integer"
+        raise ValueError(msg)
 
     chembl_cfg = chembl_config or TargetConfig(list_format=cfg.list_format)
     cleaned_ids = _clean_identifier_sequence(ids)
@@ -558,36 +582,61 @@ def run_pipeline(
         accessions = [c.get("accession") for c in comps if c.get("accession")]
         uniprot_entries: List[Dict[str, Any]] = []
         raw_entries: Dict[str, Dict[str, Any]] = {}
-        for acc in sorted(dict.fromkeys(accessions)):
-            if not acc:
-                continue
-            cached_entry: Any = None
-            cache_has_key = False
-            if entry_cache is not None and acc in entry_cache:
-                cache_has_key = True
-                cached_entry = entry_cache[acc]
-            if fetch_full_entry:
-                raw = cached_entry
-                if raw is None and not cache_has_key:
+        unique_accessions = [
+            accession for accession in sorted(dict.fromkeys(accessions)) if accession
+        ]
+        if fetch_full_entry and unique_accessions:
+            pending_fetch: List[str] = []
+            for acc in unique_accessions:
+                cached_entry: Any = None
+                if entry_cache is not None and acc in entry_cache:
+                    cached_entry = entry_cache[acc]
+                if cached_entry:
+                    raw_entries[acc] = cached_entry
+                else:
+                    pending_fetch.append(acc)
+            if pending_fetch:
+                batch_records = uniprot_client.fetch_entries_json(
+                    pending_fetch, batch_size=batch_size
+                )
+                for acc, raw in batch_records.items():
+                    if raw:
+                        raw_entries[acc] = raw
+                        if entry_cache is not None:
+                            entry_cache[acc] = raw
+                remaining = [acc for acc in pending_fetch if acc not in raw_entries]
+                for acc in remaining:
                     raw = uniprot_client.fetch_entry_json(acc)
-                    if entry_cache is not None:
-                        entry_cache[acc] = raw
-                if raw:
-                    raw_entries[acc] = raw
-                    fasta_headers: List[str] = []
-                    isoforms: List[Dict[str, Any]] = []
-                    if cfg.include_isoforms:
-                        fasta_headers = uniprot_client.fetch_isoforms_fasta(acc)
-                        isoforms = extract_isoforms(raw, fasta_headers)
-                    uniprot_entries.append(
-                        normalize_entry(
-                            raw,
-                            include_sequence=cfg.include_sequence,
-                            isoforms=isoforms,
-                        )
+                    if raw:
+                        raw_entries[acc] = raw
+                        if entry_cache is not None:
+                            entry_cache[acc] = raw
+
+        for acc in unique_accessions:
+            if fetch_full_entry:
+                raw = raw_entries.get(acc)
+                if not raw:
+                    continue
+                isoforms: List[Dict[str, Any]] = []
+                if cfg.include_isoforms and _has_isoform_annotation(raw):
+                    fasta_headers = uniprot_client.fetch_isoforms_fasta(acc)
+                    isoforms = extract_isoforms(raw, fasta_headers)
+                elif cfg.include_isoforms:
+                    isoforms = []
+                uniprot_entries.append(
+                    normalize_entry(
+                        raw,
+                        include_sequence=cfg.include_sequence,
+                        isoforms=isoforms,
                     )
+                )
             else:
-                raw = cached_entry
+                cached_basic_entry: Any = None
+                cache_has_key = False
+                if entry_cache is not None and acc in entry_cache:
+                    cache_has_key = True
+                    cached_basic_entry = entry_cache[acc]
+                raw = cached_basic_entry
                 if raw is None and not cache_has_key:
                     raw = uniprot_client.fetch(acc)
                 if raw:

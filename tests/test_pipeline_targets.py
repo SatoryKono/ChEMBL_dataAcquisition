@@ -28,8 +28,9 @@ def make_uniprot(
     lineage: List[str],
     *,
     hgnc: str | None = None,
+    include_isoform_comment: bool = False,
 ) -> Dict:
-    return {
+    entry = {
         "primaryAccession": accession,
         "entryType": "reviewed",
         "proteinDescription": {
@@ -54,17 +55,49 @@ def make_uniprot(
             "entryVersion": 2,
         },
     }
+    if include_isoform_comment:
+        entry["comments"] = [
+            {
+                "commentType": "ALTERNATIVE_PRODUCTS",
+                "isoforms": [
+                    {
+                        "name": {"value": f"Isoform {accession}-1"},
+                        "synonyms": [{"value": f"Iso {accession}"}],
+                        "id": f"{accession}-1",
+                        "isSequenceDisplayed": True,
+                    }
+                ],
+            }
+        ]
+    return entry
 
 
 class DummyUniProt:
     def __init__(self, records: Dict[str, Dict]):
         self.records = records
+        self.fetch_calls: List[str] = []
+        self.batch_calls: List[List[str]] = []
+        self.entry_calls: List[str] = []
+        self.isoform_calls: List[str] = []
 
     def fetch(self, acc: str) -> Dict | None:  # pragma: no cover - simple
+        self.fetch_calls.append(acc)
         return self.records.get(acc)
 
     def fetch_entry_json(self, acc: str) -> Dict | None:  # pragma: no cover - simple
+        self.entry_calls.append(acc)
         return self.records.get(acc)
+
+    def fetch_entries_json(
+        self, accessions: Iterable[str], *, batch_size: int = 100
+    ) -> Dict[str, Dict]:
+        chunk = [acc for acc in accessions]
+        self.batch_calls.append(chunk)
+        return {acc: self.records[acc] for acc in chunk if acc in self.records}
+
+    def fetch_isoforms_fasta(self, acc: str) -> List[str]:  # pragma: no cover - simple
+        self.isoform_calls.append(acc)
+        return []
 
 
 class DummyHGNC:
@@ -212,17 +245,8 @@ def test_pipeline_fetches_isoforms_when_enabled(monkeypatch):
         return make_chembl_df(["P12345"])
 
     class RecordingUniProt(DummyUniProt):
-        def __init__(self, records: Dict[str, Dict]):
-            super().__init__(records)
-            self.isoform_calls: List[str] = []
-            self.entry_calls: List[str] = []
-
-        def fetch_entry_json(self, acc: str) -> Dict | None:
-            self.entry_calls.append(acc)
-            return self.records.get(acc)
-
         def fetch_isoforms_fasta(self, acc: str) -> List[str]:
-            self.isoform_calls.append(acc)
+            super().fetch_isoforms_fasta(acc)
             return [f">sp|{acc}-1|"]
 
     uni = RecordingUniProt(
@@ -233,6 +257,7 @@ def test_pipeline_fetches_isoforms_when_enabled(monkeypatch):
                 9606,
                 ["Eukaryota", "Chordata", "Mammalia", "Primates", "Hominidae"],
                 hgnc="HGNC:1",
+                include_isoform_comment=True,
             )
         }
     )
@@ -254,8 +279,44 @@ def test_pipeline_fetches_isoforms_when_enabled(monkeypatch):
 
     assert not df.empty
     assert uni.isoform_calls == ["P12345"]
-    assert uni.entry_calls == ["P12345"]
+    assert uni.batch_calls == [["P12345"]]
     assert cache["P12345"]["primaryAccession"] == "P12345"
+
+
+def test_pipeline_batches_uniprot_requests(monkeypatch):
+    def chembl_fetch(ids, cfg=None):
+        return make_chembl_df(["P12345", "Q67890"])
+
+    uni = DummyUniProt(
+        {
+            "P12345": make_uniprot(
+                "P12345",
+                "Homo sapiens",
+                9606,
+                ["Eukaryota", "Chordata", "Mammalia", "Primates", "Hominidae"],
+            ),
+            "Q67890": make_uniprot(
+                "Q67890",
+                "Homo sapiens",
+                9606,
+                ["Eukaryota", "Chordata", "Mammalia", "Primates", "Hominidae"],
+            ),
+        }
+    )
+
+    cfg = PipelineConfig(include_isoforms=True)
+    df = run_pipeline(
+        ["CHEMBL1"],
+        cfg,
+        chembl_fetcher=chembl_fetch,
+        uniprot_client=uni,
+        batch_size=10,
+    )
+
+    assert not df.empty
+    assert uni.batch_calls == [["P12345", "Q67890"]]
+    assert uni.entry_calls == []
+    assert uni.isoform_calls == []
 
 
 def test_pipeline_selects_human_uniprot(monkeypatch):
