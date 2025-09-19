@@ -188,7 +188,18 @@ class CacheSettings(BaseModel):
 
 
 class NetworkSettings(BaseModel):
-    """Retry and timeout behaviour for HTTP clients."""
+    """Retry and timeout behaviour for HTTP clients.
+
+    Attributes
+    ----------
+    timeout_sec:
+        Request timeout in seconds.
+    max_retries:
+        Number of retry attempts to perform after the initial request when
+        transient errors occur.
+    backoff_sec:
+        Exponential backoff multiplier applied between retries.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
