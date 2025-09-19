@@ -30,6 +30,7 @@ def test_load_valid_configuration(tmp_path: Path) -> None:
           timeout_sec: 45
           retries: 5
           rps: 4
+          batch_size: 250
           columns:
             - accession
             - gene
@@ -53,6 +54,7 @@ def test_load_valid_configuration(tmp_path: Path) -> None:
     assert cfg.uniprot.timeout_sec == 45
     assert cfg.uniprot.retries == 5
     assert cfg.uniprot.rps == 4
+    assert cfg.uniprot.batch_size == 250
     assert cfg.uniprot.columns == ["accession", "gene"]
     assert cfg.orthologs.enabled is False
     assert cfg.orthologs.target_species == ["human", "mouse"]

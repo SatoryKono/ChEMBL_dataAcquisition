@@ -54,16 +54,6 @@ def test_get_uniprot_target_data_batches_requests(
 
     module = importlib.import_module("scripts.get_uniprot_target_data")
 
-    accessions = [
-        f"P{index:05d}" for index in range(module.BATCH_SIZE * 2 + 5)
-    ]
-    input_path = tmp_path / "input.csv"
-    input_path.write_text(
-        "uniprot_id\n" + "\n".join(accessions) + "\n", encoding="utf-8"
-    )
-    output_path = tmp_path / "output.csv"
-    iso_output_path = tmp_path / "isoforms.csv"
-
     class DummyOutputConfig:
         list_format = "json"
         include_sequence = False
@@ -79,6 +69,7 @@ def test_get_uniprot_target_data_batches_requests(
             self.timeout_sec = 1.0
             self.retries = 0
             self.rps = 10.0
+            self.batch_size = module.DEFAULT_BATCH_SIZE
             self.fields: list[str] = []
             self.columns: list[str] = []
 
@@ -95,11 +86,24 @@ def test_get_uniprot_target_data_batches_requests(
             self.uniprot = DummyUniProtConfig()
             self.orthologs = DummyOrthologsConfig()
 
+    config = DummyConfig()
+    batch_size = config.uniprot.batch_size
+
+    accessions = [
+        f"P{index:05d}" for index in range(batch_size * 2 + 5)
+    ]
+    input_path = tmp_path / "input.csv"
+    input_path.write_text(
+        "uniprot_id\n" + "\n".join(accessions) + "\n", encoding="utf-8"
+    )
+    output_path = tmp_path / "output.csv"
+    iso_output_path = tmp_path / "isoforms.csv"
+
     monkeypatch.setattr(module.yaml, "safe_load", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(
         module,
         "load_uniprot_target_config",
-        lambda *_args, **_kwargs: DummyConfig(),
+        lambda *_args, **_kwargs: config,
     )
     monkeypatch.setattr(
         "library.logging_utils.configure_logging", lambda *_args, **_kwargs: None
@@ -193,12 +197,12 @@ def test_get_uniprot_target_data_batches_requests(
 
     assert len(created_clients) == 1
     client = created_clients[0]
-    expected_batches = math.ceil(len(accessions) / module.BATCH_SIZE)
+    expected_batches = math.ceil(len(accessions) / batch_size)
     assert len(client.fetch_entries_json_calls) == expected_batches
     assert expected_batches < len(accessions)
-    for call_accessions, batch_size in client.fetch_entries_json_calls:
-        assert batch_size == module.BATCH_SIZE
-        assert len(call_accessions) <= module.BATCH_SIZE
+    for call_accessions, call_batch_size in client.fetch_entries_json_calls:
+        assert call_batch_size == config.uniprot.batch_size
+        assert len(call_accessions) <= config.uniprot.batch_size
     assert iso_calls == accessions
 
 
@@ -228,6 +232,7 @@ def test_get_uniprot_cli_handles_uniprot_request_error(
             self.timeout_sec = 1.0
             self.retries = 3
             self.rps = 10.0
+            self.batch_size = module.DEFAULT_BATCH_SIZE
             self.fields: list[str] = []
             self.columns: list[str] = []
 
