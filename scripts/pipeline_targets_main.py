@@ -306,8 +306,8 @@ def _load_yaml_mapping(path: str) -> dict[str, Any]:
     return _ensure_mapping(data, context=f"{path} root", allow_none=False)
 
 
-def _coerce_env_value(raw_value: str) -> Any:
-    """Return a Python object parsed from ``raw_value`` when possible.
+def _normalise_env_override(raw_value: str) -> Any:
+    """Return ``raw_value`` parsed into a native Python object when possible.
 
     Parameters
     ----------
@@ -390,7 +390,7 @@ def _apply_env_overrides(
             ref = ref.setdefault(part, {})
         if not valid_path or not isinstance(ref, dict):
             continue
-        ref[path[-1]] = _coerce_env_value(value)
+        ref[path[-1]] = _normalise_env_override(value)
     return data
 
 
