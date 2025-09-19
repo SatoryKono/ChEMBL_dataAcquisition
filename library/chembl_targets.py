@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Sequence
+from itertools import islice
+from typing import Any, Dict, Iterable, Iterator, List, Sequence
 
 import pandas as pd
 import requests
@@ -97,28 +98,31 @@ class TargetConfig:
 # Normalisation helpers
 
 
-def normalise_ids(ids: Sequence[str]) -> List[str]:
-    """Returns a list of cleaned and deduplicated ChEMBL identifiers.
+def normalise_ids(ids: Iterable[str]) -> Iterator[str]:
+    """Yield cleaned and deduplicated ChEMBL identifiers lazily.
 
-    Args:
-        ids: A raw sequence of identifiers, which may contain duplicates or empty entries.
+    Parameters
+    ----------
+    ids:
+        Iterable of identifiers that may contain duplicates or empty entries.
 
-    Returns:
-        A list of cleaned and deduplicated ChEMBL identifiers.
+    Yields
+    ------
+    str
+        Upper-case identifier values stripped of surrounding whitespace.
     """
 
-    cleaned = []
-    seen = set()
+    seen: set[str] = set()
     for raw in ids:
         if raw is None:
             continue
         cid = raw.strip().upper()
         if not cid:
             continue
-        if cid not in seen:
-            seen.add(cid)
-            cleaned.append(cid)
-    return cleaned
+        if cid in seen:
+            continue
+        seen.add(cid)
+        yield cid
 
 
 # ---------------------------------------------------------------------------
@@ -320,13 +324,27 @@ def _extract_protein_classifications(payload: Dict[str, Any]) -> List[str]:
 # Public API
 
 
+def _batched(iterable: Iterable[str], size: int) -> Iterator[list[str]]:
+    """Yield lists of at most ``size`` items from ``iterable``."""
+
+    if size <= 0:
+        msg = "Batch size must be a positive integer"
+        raise ValueError(msg)
+    iterator = iter(iterable)
+    while True:
+        chunk = list(islice(iterator, size))
+        if not chunk:
+            break
+        yield chunk
+
+
 def fetch_targets(
-    ids: Sequence[str], cfg: TargetConfig, *, batch_size: int = 20
+    ids: Iterable[str], cfg: TargetConfig, *, batch_size: int = 20
 ) -> pd.DataFrame:
     """Fetches ChEMBL targets and returns a normalized pandas DataFrame.
 
     Args:
-        ids: A sequence of target ChEMBL identifiers.
+        ids: Iterable of target ChEMBL identifiers.
         cfg: The configuration for the fetch operation.
         batch_size: The maximum number of identifiers to query per HTTP request.
 
@@ -349,8 +367,7 @@ def fetch_targets(
     )
     records: List[Dict[str, Any]] = []
     base = cfg.base_url.rstrip("/")
-    for i in range(0, len(norm_ids), batch_size):
-        chunk = norm_ids[i : i + batch_size]
+    for chunk in _batched(norm_ids, batch_size):
         params = {
             "target_chembl_id__in": ",".join(chunk),
             "format": "json",
