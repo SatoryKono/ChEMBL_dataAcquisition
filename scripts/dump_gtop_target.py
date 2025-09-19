@@ -1,4 +1,10 @@
-"""Resolve GtoPdb identifiers and dump related resources as CSV tables."""
+"""Resolve GtoPdb identifiers and dump related resources as CSV tables.
+
+The CLI streams identifiers directly from the input file to keep memory usage
+bounded even for very large datasets. Normalisation is performed lazily, with
+HGNC identifiers being prefixed on the fly, so no intermediate list of
+identifiers is materialised.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +12,8 @@ import argparse
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Sequence, cast
+from collections.abc import Iterable, Iterator
+from typing import Any, Dict, Mapping, Sequence, cast
 
 import pandas as pd
 import yaml
@@ -59,24 +66,24 @@ def _load_config(path: Path) -> Dict[str, Any]:
     return dict(payload)
 
 
-def _normalise_identifiers(values: List[str], column: str) -> List[str]:
-    """Normalise raw identifier values for ``column``."""
+def _iter_normalised_identifiers(values: Iterable[str], column: str) -> Iterator[str]:
+    """Yield identifier values lazily after filtering and normalisation."""
 
-    filtered = [value for value in values if value.lower() != "nan"]
-    if column == "hgnc_id":
-        return [
-            value if value.startswith("HGNC:") else f"HGNC:{value}"
-            for value in filtered
-        ]
-    return filtered
+    for value in values:
+        if value.lower() == "nan":
+            continue
+        if column == "hgnc_id" and not value.startswith("HGNC:"):
+            yield f"HGNC:{value}"
+            continue
+        yield value
 
 
-def _read_identifiers(path: Path, column: str, cfg: CsvConfig) -> List[str]:
-    """Read and normalise identifiers from ``column`` in ``path``."""
+def _read_identifiers(path: Path, column: str, cfg: CsvConfig) -> Iterator[str]:
+    """Read and normalise identifiers from ``column`` in ``path`` lazily."""
 
     normaliser = None if column in {"target_name", "gene_symbol"} else str.upper
-    identifiers = list(read_ids(path, column, cfg, normalise=normaliser))
-    return _normalise_identifiers(identifiers, column)
+    raw_values = read_ids(path, column, cfg, normalise=normaliser)
+    return _iter_normalised_identifiers(raw_values, column)
 
 
 def _serialise_and_write(
@@ -204,8 +211,37 @@ def main(argv: Sequence[str] | None = None) -> None:
     if not input_path.exists():
         raise FileNotFoundError(f"Input file {input_path} does not exist")
 
+    identifiers = _read_identifiers(input_path, args.id_column, csv_cfg)
+
+    output_dir = (
+        Path(args.output_dir).expanduser().resolve()
+        if args.output_dir
+        else (input_path.parent / _default_output_dir(args.input))
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    targets: list[Dict[str, Any]] = []
+    syn_rows: list[pd.DataFrame] = []
+    int_rows: list[pd.DataFrame] = []
     try:
-        identifiers = _read_identifiers(input_path, args.id_column, csv_cfg)
+        for raw in identifiers:
+            target = resolve_target(client, raw, args.id_column)
+            if not target:
+                continue
+            targets.append(target)
+            tid = cast(int, target.get("targetId"))
+            synonyms = client.fetch_target_endpoint(tid, "synonyms")
+            syn_rows.append(normalise_synonyms(tid, synonyms))
+            interactions = client.fetch_target_endpoint(
+                tid,
+                "interactions",
+                params={
+                    "affinityType": args.affinity_parameter,
+                    "affinity": args.affinity_ge,
+                    "species": args.species,
+                },
+            )
+            int_rows.append(normalise_interactions(tid, interactions))
     except KeyError as error:
         header = pd.read_csv(
             input_path,
@@ -219,35 +255,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             f" Available columns: {available or '<none>'}"
         )
         raise SystemExit(msg) from error
-
-    output_dir = (
-        Path(args.output_dir).expanduser().resolve()
-        if args.output_dir
-        else (input_path.parent / _default_output_dir(args.input))
-    )
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    targets: list[Dict[str, Any]] = []
-    syn_rows: list[pd.DataFrame] = []
-    int_rows: list[pd.DataFrame] = []
-    for raw in identifiers:
-        target = resolve_target(client, raw, args.id_column)
-        if not target:
-            continue
-        targets.append(target)
-        tid = cast(int, target.get("targetId"))
-        synonyms = client.fetch_target_endpoint(tid, "synonyms")
-        syn_rows.append(normalise_synonyms(tid, synonyms))
-        interactions = client.fetch_target_endpoint(
-            tid,
-            "interactions",
-            params={
-                "affinityType": args.affinity_parameter,
-                "affinity": args.affinity_ge,
-                "species": args.species,
-            },
-        )
-        int_rows.append(normalise_interactions(tid, interactions))
 
     targets_df = normalise_targets(targets)
     syn_df = (

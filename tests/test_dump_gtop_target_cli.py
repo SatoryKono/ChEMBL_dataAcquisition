@@ -4,6 +4,8 @@ import csv
 from pathlib import Path
 import sys
 
+from collections.abc import Callable, Iterator
+
 import pytest
 import yaml
 
@@ -133,3 +135,83 @@ def test_dump_gtop_target_cli_smoke(
     assert meta["rows"] == 1
     assert meta["columns"] == 6
     assert meta["output"] == str(targets_csv)
+
+
+def test_dump_gtop_target_cli_many_identifiers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The CLI streams and normalises many identifiers without exhaustion."""
+
+    total = 250
+
+    def fake_read_ids(
+        _path: Path,
+        column: str,
+        _cfg: dump_gtop_target.CsvConfig,
+        *,
+        limit: int | None = None,
+        normalise: Callable[[str], str] | None = str.upper,
+    ) -> Iterator[str]:
+        del limit
+        assert column == "hgnc_id"
+        # Yield numeric identifiers lazily while mimicking the normalisation hook.
+        for value in map(str, range(total)):
+            yield normalise(value) if normalise is not None else value
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("gtop: {}\n", encoding="utf-8")
+
+    input_csv = tmp_path / "ids.csv"
+    input_csv.write_text("hgnc_id\n", encoding="utf-8")
+
+    dummy_client = DummyClient()
+    monkeypatch.setattr(
+        dump_gtop_target, "GtoPClient", lambda *_args, **_kwargs: dummy_client
+    )
+    monkeypatch.setattr(dump_gtop_target, "read_ids", fake_read_ids)
+
+    received: list[int] = []
+
+    def fake_resolve_target(
+        _client: dump_gtop_target.GtoPClient, identifier: str, column: str
+    ) -> dict[str, object]:
+        assert column == "hgnc_id"
+        assert identifier.startswith("HGNC:")
+        idx = int(identifier.split(":", 1)[1])
+        received.append(idx)
+        return {
+            "targetId": idx,
+            "name": f"Target {idx}",
+            "targetType": "Protein",
+            "family": "GPCR",
+            "species": "Human",
+            "description": "Mock target",
+        }
+
+    monkeypatch.setattr(dump_gtop_target, "resolve_target", fake_resolve_target)
+
+    output_dir = tmp_path / "bulk"
+
+    dump_gtop_target.main(
+        [
+            "--input",
+            str(input_csv),
+            "--output-dir",
+            str(output_dir),
+            "--config",
+            str(config_path),
+            "--id-column",
+            "hgnc_id",
+        ]
+    )
+
+    assert received == list(range(total))
+    assert dummy_client.synonym_calls == list(range(total))
+    assert dummy_client.interaction_calls == list(range(total))
+
+    targets_csv = output_dir / "targets.csv"
+    with targets_csv.open("r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        rows = list(reader)
+
+    assert len(rows) == total
