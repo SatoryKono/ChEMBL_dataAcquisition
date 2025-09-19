@@ -6,7 +6,7 @@ import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List
+from typing import Any, Callable, List
 from importlib import util
 
 import pandas as pd
@@ -82,6 +82,17 @@ class CliSpec:
 
 def _noop(*args: object, **kwargs: object) -> None:  # pragma: no cover - helper
     return None
+
+
+def _prepare_dump_gtop(
+    module: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Initialise inputs for the dump_gtop_target CLI during tests."""
+
+    input_csv = tmp_path / "targets.csv"
+    if not input_csv.exists():
+        input_csv.write_text("uniprot_id\nP12345\n", encoding="utf-8")
+    monkeypatch.setattr(module, "_load_config", _make_stub(module, exit_code=0))
 
 
 CLI_SPECS: list[CliSpec] = [
@@ -201,9 +212,7 @@ CLI_SPECS: list[CliSpec] = [
         uses_sys_argv=True,
         expect_exit=True,
         exit_code=0,
-        prepare=lambda module, monkeypatch, tmp_path: monkeypatch.setattr(
-            module, "_load_config", _make_stub(module, exit_code=0)
-        ),
+        prepare=_prepare_dump_gtop,
     ),
     CliSpec(
         module="scripts.protein_classify_main",

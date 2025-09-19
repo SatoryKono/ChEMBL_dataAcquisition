@@ -110,7 +110,6 @@ def test_chembl_testitems_main_end_to_end(
             }
         }
 
-    property_fields = ",".join([prop for prop in PUBCHEM_PROPERTIES if prop != "CID"])
     requests_mock.get(
 
         f"{pubchem_base}/compound/smiles/C/property/"
@@ -165,12 +164,13 @@ def test_chembl_testitems_main_end_to_end(
         == "CHEMBL2"
     )
 
-    meta_file = output_csv.with_suffix(".csv.meta.yaml")
+    meta_file = output_csv.with_name(f"{output_csv.name}.meta.yaml")
     assert meta_file.exists()
 
-    quality_report = Path(f"{output_csv.with_suffix('')}_quality_report_table.csv")
+    base_path = output_csv.with_name(output_csv.stem)
+    quality_report = Path(f"{base_path}_quality_report_table.csv")
     assert quality_report.exists()
     corr_report = Path(
-        f"{output_csv.with_suffix('')}_data_correlation_report_table.csv"
+        f"{base_path}_data_correlation_report_table.csv"
     )
     assert corr_report.exists()

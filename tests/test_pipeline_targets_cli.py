@@ -164,7 +164,7 @@ def test_pipeline_targets_cli_writes_outputs(
         '{"source": "last"}',
     ]
 
-    meta_path = output_path.with_suffix(f"{output_path.suffix}.meta.yaml")
+    meta_path = output_path.with_name(f"{output_path.name}.meta.yaml")
     assert meta_path.exists()
 
     metadata = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
@@ -176,7 +176,7 @@ def test_pipeline_targets_cli_writes_outputs(
     expected_hash = hashlib.sha256(output_path.read_bytes()).hexdigest()
     assert metadata["sha256"] == expected_hash
 
-    assert captured["table_name"] == str(output_path.with_suffix(""))
+    assert captured["table_name"] == str(output_path.with_name(output_path.stem))
     assert list(captured["table"]["target_chembl_id"]) == [
         "CHEMBL1",
         "CHEMBL2",
@@ -186,7 +186,7 @@ def test_pipeline_targets_cli_writes_outputs(
     assert serialise_stats["calls"] == 1
     assert serialise_stats["list_format"] == "json"
     assert metadata_stats["calls"] == 1
-    assert metadata_stats["kwargs"].get("meta_path") is None
+    assert metadata_stats["kwargs"].get("meta_path") == meta_path
     assert enrich_call["kwargs"].get("cache_config") is None
 
 

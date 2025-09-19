@@ -75,7 +75,7 @@ def test_get_target_data_cli_writes_csv_and_meta(
     cross_refs = json.loads(rows[0]["cross_references"])
     assert cross_refs == [{"xref_id": "P12345", "source": "UniProt"}]
 
-    meta_path = output_csv.with_suffix(f"{output_csv.suffix}.meta.yaml")
+    meta_path = output_csv.with_name(f"{output_csv.name}.meta.yaml")
     meta = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
     assert meta["rows"] == 2
     assert meta["columns"] == 3

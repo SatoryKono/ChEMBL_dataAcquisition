@@ -122,7 +122,8 @@ def write_meta_yaml(
         The path to the written metadata file.
     """
 
-    target = meta_path or output_path.with_suffix(f"{output_path.suffix}.meta.yaml")
+    default_meta_path = output_path.with_name(f"{output_path.name}.meta.yaml")
+    target = meta_path or default_meta_path
     previous_metadata = _load_previous_metadata(target)
     target.parent.mkdir(parents=True, exist_ok=True)
 

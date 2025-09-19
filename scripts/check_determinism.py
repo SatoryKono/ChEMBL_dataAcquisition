@@ -17,6 +17,7 @@ if __package__ in {None, ""}:
 
     _ensure_project_root()
 
+from library.cli_common import resolve_cli_sidecar_paths  # noqa: E402
 from library.io_utils import CsvConfig, write_rows  # noqa: E402
 from library.logging_utils import configure_logging  # noqa: E402
 from library.metadata import write_meta_yaml  # noqa: E402
@@ -105,7 +106,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     rows = _sample_rows()
     columns = ("id", "names")
     output_path = args.output.resolve()
-    meta_path = output_path.with_suffix(f"{output_path.suffix}.meta.yaml")
+    meta_path, _, _ = resolve_cli_sidecar_paths(output_path)
     command = " ".join(
         shlex.quote(part) for part in (sys.argv[0], *(argv or sys.argv[1:]))
     )

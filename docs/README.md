@@ -147,11 +147,12 @@ underscores, for example::
 These overrides are processed before validation, ensuring the resulting
 configuration matches the constraints enforced by the loader.
 
-Every run also emits a companion ``.meta.yaml`` file next to the main CSV.  The
-metadata captures the executed command line, normalised CLI arguments and
-summary statistics such as row and column counts.  Basic data quality metrics
-are calculated via ``library.data_profiling.analyze_table_quality`` for
-downstream validation.
+Every run also emits companion sidecar files next to the main CSV.  Validation
+issues are stored in ``<output_filename>.errors.json`` and provenance metadata
+in ``<output_filename>.meta.yaml`` where ``<output_filename>`` is the entire
+output name (for example ``targets_dump.tar.gz``).  Basic data quality metrics
+are calculated via ``library.data_profiling.analyze_table_quality`` which saves
+reports using the same base filename.
 
 
 ### Including orthologs

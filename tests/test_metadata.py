@@ -13,7 +13,7 @@ from library.metadata import write_meta_yaml
 def test_write_meta_yaml_honours_custom_destination(metadata_csv: Path) -> None:
     """The metadata writer should accept an explicit output path."""
 
-    meta_path = metadata_csv.with_suffix(".custom.meta.yaml")
+    meta_path = metadata_csv.with_name(f"{metadata_csv.name}.custom.meta.yaml")
     result = write_meta_yaml(
         metadata_csv,
         command="python script.py --flag",
@@ -33,3 +33,21 @@ def test_write_meta_yaml_honours_custom_destination(metadata_csv: Path) -> None:
     assert payload["rows"] == 1
     assert payload["columns"] == 1
     assert payload["sha256"] == expected_hash
+
+
+def test_write_meta_yaml_default_destination(metadata_csv: Path) -> None:
+    """Default sidecar naming should append ``.meta.yaml`` safely."""
+
+    result = write_meta_yaml(
+        metadata_csv,
+        command="python script.py",  # minimal command
+        config={},
+        row_count=1,
+        column_count=1,
+    )
+
+    expected_meta = metadata_csv.with_name(f"{metadata_csv.name}.meta.yaml")
+    assert result == expected_meta
+    assert expected_meta.exists()
+    payload = yaml.safe_load(expected_meta.read_text(encoding="utf-8"))
+    assert payload["output"] == str(metadata_csv)
