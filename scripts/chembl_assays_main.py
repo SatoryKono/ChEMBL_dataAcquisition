@@ -154,14 +154,13 @@ def run_pipeline(
     )
     assay_ids = read_ids(input_path, args.column, csv_cfg)
 
-    client = ChemblClient(
+    with ChemblClient(
         base_url=args.base_url,
         timeout=args.timeout,
         max_retries=args.max_retries,
         rps=args.rps,
-    )
-
-    assays_df = get_assays(client, assay_ids, chunk_size=args.chunk_size)
+    ) as client:
+        assays_df = get_assays(client, assay_ids, chunk_size=args.chunk_size)
     if assays_df.empty:
         LOGGER.warning("No assay data retrieved; writing empty output")
         assays_df = pd.DataFrame(columns=AssaysSchema.ordered_columns())

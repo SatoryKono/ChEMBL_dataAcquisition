@@ -180,15 +180,14 @@ def run_pipeline(
 
     activity_ids = _limited_ids(input_path, args.column, csv_cfg, args.limit)
 
-    client = ChemblClient(
+    with ChemblClient(
         base_url=args.base_url,
         timeout=args.timeout,
         max_retries=args.max_retries,
         rps=args.rps,
         user_agent=args.user_agent,
-    )
-
-    activities_df = get_activities(client, activity_ids, chunk_size=args.chunk_size)
+    ) as client:
+        activities_df = get_activities(client, activity_ids, chunk_size=args.chunk_size)
     if activities_df.empty:
         LOGGER.warning("No activity data retrieved; writing empty output")
         activities_df = pd.DataFrame(columns=ActivitiesSchema.ordered_columns())

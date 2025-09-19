@@ -289,15 +289,14 @@ def run_pipeline(
 
     molecule_ids = _limited_ids(input_path, args.column, csv_cfg, args.limit)
 
-    client = ChemblClient(
+    with ChemblClient(
         base_url=args.base_url,
         timeout=args.timeout,
         max_retries=args.max_retries,
         rps=args.rps,
         user_agent=args.user_agent,
-    )
-
-    molecules_df = get_testitems(client, molecule_ids, chunk_size=args.chunk_size)
+    ) as client:
+        molecules_df = get_testitems(client, molecule_ids, chunk_size=args.chunk_size)
     if molecules_df.empty:
         LOGGER.warning("No molecule data retrieved; writing empty output")
         molecules_df = pd.DataFrame(columns=TestitemsSchema.ordered_columns())

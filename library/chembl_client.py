@@ -8,6 +8,7 @@ import re
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from types import TracebackType
 from typing import Any, Callable, Dict, List
 
 import pandas as pd
@@ -144,6 +145,26 @@ class ChemblClient:
             rps=self.rps,
             cache_config=self.cache_config,
         )
+
+    def close(self) -> None:
+        """Close the underlying :class:`HttpClient` resources."""
+
+        self._http.close()
+
+    def __enter__(self) -> "ChemblClient":
+        """Return ``self`` to support ``with`` statements."""
+
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Ensure the HTTP client is closed after leaving a context block."""
+
+        self.close()
 
     def _fetch_resource(
         self, resource: str, identifier: str, *, id_field: str
