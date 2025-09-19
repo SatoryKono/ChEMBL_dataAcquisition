@@ -124,6 +124,34 @@ python scripts/get_uniprot_target_data.py \
 
 The behaviour is configured via ``config.yaml``.  Lists are serialised either as
 JSON (default) or as ``|``-delimited strings depending on the configuration.
+The relevant configuration sections are:
+
+- ``output`` – CSV separator, encoding, default list serialisation format and
+  whether sequences are exported.
+- ``uniprot`` – REST endpoint, retry budget, timeout, rate limit and optional
+  request-level cache for UniProtKB.
+- ``orthologs`` – toggle for ortholog enrichment, allowed species, retry and
+  rate limit parameters plus an optional cache configuration.
+- ``http_cache`` – global HTTP cache used as a fallback when a section does not
+  define its own cache settings.
+
+Each setting can be overridden via environment variables prefixed with
+``CHEMBL_DA__``.  Components of the configuration path are separated with double
+underscores, for example::
+
+    export CHEMBL_DA__OUTPUT__SEP="\t"
+    export CHEMBL_DA__UNIPROT__RPS=6
+    export CHEMBL_DA__ORTHOLOGS__TARGET_SPECIES="[\"Human\", \"Mouse\"]"
+    export CHEMBL_DA__HTTP_CACHE__ENABLED=true
+
+These overrides are processed before validation, ensuring the resulting
+configuration matches the constraints enforced by the loader.
+
+Every run also emits a companion ``.meta.yaml`` file next to the main CSV.  The
+metadata captures the executed command line, normalised CLI arguments and
+summary statistics such as row and column counts.  Basic data quality metrics
+are calculated via ``library.data_profiling.analyze_table_quality`` for
+downstream validation.
 
 
 ### Including orthologs
@@ -181,11 +209,16 @@ python scripts/get_target_data_main.py \
     --input targets.csv \
     --output targets_dump.csv \
     --column target_chembl_id \
-    --log-level INFO
+    --sep , \
+    --encoding utf-8-sig \
+    --list-format json \
+    --log-level INFO \
+    --meta-output targets_dump.csv.meta.yaml
 ```
 
-Nested fields in the output are encoded as JSON strings to ensure
-deterministic, machine-readable results.
+Nested fields in the output are encoded deterministically according to
+``--list-format``. The CLI writes both ``targets_dump.csv`` and a metadata
+sidecar capturing the command invocation, file checksum, and table dimensions.
 
 The set of columns retrieved from ChEMBL can be customised in
 ``config.yaml`` under the ``chembl.columns`` section.
