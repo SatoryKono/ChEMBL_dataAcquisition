@@ -109,3 +109,45 @@ python scripts/chembl_activities_main.py \
 
 Always provide a strictly positive integer to `--chunk-size`; the CLI rejects
 zero or negative values during parsing to avoid invalid batching parameters.
+
+## Semantic Scholar throughput
+
+The `pubmed_main.py` workflow aggregates metadata from PubMed, Semantic Scholar,
+OpenAlex, and Crossref. Semantic Scholar's public API throttles unauthenticated
+clients to roughly **0.3 requests per second**, which is the default enforced by
+`config/documents.yaml` and the script's built-in configuration. Attempting to
+override the limit without explicit consent now falls back to the public rate
+and emits a warning so that long-running exports do not trigger HTTP 429 errors.
+
+Higher throughput requires an **official Semantic Scholar API key**. Provide the
+credential either through the `SEMANTIC_SCHOLAR_API_KEY` environment variable or
+the new `--semantic-scholar-api-key` option. Unlocking the faster rate additionally
+demands the `--semantic-scholar-high-throughput` flag (or the matching
+`semantic_scholar.high_throughput: true` configuration entry), which keeps
+accidental overrides at bay. For example:
+
+```bash
+export SEMANTIC_SCHOLAR_API_KEY="sk_live_..."
+python scripts/pubmed_main.py \
+    --input data/input/document.csv \
+    --output output/semantic_scholar.csv \
+    --semantic-scholar-rps 1.0 \
+    --semantic-scholar-high-throughput \
+    scholar
+```
+
+When the API key is supplied on the command line, prefer a throwaway environment
+variable instead of embedding secrets inside shell history:
+
+```bash
+python scripts/pubmed_main.py \
+    --input data/input/document.csv \
+    --output output/semantic_scholar.csv \
+    --semantic-scholar-rps 1.0 \
+    --semantic-scholar-high-throughput \
+    --semantic-scholar-api-key "${SEMANTIC_SCHOLAR_API_KEY}" \
+    scholar
+```
+
+Printing the effective configuration via `--print-config` redacts the API key to
+reduce the risk of leaking credentials in logs.
