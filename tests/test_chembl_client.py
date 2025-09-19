@@ -169,3 +169,44 @@ def test_get_documents_batches_requests_and_filters_duplicates() -> None:
         "DOC3",
     ]
     assert df["document_chembl_id"].tolist() == ["DOC1", "DOC2", "DOC3"]
+
+
+def test_fetch_assay_retries_on_429_without_retry_after(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_url = "https://chembl.mock"
+    penalties: list[float | None] = []
+
+    def _capture_penalty(self: object, delay: float | None) -> None:
+        penalties.append(delay)
+
+    monkeypatch.setattr("tenacity.nap.time.sleep", lambda *_: None)
+    monkeypatch.setattr(
+        "library.http_client.RateLimiter.apply_penalty", _capture_penalty
+    )
+
+    with requests_mock.Mocker() as mocker:
+        mocker.get(
+            f"{base_url}/assay/CHEMBL1.json",
+            [
+                {"status_code": 429, "json": {"detail": "limit"}},
+                {
+                    "status_code": 200,
+                    "json": {"assay_chembl_id": "CHEMBL1", "target_chembl_id": "T1"},
+                },
+            ],
+        )
+        client = ChemblClient(
+            base_url=base_url,
+            timeout=1.0,
+            max_retries=2,
+            rps=0,
+            retry_penalty_seconds=2.5,
+        )
+
+        payload = client.fetch_assay("CHEMBL1")
+
+    assert payload is not None
+    assert payload["assay_chembl_id"] == "CHEMBL1"
+    assert mocker.call_count == 2
+    assert penalties == [pytest.approx(2.5)]
