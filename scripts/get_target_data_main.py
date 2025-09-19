@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
- 
- 
+
+import argparse
 import csv
- 
+
 import logging
- 
+
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Iterator, Sequence
@@ -170,14 +170,11 @@ def _run(args: argparse.Namespace) -> None:
     csv_cfg = CsvConfig(
         sep=args.sep, encoding=args.encoding, list_format=args.list_format
     )
- 
-    identifiers = read_ids(input_path, args.column, csv_cfg)
- 
+
     try:
-        identifiers = list(read_ids(input_path, args.column, csv_cfg))
+        identifiers = read_ids(input_path, args.column, csv_cfg)
     except KeyError as exc:
         raise ValueError(str(exc)) from exc
- 
 
     target_cfg = TargetConfig(
         output_sep=args.sep,
