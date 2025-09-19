@@ -11,7 +11,7 @@ import argparse
 import logging
 import sys
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 
 from datetime import datetime
 from pathlib import Path
@@ -42,6 +42,7 @@ DEFAULT_ENCODING = "utf-8"
 
 LOGGER = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[1]
+BATCH_SIZE = 100
 
 
 def _ensure_mapping(value: Any, *, section: str) -> dict[str, Any]:
@@ -81,6 +82,16 @@ def _default_output(input_path: Path) -> Path:
 
     date = datetime.now().strftime("%Y%m%d")
     return input_path.with_name(DEFAULT_OUTPUT.format(date=date))
+
+
+def _batched(values: Sequence[str], size: int) -> Iterator[list[str]]:
+    """Yield ``values`` in contiguous lists of at most ``size`` items."""
+
+    if size <= 0:
+        msg = "Batch size must be a positive integer"
+        raise ValueError(msg)
+    for start in range(0, len(values), size):
+        yield list(values[start : start + size])
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -274,87 +285,63 @@ def main(argv: Sequence[str] | None = None) -> None:
             "source_db",
         ]
 
-    for acc in accessions:
-        data = client.fetch_entry_json(acc)
-        if data is None:
-            LOGGER.warning(
-                "No UniProt entry available for %s",
-                acc,
-                extra={"uniprot_id": acc},
-            )
-            row: dict[str, Any] = {c: "" for c in cols}
-            row["uniprot_id"] = acc
-            if ensembl_client:
-                row["orthologs_json"] = []
-                row["orthologs_count"] = 0
-            rows.append(row)
-            continue
-
-        gene_ids = extract_ensembl_gene_ids(data)
-
-        isoforms: list[Isoform] = []
-        if include_iso:
-            entry = data
-            fasta_headers: list[str] = []
-            if use_fasta_stream:
-                fasta_headers = client.fetch_isoforms_fasta(acc)
-            isoforms = extract_isoforms(entry, fasta_headers)
-            for iso in isoforms:
-                iso_rows.append(
-                    {
-                        "parent_uniprot_id": acc,
-                        "isoform_uniprot_id": iso["isoform_uniprot_id"],
-                        "isoform_name": iso["isoform_name"],
-                        "isoform_synonyms": list(iso["isoform_synonyms"]),
-                        "is_canonical": iso["is_canonical"],
-                    }
+    for batch in _batched(accessions, BATCH_SIZE):
+        batch_entries = client.fetch_entries_json(batch, batch_size=BATCH_SIZE)
+        for acc in batch:
+            data = batch_entries.get(acc)
+            if data is None and "-" in acc:
+                canonical_acc = acc.split("-", 1)[0]
+                data = batch_entries.get(canonical_acc)
+            if data is None:
+                LOGGER.warning(
+                    "No UniProt entry available for %s",
+                    acc,
+                    extra={"uniprot_id": acc},
                 )
+                row = {c: "" for c in cols}
+                row["uniprot_id"] = acc
+                if ensembl_client:
+                    row["orthologs_json"] = []
+                    row["orthologs_count"] = 0
+                rows.append(row)
+                continue
 
-        row = normalize_entry(data, include_seq, isoforms)
+            gene_ids = extract_ensembl_gene_ids(data)
 
-        orthologs_json: list[dict[str, Any]] = []
-        orthologs_count = 0
-        if ensembl_client and gene_ids:
-            gene_id = gene_ids[0]
-            orthologs = ensembl_client.get_orthologs(gene_id, target_species)
-            if not orthologs and oma_client:
-                orthologs = oma_client.get_orthologs_by_uniprot(acc)
-            orthologs_json = [o.to_ordered_dict() for o in orthologs]
-            orthologs_count = len(orthologs)
-            for o in orthologs:
-                orth_rows.append(
-                    {
-                        "source_uniprot_id": acc,
-                        "source_ensembl_gene_id": gene_id,
-                        "source_species": row.get("organism_name", ""),
-                        "target_species": o.target_species,
-                        "target_gene_symbol": o.target_gene_symbol,
-                        "target_ensembl_gene_id": o.target_ensembl_gene_id,
-                        "target_uniprot_id": o.target_uniprot_id or "",
-                        "homology_type": o.homology_type or "",
-                        "perc_id": o.perc_id,
-                        "perc_pos": o.perc_pos,
-                        "dn": o.dn,
-                        "ds": o.ds,
-                        "is_high_confidence": o.is_high_confidence,
-                        "source_db": o.source_db,
-                    }
-                )
-        elif ensembl_client:
-            LOGGER.warning(
-                "Missing Ensembl gene identifier for %s",
-                acc,
-                extra={"uniprot_id": acc},
-            )
-            if oma_client:
-                orthologs = oma_client.get_orthologs_by_uniprot(acc)
+            isoforms: list[Isoform] = []
+            if include_iso:
+                entry = data
+                fasta_headers: list[str] = []
+                if use_fasta_stream:
+                    fasta_headers = client.fetch_isoforms_fasta(acc)
+                isoforms = extract_isoforms(entry, fasta_headers)
+                for iso in isoforms:
+                    iso_rows.append(
+                        {
+                            "parent_uniprot_id": acc,
+                            "isoform_uniprot_id": iso["isoform_uniprot_id"],
+                            "isoform_name": iso["isoform_name"],
+                            "isoform_synonyms": list(iso["isoform_synonyms"]),
+                            "is_canonical": iso["is_canonical"],
+                        }
+                    )
+
+            row = normalize_entry(data, include_seq, isoforms)
+
+            orthologs_json: list[dict[str, Any]] = []
+            orthologs_count = 0
+            if ensembl_client and gene_ids:
+                gene_id = gene_ids[0]
+                orthologs = ensembl_client.get_orthologs(gene_id, target_species)
+                if not orthologs and oma_client:
+                    orthologs = oma_client.get_orthologs_by_uniprot(acc)
                 orthologs_json = [o.to_ordered_dict() for o in orthologs]
                 orthologs_count = len(orthologs)
                 for o in orthologs:
                     orth_rows.append(
                         {
                             "source_uniprot_id": acc,
-                            "source_ensembl_gene_id": "",
+                            "source_ensembl_gene_id": gene_id,
                             "source_species": row.get("organism_name", ""),
                             "target_species": o.target_species,
                             "target_gene_symbol": o.target_gene_symbol,
@@ -369,11 +356,40 @@ def main(argv: Sequence[str] | None = None) -> None:
                             "source_db": o.source_db,
                         }
                     )
-        if ensembl_client:
-            row["orthologs_json"] = orthologs_json
-            row["orthologs_count"] = orthologs_count
+            elif ensembl_client:
+                LOGGER.warning(
+                    "Missing Ensembl gene identifier for %s",
+                    acc,
+                    extra={"uniprot_id": acc},
+                )
+                if oma_client:
+                    orthologs = oma_client.get_orthologs_by_uniprot(acc)
+                    orthologs_json = [o.to_ordered_dict() for o in orthologs]
+                    orthologs_count = len(orthologs)
+                    for o in orthologs:
+                        orth_rows.append(
+                            {
+                                "source_uniprot_id": acc,
+                                "source_ensembl_gene_id": "",
+                                "source_species": row.get("organism_name", ""),
+                                "target_species": o.target_species,
+                                "target_gene_symbol": o.target_gene_symbol,
+                                "target_ensembl_gene_id": o.target_ensembl_gene_id,
+                                "target_uniprot_id": o.target_uniprot_id or "",
+                                "homology_type": o.homology_type or "",
+                                "perc_id": o.perc_id,
+                                "perc_pos": o.perc_pos,
+                                "dn": o.dn,
+                                "ds": o.ds,
+                                "is_high_confidence": o.is_high_confidence,
+                                "source_db": o.source_db,
+                            }
+                        )
+            if ensembl_client:
+                row["orthologs_json"] = orthologs_json
+                row["orthologs_count"] = orthologs_count
 
-        rows.append(row)
+            rows.append(row)
 
     if ensembl_client:
         cols.extend(["orthologs_json", "orthologs_count"])
