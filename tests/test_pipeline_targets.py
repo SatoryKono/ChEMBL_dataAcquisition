@@ -144,14 +144,14 @@ pipeline:
         load_pipeline_config(str(cfg_path))
 
 
-def test_load_pipeline_config_env_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_pipeline_config_env_overrides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     cfg_path = tmp_path / "config_env.yaml"
     cfg_path.write_text("pipeline:\n  list_format: json\n", encoding="utf-8")
     monkeypatch.setenv("CHEMBL_DA__PIPELINE__LIST_FORMAT", "pipe")
     monkeypatch.setenv("CHEMBL_DA__PIPELINE__IUPHAR__APPROVED_ONLY", "true")
-    monkeypatch.setenv(
-        "CHEMBL_DA__PIPELINE__SPECIES_PRIORITY", "[\"Mouse\", \"Rat\"]"
-    )
+    monkeypatch.setenv("CHEMBL_DA__PIPELINE__SPECIES_PRIORITY", '["Mouse", "Rat"]')
     cfg = load_pipeline_config(str(cfg_path))
     assert cfg.list_format == "pipe"
     assert cfg.iuphar.approved_only is True

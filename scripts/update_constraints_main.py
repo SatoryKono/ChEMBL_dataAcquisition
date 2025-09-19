@@ -83,7 +83,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         logger.error("Lock file '%s' could not be found", exc.filename)
         raise SystemExit(1) from exc
     except OSError as exc:
-        logger.error("Failed to write constraints file '%s': %s", args.constraints_file, exc)
+        logger.error(
+            "Failed to write constraints file '%s': %s", args.constraints_file, exc
+        )
         raise SystemExit(1) from exc
 
 

@@ -14,7 +14,9 @@ if str(ROOT) not in sys.path:
 read_ids = importlib.import_module("library.io").read_ids
 CsvConfig = importlib.import_module("library.io_utils").CsvConfig
 chembl_testitems_main = importlib.import_module("scripts.chembl_testitems_main").main
-PUBCHEM_PROPERTIES = importlib.import_module("library.testitem_library").PUBCHEM_PROPERTIES
+PUBCHEM_PROPERTIES = importlib.import_module(
+    "library.testitem_library"
+).PUBCHEM_PROPERTIES
 
 
 def test_read_ids_limit(tmp_path: Path) -> None:
@@ -111,7 +113,6 @@ def test_chembl_testitems_main_end_to_end(
         }
 
     requests_mock.get(
-
         f"{pubchem_base}/compound/smiles/C/property/"
         "MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
         json=_pubchem_response(11, "CH4"),
@@ -119,7 +120,6 @@ def test_chembl_testitems_main_end_to_end(
     requests_mock.get(
         f"{pubchem_base}/compound/smiles/CC/property/"
         "MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
-
         json=_pubchem_response(22, "C2H6"),
     )
     requests_mock.get(
@@ -170,7 +170,5 @@ def test_chembl_testitems_main_end_to_end(
     base_path = output_csv.with_name(output_csv.stem)
     quality_report = Path(f"{base_path}_quality_report_table.csv")
     assert quality_report.exists()
-    corr_report = Path(
-        f"{base_path}_data_correlation_report_table.csv"
-    )
+    corr_report = Path(f"{base_path}_data_correlation_report_table.csv")
     assert corr_report.exists()

@@ -105,6 +105,9 @@ def test_write_meta_yaml_updates_determinism_on_repeat(metadata_csv: Path) -> No
 
     assert determinism["current_sha256"] == payload["sha256"]
     assert determinism["previous_sha256"] == first_payload["sha256"]
-    assert determinism["baseline_sha256"] == first_payload["determinism"]["baseline_sha256"]
+    assert (
+        determinism["baseline_sha256"]
+        == first_payload["determinism"]["baseline_sha256"]
+    )
     assert determinism["matches_previous"] is True
     assert determinism["check_count"] >= 2

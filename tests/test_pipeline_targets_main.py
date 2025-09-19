@@ -369,5 +369,3 @@ def test_parse_args_rejects_non_positive_batch_size(
     )
     with pytest.raises(SystemExit):
         parse_args()
-
-

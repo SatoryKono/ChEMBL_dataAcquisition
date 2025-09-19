@@ -73,7 +73,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     configure_logging(args.log_level, log_format=args.log_format)
 
     input_path = Path(args.input)
-    base_path = input_path.with_name(input_path.stem) if input_path.suffix else input_path
+    base_path = (
+        input_path.with_name(input_path.stem) if input_path.suffix else input_path
+    )
     table_name = args.output_prefix or str(base_path)
     analyze_table_quality(
         args.input,

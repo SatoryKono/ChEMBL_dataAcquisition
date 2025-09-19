@@ -59,7 +59,9 @@ def _baseline_serialise(df: pd.DataFrame, list_format: str) -> pd.DataFrame:
     return result
 
 
-def _time_execution(func: Callable[[], pd.DataFrame | None], *, repeats: int = 3) -> float:
+def _time_execution(
+    func: Callable[[], pd.DataFrame | None], *, repeats: int = 3
+) -> float:
     """Measure the execution time of a callable and return the best duration."""
 
     durations: list[float] = []
@@ -224,7 +226,6 @@ def test_write_cli_metadata_produces_expected_yaml(tmp_path: Path) -> None:
     assert "output" not in payload["config"]
     assert payload["rows"] == 1
     assert payload["columns"] == 1
- 
 
 
 def test_write_cli_metadata_defaults_to_sys_argv(
@@ -254,7 +255,7 @@ def test_write_cli_metadata_defaults_to_sys_argv(
 
     payload = yaml.safe_load(meta_file.read_text(encoding="utf-8"))
     assert payload["command"] == "chembl-cli --flag value"
- 
+
     determinism = payload["determinism"]
     assert determinism["baseline_sha256"] == payload["sha256"]
     assert determinism["previous_sha256"] is None
@@ -288,4 +289,3 @@ def test_resolve_cli_sidecar_paths_defaults(tmp_path: Path) -> None:
     assert plain_meta == plain_output.with_name("dataset.meta.yaml")
     assert plain_errors == plain_output.with_name("dataset.errors.json")
     assert plain_quality == plain_output
- 

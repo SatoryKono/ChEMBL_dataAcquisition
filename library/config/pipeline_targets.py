@@ -393,4 +393,3 @@ class PipelineClientsConfig(BaseModel):
     hgnc: HGNCSectionConfig
     gtop: GtoPSectionConfig
     orthologs: OrthologsSectionConfig | None = None
-

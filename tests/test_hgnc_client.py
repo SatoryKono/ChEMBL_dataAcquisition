@@ -250,7 +250,9 @@ def test_hgnc_client_recovers_after_retry_after(
         uniprot_url,
         json={
             "proteinDescription": {
-                "recommendedName": {"fullName": {"value": "Alpha-1A adrenergic receptor"}}
+                "recommendedName": {
+                    "fullName": {"value": "Alpha-1A adrenergic receptor"}
+                }
             }
         },
     )
@@ -259,7 +261,9 @@ def test_hgnc_client_recovers_after_retry_after(
 
     assert record.hgnc_id == "HGNC:277"
     assert record.gene_symbol == "ADRA1A"
-    hgnc_calls = [call for call in requests_mock.request_history if call.url == hgnc_url]
+    hgnc_calls = [
+        call for call in requests_mock.request_history if call.url == hgnc_url
+    ]
     assert len(hgnc_calls) == 2
     assert any(pytest.approx(delay, rel=1e-3) == 1.5 for delay in clock.sleeps)
     assert "retrying after 1.50 seconds" in caplog.text
