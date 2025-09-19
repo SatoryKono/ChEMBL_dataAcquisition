@@ -109,6 +109,35 @@ def test_pipeline_clients_config_rejects_invalid_species() -> None:
         PipelineClientsConfig.model_validate(data)
 
 
+def test_parse_args_inherits_env_ortholog_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Environment overrides should populate parser defaults."""
+
+    module: Any = importlib.import_module("scripts.pipeline_targets_main")
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("orthologs:\n  enabled: false\n", encoding="utf-8")
+
+    monkeypatch.setenv("CHEMBL_DA__ORTHOLOGS__ENABLED", "true")
+
+    input_path = tmp_path / "input.csv"
+    output_path = tmp_path / "output.csv"
+
+    args = module.parse_args(
+        [
+            "--config",
+            str(config_path),
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+        ]
+    )
+
+    assert args.with_orthologs is True
+
+
 def test_pipeline_targets_cli_writes_outputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

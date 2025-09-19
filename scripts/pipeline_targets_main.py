@@ -306,6 +306,34 @@ def _load_yaml_mapping(path: str) -> dict[str, Any]:
     return _ensure_mapping(data, context=f"{path} root", allow_none=False)
 
 
+def _coerce_env_value(raw_value: str) -> Any:
+    """Return a Python object parsed from ``raw_value`` when possible.
+
+    Parameters
+    ----------
+    raw_value:
+        Textual representation of an environment variable.
+
+    Returns
+    -------
+    Any
+        Structured Python object decoded from ``raw_value`` where feasible.
+        YAML parsing is used to honour native types such as booleans, numbers
+        and sequences. The original string is returned when parsing fails or
+        when ``raw_value`` represents an explicit empty string.
+    """
+
+    if raw_value == "":
+        return ""
+    try:
+        coerced = yaml.safe_load(raw_value)
+    except yaml.YAMLError:  # pragma: no cover - defensive conversion guard
+        return raw_value
+    if coerced is None and raw_value.strip() not in {"null", "~"}:
+        return raw_value
+    return coerced
+
+
 def _apply_env_overrides(
     data: dict[str, Any], *, section: str | None = None
 ) -> dict[str, Any]:
@@ -362,7 +390,7 @@ def _apply_env_overrides(
             ref = ref.setdefault(part, {})
         if not valid_path or not isinstance(ref, dict):
             continue
-        ref[path[-1]] = value
+        ref[path[-1]] = _coerce_env_value(value)
     return data
 
 
@@ -978,6 +1006,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         config_data = _load_yaml_mapping(preliminary.config)
     except FileNotFoundError:
         config_data = {}
+    _apply_env_overrides(config_data, section="pipeline")
     orthologs_cfg = _ensure_mapping(config_data.get("orthologs"), context="orthologs")
     orthologs_default = _ensure_bool(
         orthologs_cfg.get("enabled"), context="orthologs.enabled", default=False
