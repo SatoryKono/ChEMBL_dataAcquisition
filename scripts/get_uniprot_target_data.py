@@ -397,7 +397,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     rows.sort(key=lambda r: r.get("uniprot_id", ""))
     output_df = pd.DataFrame(rows, columns=cols)
-    serialised_df = serialise_dataframe(output_df, list_format=csv_cfg.list_format)
+    serialised_df = serialise_dataframe(
+        output_df, list_format=csv_cfg.list_format, inplace=True
+    )
     write_rows(output_path, rows, cols, csv_cfg)
     if include_iso:
         iso_cols = [

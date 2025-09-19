@@ -1389,7 +1389,9 @@ def main() -> None:
         out_df = out_df.sort_values(sort_columns).reset_index(drop=True)
 
     output_path = ensure_output_dir(Path(args.output).expanduser().resolve())
-    serialised_df = serialise_dataframe(out_df, list_format=pipeline_cfg.list_format)
+    serialised_df = serialise_dataframe(
+        out_df, list_format=pipeline_cfg.list_format, inplace=True
+    )
     serialised_df.to_csv(
         output_path,
         index=False,

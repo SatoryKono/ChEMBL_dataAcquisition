@@ -81,7 +81,7 @@ def _serialise_and_write(
 ) -> None:
     """Serialise ``frame`` and persist it to ``path`` using :func:`write_rows`."""
 
-    serialised = serialise_dataframe(frame, list_format)
+    serialised = serialise_dataframe(frame, list_format, inplace=True)
     columns = list(serialised.columns)
     rows = serialised.to_dict(orient="records")
     write_rows(path, rows, columns, cfg)
@@ -156,16 +156,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     return parser.parse_args(argv)
 
+
 def main(argv: Sequence[str] | None = None) -> None:
-    """Entry point for the script."""
+    """CLI entry point for dumping GtoP resources."""
 
     args = parse_args(argv)
 
     configure_logging(args.log_level, log_format=args.log_format)
-
-    input_path = Path(args.input).expanduser().resolve()
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input file {input_path} does not exist")
 
     config_path = Path(args.config).expanduser().resolve()
     cfg_dict = _load_config(config_path)
@@ -199,6 +196,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     sep = args.sep if args.sep else config_sep
     encoding = args.encoding if args.encoding else config_encoding
     csv_cfg = CsvConfig(sep=sep, encoding=encoding, list_format="json")
+
+    input_path = Path(args.input).expanduser().resolve()
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input file {input_path} does not exist")
 
     try:
         identifiers = _read_identifiers(input_path, args.id_column, csv_cfg)

@@ -361,3 +361,15 @@ python scripts/chembl_activities_main.py \
 
 Add the first command to the CI smoke test job to guard against regressions in
 argument parsing and input handling without depending on external services.
+
+### CSV serialisation guidelines
+
+The command-line interfaces rely on :func:`library.cli_common.serialise_dataframe`
+before exporting tables with :meth:`pandas.DataFrame.to_csv`. The helper only
+materialises object-like columns and accepts ``inplace=True`` to mutate the
+input DataFrame, which halves the temporary memory footprint when the original
+object is no longer needed. Nevertheless, the final CSV export still requires
+the entire table to reside in memory because pandas buffers rows until the write
+completes. For multi-gigabyte datasets either enable ``inplace=True`` (the
+default for the bundled CLIs) or switch to chunked writes by passing
+``chunksize`` to :meth:`pandas.DataFrame.to_csv` when customising scripts.

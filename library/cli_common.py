@@ -7,7 +7,7 @@ import sys
 from argparse import Namespace
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 
@@ -73,25 +73,76 @@ def ensure_output_dir(path: Path) -> Path:
     return target
 
 
-def serialise_dataframe(df: pd.DataFrame, list_format: str) -> pd.DataFrame:
+ListFormat = Literal["json", "pipe"]
+
+
+def serialise_dataframe(
+    df: pd.DataFrame, list_format: ListFormat, *, inplace: bool = False
+) -> pd.DataFrame:
     """Serializes non-scalar DataFrame columns for CSV output.
 
-    Args:
-        df: The DataFrame containing data destined for CSV output.
-        list_format: The desired representation for list-like values. Accepted
-            values are "json" and "pipe".
+    This helper mirrors :func:`library.io_utils.serialise_cell` but operates on
+    complete :class:`pandas.DataFrame` instances. Only object-like columns are
+    materialised, which keeps numeric and boolean columns as zero-copy views of
+    the original frame. When working with very large tables the caller can set
+    ``inplace=True`` to update the provided DataFrame directly and avoid even the
+    shallow copy that backs the default behaviour.
 
-    Returns:
-        A new DataFrame with the same shape as the input, where complex values
-        are serialized into deterministic strings.
+    Parameters
+    ----------
+    df:
+        The DataFrame containing data destined for CSV output.
+    list_format:
+        The desired representation for list-like values. Accepted values are
+        ``"json"`` and ``"pipe"``.
+    inplace:
+        Mutate ``df`` directly when set to :data:`True`. This avoids creating a
+        new DataFrame instance and is therefore preferred when the original
+        object is no longer needed prior to serialization.
+
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame with the same shape as the input, where complex values are
+        serialized into deterministic strings. The result is ``df`` itself when
+        ``inplace=True``.
+
+    Raises
+    ------
+    ValueError
+        If an unsupported ``list_format`` is provided.
+
+    Notes
+    -----
+    The function operates column by column to minimise memory pressure. Only
+    object, string, and categorical columns are materialised; numeric columns
+    retain their original dtype and continue to share buffers with ``df``. When
+    chaining with :meth:`pandas.DataFrame.to_csv` the overall memory usage still
+    scales with the size of the DataFrame because pandas keeps the table in
+    memory until the CSV export completes. Consider chunked writes or
+    ``inplace=True`` when handling multi-gigabyte datasets.
     """
 
-    result = df.copy()
-    for column in result.columns:
-        result[column] = result[column].map(
-            lambda value: serialise_cell(value, list_format)
-        )
-    return result
+    if list_format not in {"json", "pipe"}:
+        msg = f"Unsupported list_format: {list_format}"
+        raise ValueError(msg)
+
+    serialised_frame = df if inplace else df.copy(deep=False)
+
+    object_like = serialised_frame.select_dtypes(
+        include=["object", "string", "category"]
+    )
+    if object_like.empty:
+        return serialised_frame
+
+    def _serialise_column(column: pd.Series) -> pd.Series:
+        return column.map(lambda value: serialise_cell(value, list_format))
+
+    transformed = object_like.apply(_serialise_column)
+    for column_name, column_values in transformed.items():
+        serialised_frame[column_name] = column_values
+
+    return serialised_frame
 
 
 def prepare_cli_config(
