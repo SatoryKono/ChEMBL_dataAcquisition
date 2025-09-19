@@ -16,6 +16,14 @@ if str(ROOT) not in sys.path:
 from scripts import dump_gtop_target  # noqa: E402
 
 
+CONTACT_YAML = (
+    "contact:\n"
+    "  name: Test Maintainer\n"
+    "  email: maintainer@example.org\n"
+    "  user_agent: test-suite/1.0 (mailto:maintainer@example.org)\n"
+)
+
+
 class DummyClient:
     """Minimal stub emulating ``GtoPClient`` interactions."""
 
@@ -58,7 +66,8 @@ def test_dump_gtop_target_cli_smoke(
 
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
-        "\n".join(
+        CONTACT_YAML
+        + "\n".join(
             [
                 "gtop:",
                 "  base_url: https://example.org",  # mocked HTTP interactions
@@ -159,7 +168,7 @@ def test_dump_gtop_target_cli_many_identifiers(
             yield normalise(value) if normalise is not None else value
 
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("gtop: {}\n", encoding="utf-8")
+    config_path.write_text(CONTACT_YAML + "gtop: {}\n", encoding="utf-8")
 
     input_csv = tmp_path / "ids.csv"
     input_csv.write_text("hgnc_id\n", encoding="utf-8")

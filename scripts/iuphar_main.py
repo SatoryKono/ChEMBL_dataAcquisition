@@ -11,7 +11,8 @@ if __package__ in {None, ""}:
 
     _ensure_project_root()
 
-from library.iuphar import IUPHARData
+from library.config.contact import load_contact_config
+from library.iuphar import ApiCfg, IUPHARData, RetryCfg, init_session
 from library.logging_utils import configure_logging
 
 DEFAULT_LOG_FORMAT = "human"
@@ -44,7 +45,23 @@ def parse_args() -> argparse.Namespace:
         choices=("human", "json"),
         help="Logging output format (human or json)",
     )
+    parser.add_argument(
+        "--config",
+        default="config.yaml",
+        help="Path to the YAML configuration file providing contact details",
+    )
     return parser.parse_args()
+
+
+def configure_http_session(config_path: str | Path) -> None:
+    """Initialise the shared HTTP session using contact information."""
+
+    try:
+        contact_cfg = load_contact_config(config_path)
+    except (FileNotFoundError, ValueError) as exc:
+        raise SystemExit(f"Failed to load contact configuration: {exc}") from exc
+
+    init_session(ApiCfg(user_agent=contact_cfg.effective_user_agent()), RetryCfg())
 
 
 def main() -> None:
@@ -52,6 +69,7 @@ def main() -> None:
 
     args = parse_args()
     configure_logging(args.log_level, log_format=args.log_format)
+    configure_http_session(args.config)
     if args.output is None:
         date = dt.date.today().strftime("%Y%m%d")
         stem = Path(args.input).stem

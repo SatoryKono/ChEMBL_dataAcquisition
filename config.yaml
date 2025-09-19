@@ -1,4 +1,9 @@
 
+contact:
+  name: "ChEMBL Data Acquisition"
+  email: "chembl-da@example.org"
+  user_agent: "chembl-data-acquisition/1.0 (mailto:chembl-da@example.org)"
+
 gtop:
   base_url: "https://www.guidetopharmacology.org/services"
   network:

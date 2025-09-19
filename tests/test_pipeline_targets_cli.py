@@ -26,6 +26,13 @@ from library.config.pipeline_targets import PipelineClientsConfig
 from library.pipeline_targets import PipelineConfig
 import scripts.pipeline_targets_main as pipeline_main
 
+CONTACT_YAML = (
+    "contact:\n"
+    "  name: Test Maintainer\n"
+    "  email: maintainer@example.org\n"
+    "  user_agent: test-suite/1.0 (mailto:maintainer@example.org)\n"
+)
+
 
 def _make_valid_clients_config() -> dict[str, Any]:
     """Return a configuration mapping accepted by ``PipelineClientsConfig``."""
@@ -140,7 +147,7 @@ def test_pipeline_targets_cli_writes_outputs(
     )
 
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("{}\n", encoding="utf-8")
+    config_path.write_text(CONTACT_YAML + "pipeline: {}\n", encoding="utf-8")
 
     class DummyUniClient:
         def fetch_entry_json(self, accession: str) -> dict[str, Any]:
@@ -299,7 +306,7 @@ def test_pipeline_targets_cli_filters_invalid_ids(
         encoding="utf-8",
     )
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("{}\n", encoding="utf-8")
+    config_path.write_text(CONTACT_YAML + "pipeline: {}\n", encoding="utf-8")
 
     captured: dict[str, Any] = {}
 
@@ -393,7 +400,7 @@ def test_pipeline_targets_cli_rejects_invalid_batch_size(
     input_csv = tmp_path / "input.csv"
     input_csv.write_text("target_chembl_id\nCHEMBL1\n", encoding="utf-8")
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("{}\n", encoding="utf-8")
+    config_path.write_text(CONTACT_YAML + "pipeline: {}\n", encoding="utf-8")
 
     argv = [
         "pipeline_targets_main",
@@ -456,7 +463,9 @@ def test_pipeline_targets_cli_uses_configured_list_format(
     input_csv.write_text("target_chembl_id\nCHEMBL1\n", encoding="utf-8")
 
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("pipeline:\n  list_format: pipe\n", encoding="utf-8")
+    config_path.write_text(
+        CONTACT_YAML + "pipeline:\n  list_format: pipe\n", encoding="utf-8"
+    )
 
     class DummyUniClient:
         def fetch_entry_json(self, accession: str) -> dict[str, Any]:
@@ -535,7 +544,9 @@ def test_pipeline_targets_cli_respects_yaml_defaults(
 
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
-        """
+        CONTACT_YAML
+        + (
+            """
 pipeline:
   list_format: pipe
   species_priority:
@@ -546,8 +557,9 @@ pipeline:
     primary_target_only: false
 orthologs:
   enabled: true
-        """.strip()
-        + "\n",
+            """.strip()
+            + "\n"
+        ),
         encoding="utf-8",
     )
 
@@ -640,7 +652,9 @@ def test_pipeline_targets_cli_overrides_specific_flags(
 
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
-        """
+        CONTACT_YAML
+        + (
+            """
 pipeline:
   list_format: pipe
   species_priority:
@@ -651,8 +665,9 @@ pipeline:
     primary_target_only: false
 orthologs:
   enabled: false
-        """.strip()
-        + "\n",
+            """.strip()
+            + "\n"
+        ),
         encoding="utf-8",
     )
 
@@ -754,7 +769,7 @@ def test_pipeline_targets_cli_network_overrides(
     input_csv.write_text("target_chembl_id\nCHEMBL1\n", encoding="utf-8")
 
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("{}\n", encoding="utf-8")
+    config_path.write_text(CONTACT_YAML + "pipeline: {}\n", encoding="utf-8")
 
     expected_timeout = 45.5
     expected_retries = 7
@@ -864,15 +879,18 @@ def test_pipeline_targets_cli_accepts_null_sections(
 
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
-        """
+        CONTACT_YAML
+        + (
+            """
 pipeline:
   columns: null
   iuphar: null
 orthologs: null
 chembl: null
 uniprot_enrich: null
-        """.strip()
-        + "\n",
+            """.strip()
+            + "\n"
+        ),
         encoding="utf-8",
     )
 
@@ -951,7 +969,7 @@ def test_run_pipeline_streams_identifiers_without_dataframe(
     module: Any = importlib.import_module("scripts.pipeline_targets_main")
 
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("{}\n", encoding="utf-8")
+    config_path.write_text(CONTACT_YAML + "pipeline: {}\n", encoding="utf-8")
 
     input_path = tmp_path / "input.csv"
     input_path.write_text(
@@ -1170,7 +1188,7 @@ def test_pipeline_targets_cli_rejects_invalid_list_format(
     input_csv.write_text("target_chembl_id\nCHEMBL1\n", encoding="utf-8")
 
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("{}\n", encoding="utf-8")
+    config_path.write_text(CONTACT_YAML + "pipeline: {}\n", encoding="utf-8")
 
     argv = [
         "pipeline_targets_main",

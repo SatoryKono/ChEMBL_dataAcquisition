@@ -24,6 +24,10 @@ from chembl2uniprot.mapping import (  # noqa: E402
 SCHEMA_SOURCE = Path(__file__).parent / "data" / "config" / "config.schema.json"
 
 CONFIG_TEMPLATE = """
+contact:
+  name: "Test Maintainer"
+  email: "maintainer@example.org"
+  user_agent: "test-suite/1.0 (mailto:maintainer@example.org)"
 io:
   input:
     encoding: "{input_encoding}"
