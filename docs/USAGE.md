@@ -1,5 +1,31 @@
 # Usage
 
+All streaming CLIs in ``scripts/`` expose a consistent option set to keep
+automation predictable:
+
+* ``--input`` defaults to ``input.csv`` and can be omitted when the working
+  directory already contains the expected file. Utilities such as
+  ``chembl_tissue_main.py`` also accept direct identifier flags as an
+  alternative to CSV input.
+* ``--output`` derives a timestamped filename such as
+  ``output_input_YYYYMMDD.csv`` (or ``.json`` for tissue exports) when left
+  unspecified.
+* ``--column`` selects the identifier column; the default matches the entity
+  processed by the CLI.
+* ``--chunk-size`` configures API batch sizes. The parsers reject ``0`` and
+  negative values with ``error: --chunk-size must be a positive integer`` to
+  prevent invalid batching.
+* ``--sep``, ``--encoding`` and ``--list-format`` control CSV parsing and
+  serialisation.
+* ``--log-level`` and ``--log-format`` toggle human-readable and JSON logging
+  outputs.
+* ``--errors-output`` and ``--meta-output`` override the automatically derived
+  ``.errors.json`` and ``.meta.yaml`` companions. The metadata sidecar always
+  records the effective CLI arguments.
+* ``--dictionary`` is reserved for downstream enrichment. The current CLIs store
+  the provided path in metadata but do not read or validate the file, so the
+  option is optional.
+
 ## get_target_data_main.py
 
 Download target metadata from ChEMBL for identifiers listed in a CSV file:
@@ -105,4 +131,12 @@ python scripts/chembl_activities_main.py \
 ```
 
 Always provide a strictly positive integer to `--chunk-size`; the CLI rejects
-zero or negative values during parsing to avoid invalid batching parameters.
+zero or negative values during parsing with `error: --chunk-size must be a
+positive integer` to avoid invalid batching parameters.
+
+```bash
+python scripts/chembl_activities_main.py --chunk-size 0 --dry-run
+```
+
+The CLI aborts immediately with the validation error above, providing a quick
+smoke test for the new guard.

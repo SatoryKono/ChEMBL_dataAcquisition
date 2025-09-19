@@ -60,6 +60,28 @@ requirements.txt     # Dependency pinning
 
 ## Usage
 
+All high-volume CLIs expose the same baseline flags to keep automation
+predictable:
+
+* ``--input`` (default: ``input.csv``) selects the source CSV. Utilities such as
+  ``chembl_tissue_main.py`` also accept single identifiers via dedicated flags.
+* ``--output`` derives a timestamped filename when omitted (for example
+  ``output_input_YYYYMMDD.csv`` or ``.json`` for tissue exports).
+* ``--column`` defines which CSV column contains the identifiers to resolve.
+* ``--chunk-size`` configures the batch size for API calls. Argument parsing
+  rejects ``0`` and negative values with ``error: --chunk-size must be a
+  positive integer`` so that runs fail fast when the batch configuration is
+  invalid.
+* ``--sep``, ``--encoding`` and ``--list-format`` control CSV serialisation.
+* ``--log-level`` and ``--log-format`` switch between human-readable and JSON
+  logging.
+* ``--errors-output`` and ``--meta-output`` override the sidecar locations.
+  When left unset, helper utilities append ``.errors.json`` and ``.meta.yaml``
+  to the full output filename. The metadata sidecar always records the full CLI
+  configuration, including optional values such as ``--dictionary``.
+* ``--dictionary`` is reserved for enrichment workflows; the current CLIs store
+  the value in the metadata file but do not load or validate the referenced
+  document. Providing the flag is optional.
 
 1. Prepare a configuration file (see ``tests/data/config/valid.yaml`` for an example)
    or use the bundled ``config.yaml``.
