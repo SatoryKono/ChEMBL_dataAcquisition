@@ -24,10 +24,11 @@ from email.utils import parsedate_to_datetime
 from importlib import import_module
 import logging
 from pathlib import Path
-from types import ModuleType
+import threading
+from types import ModuleType, TracebackType
 import time
 
-from threading import RLock
+from threading import Lock, RLock
 from typing import Any, Iterable, Mapping, Tuple, cast
 
 
@@ -354,17 +355,61 @@ class HttpClient:
             self.timeout = (timeout, timeout)
         self.max_retries = max_retries
         self.rate_limiter = RateLimiter(rps)
-        if session is not None:
-            self.session = session
-        else:
-            # Если передан cache_config, используем create_http_session, иначе обычную сессию
-            self.session = create_http_session(cache_config)
+        self._cache_config = cache_config
+        self._thread_local = threading.local()
+        self._session_lock = Lock()
+        self._owned_sessions: list[requests.Session] = []
+        self._shared_session = session
         if status_forcelist is None:
             self.status_forcelist = set(DEFAULT_STATUS_FORCELIST)
         else:
             self.status_forcelist = set(status_forcelist)
         self.backoff_multiplier = backoff_multiplier
         self.retry_penalty_seconds = retry_penalty_seconds
+
+    @property
+    def session(self) -> requests.Session:
+        """Return the thread-local :class:`requests.Session` instance."""
+
+        if self._shared_session is not None:
+            return self._shared_session
+        session = getattr(self._thread_local, "session", None)
+        if session is None:
+            session = create_http_session(self._cache_config)
+            setattr(self._thread_local, "session", session)
+            with self._session_lock:
+                self._owned_sessions.append(session)
+        return session
+
+    def close(self) -> None:
+        """Close any HTTP sessions owned by this client."""
+
+        if self._shared_session is not None:
+            return
+        with self._session_lock:
+            sessions = list(self._owned_sessions)
+            self._owned_sessions.clear()
+        for session in sessions:
+            try:
+                session.close()
+            except AttributeError:  # pragma: no cover - defensive
+                continue
+        self._thread_local = threading.local()
+
+    def __enter__(self) -> "HttpClient":
+        """Return ``self`` to support ``with`` statements."""
+
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Close owned sessions when leaving a context manager block."""
+
+        self.close()
 
     def request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
         """Perform an HTTP request honouring retry and rate limits.
