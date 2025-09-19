@@ -229,6 +229,34 @@ def test_write_cli_metadata_produces_expected_yaml(tmp_path: Path) -> None:
     assert payload["status"] == "success"
 
 
+def test_write_cli_metadata_includes_warnings(tmp_path: Path) -> None:
+    """Warnings supplied to the metadata writer should be persisted."""
+
+    output_path = tmp_path / "reports" / "dataset.csv"
+    ensure_output_dir(output_path)
+    output_path.write_text("col\nvalue\n", encoding="utf-8")
+
+    namespace = argparse.Namespace(
+        input=tmp_path / "input.csv",
+        output=str(output_path),
+        errors_output=None,
+        meta_output=None,
+        limit=3,
+    )
+
+    warnings = ["First warning", "Second warning"]
+    meta_file = write_cli_metadata(
+        output_path,
+        row_count=1,
+        column_count=1,
+        namespace=namespace,
+        warnings=warnings,
+    )
+
+    payload = yaml.safe_load(meta_file.read_text(encoding="utf-8"))
+    assert payload["warnings"] == warnings
+
+
 def test_write_cli_metadata_defaults_to_sys_argv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
