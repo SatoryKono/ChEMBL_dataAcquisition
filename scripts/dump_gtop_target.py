@@ -64,7 +64,10 @@ def _normalise_identifiers(values: List[str], column: str) -> List[str]:
 
     filtered = [value for value in values if value.lower() != "nan"]
     if column == "hgnc_id":
-        return [value if value.startswith("HGNC:") else f"HGNC:{value}" for value in filtered]
+        return [
+            value if value.startswith("HGNC:") else f"HGNC:{value}"
+            for value in filtered
+        ]
     return filtered
 
 
@@ -272,7 +275,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     targets_path = ensure_output_dir(output_dir / "targets.csv")
-    _serialise_and_write(targets_df, targets_path, csv_cfg, list_format=csv_cfg.list_format)
+    _serialise_and_write(
+        targets_df, targets_path, csv_cfg, list_format=csv_cfg.list_format
+    )
     targets_meta, _, targets_quality = resolve_cli_sidecar_paths(
         targets_path,
         meta_output=args.meta_output,

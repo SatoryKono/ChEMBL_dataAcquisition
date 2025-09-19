@@ -1,4 +1,5 @@
 """CLI for verifying dependency declarations against pinned constraints."""
+
 from __future__ import annotations
 
 import argparse

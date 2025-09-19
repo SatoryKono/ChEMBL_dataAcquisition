@@ -42,10 +42,14 @@ def pubmed_xml_factory() -> Callable[[Sequence[tuple[str, str, str | None]]], st
     </PubmedData>
   </PubmedArticle>
 """.strip().format(
-                pmid=pmid, title=title, publication_type=publication_type
+                    pmid=pmid, title=title, publication_type=publication_type
+                )
             )
-            )
-        return "<?xml version='1.0'?>\n<PubmedArticleSet>\n" + "\n".join(articles) + "\n</PubmedArticleSet>"
+        return (
+            "<?xml version='1.0'?>\n<PubmedArticleSet>\n"
+            + "\n".join(articles)
+            + "\n</PubmedArticleSet>"
+        )
 
     return _build
 

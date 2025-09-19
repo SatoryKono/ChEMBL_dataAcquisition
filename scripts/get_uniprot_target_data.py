@@ -305,9 +305,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                         "parent_uniprot_id": acc,
                         "isoform_uniprot_id": iso["isoform_uniprot_id"],
                         "isoform_name": iso["isoform_name"],
-
                         "isoform_synonyms": list(iso["isoform_synonyms"]),
-
                         "is_canonical": iso["is_canonical"],
                     }
                 )

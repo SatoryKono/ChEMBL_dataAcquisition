@@ -18,7 +18,7 @@ from library.http_client import HttpClient  # type: ignore  # noqa: E402
 
 
 def test_fetch_pubmed_records_parses_fields(
-    pubmed_xml_factory: Callable[[Sequence[tuple[str, str, str | None]]], str]
+    pubmed_xml_factory: Callable[[Sequence[tuple[str, str, str | None]]], str],
 ) -> None:
     """Basic parsing should surface the expected bibliographic fields."""
 
@@ -43,7 +43,7 @@ def test_fetch_pubmed_records_parses_fields(
 
 
 def test_fetch_pubmed_records_batches_requests(
-    pubmed_xml_factory: Callable[[Sequence[tuple[str, str, str | None]]], str]
+    pubmed_xml_factory: Callable[[Sequence[tuple[str, str, str | None]]], str],
 ) -> None:
     """The downloader should honour the requested batch size for pagination."""
 
@@ -63,9 +63,7 @@ def test_fetch_pubmed_records_batches_requests(
         m.get(pc.API_URL, text=xml_chunk_one, additional_matcher=_match("1,2"))
         m.get(pc.API_URL, text=xml_chunk_two, additional_matcher=_match("3"))
         client = HttpClient(timeout=1.0, max_retries=1, rps=0)
-        records = pc.fetch_pubmed_records(
-            ["1", "2", "3"], client=client, batch_size=2
-        )
+        records = pc.fetch_pubmed_records(["1", "2", "3"], client=client, batch_size=2)
         history = list(m.request_history)
 
     assert [req.qs["id"][0] for req in history] == ["1,2", "3"]
@@ -85,7 +83,7 @@ def test_fetch_pubmed_records_reports_http_error() -> None:
 
 
 def test_fetch_pubmed_records_marks_missing_pmids(
-    pubmed_xml_factory: Callable[[Sequence[tuple[str, str, str | None]]], str]
+    pubmed_xml_factory: Callable[[Sequence[tuple[str, str, str | None]]], str],
 ) -> None:
     """Missing identifiers must surface descriptive error messages."""
 

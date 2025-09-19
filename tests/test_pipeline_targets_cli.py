@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# ruff: noqa: E402
 from pydantic import ValidationError
 
 from library.config.pipeline_targets import PipelineClientsConfig
@@ -308,10 +309,14 @@ def test_pipeline_targets_cli_filters_invalid_ids(
         )
 
     class DummyEnrichClient:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:  # pragma: no cover - simple
+        def __init__(
+            self, *args: Any, **kwargs: Any
+        ) -> None:  # pragma: no cover - simple
             pass
 
-        def fetch_all(self, accessions: list[str]) -> dict[str, dict[str, str]]:  # pragma: no cover - simple
+        def fetch_all(
+            self, accessions: list[str]
+        ) -> dict[str, dict[str, str]]:  # pragma: no cover - simple
             return {acc: {} for acc in accessions}
 
     def fake_build_clients(*_args: Any, **_kwargs: Any) -> tuple[Any, ...]:
@@ -331,7 +336,10 @@ def test_pipeline_targets_cli_filters_invalid_ids(
     monkeypatch.setattr(module, "merge_chembl_fields", lambda df, _: df)
     monkeypatch.setattr(module, "add_activity_fields", _identity_frame)
     monkeypatch.setattr(module, "add_isoform_fields", _identity_frame)
-    def _ensure_iuphar_columns(df: pd.DataFrame, *args: Any, **kwargs: Any) -> pd.DataFrame:
+
+    def _ensure_iuphar_columns(
+        df: pd.DataFrame, *args: Any, **kwargs: Any
+    ) -> pd.DataFrame:
         frame = df.copy()
         for column in module.IUPHAR_CLASS_COLUMNS:
             if column not in frame.columns:

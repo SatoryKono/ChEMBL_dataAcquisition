@@ -221,7 +221,5 @@ def test_chembl_assays_main_end_to_end(
     base_path = output_csv.with_name(output_csv.stem)
     quality_report = Path(f"{base_path}_quality_report_table.csv")
     assert quality_report.exists()
-    corr_report = Path(
-        f"{base_path}_data_correlation_report_table.csv"
-    )
+    corr_report = Path(f"{base_path}_data_correlation_report_table.csv")
     assert corr_report.exists()

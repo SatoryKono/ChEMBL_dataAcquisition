@@ -6,11 +6,11 @@ import argparse
 import logging
 import os
 import sys
- 
+
 from functools import partial
- 
+
 from dataclasses import dataclass
- 
+
 from pathlib import Path
 
 from collections.abc import Iterable, Mapping, Sequence
@@ -1264,10 +1264,7 @@ def main() -> None:
 
     # Fetch comprehensive ChEMBL data once and reuse it in the pipeline
 
-    chembl_df: pd.DataFrame = fetch_targets(
-        ids, chembl_cfg, batch_size=args.batch_size
-    )
-
+    chembl_df: pd.DataFrame = fetch_targets(ids, chembl_cfg, batch_size=args.batch_size)
 
     def _cached_chembl_fetch(
         _: Sequence[str], __: TargetConfig

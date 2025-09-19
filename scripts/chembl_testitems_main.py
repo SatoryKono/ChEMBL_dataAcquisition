@@ -341,9 +341,7 @@ def run_pipeline(
             drop=True
         )
 
-    serialised = serialise_dataframe(
-        validated, args.list_format, inplace=True
-    )
+    serialised = serialise_dataframe(validated, args.list_format, inplace=True)
     ensure_output_dir(output_path)
     serialised.to_csv(output_path, index=False, sep=args.sep, encoding=args.encoding)
 

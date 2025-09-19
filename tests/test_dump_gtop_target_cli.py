@@ -46,7 +46,9 @@ class DummyClient:
         raise AssertionError(msg)
 
 
-def test_dump_gtop_target_cli_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dump_gtop_target_cli_smoke(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Ensure the GtoP dump CLI writes CSV tables and metadata."""
 
     input_csv = tmp_path / "ids.csv"
@@ -67,7 +69,9 @@ def test_dump_gtop_target_cli_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     )
 
     dummy_client = DummyClient()
-    monkeypatch.setattr(dump_gtop_target, "GtoPClient", lambda *_args, **_kwargs: dummy_client)
+    monkeypatch.setattr(
+        dump_gtop_target, "GtoPClient", lambda *_args, **_kwargs: dummy_client
+    )
     monkeypatch.setattr(
         dump_gtop_target,
         "resolve_target",
