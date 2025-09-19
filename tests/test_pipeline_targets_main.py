@@ -1,22 +1,28 @@
-from pathlib import Path
-from typing import Dict, Iterable
-
 import json
 import sys
+from pathlib import Path
+from typing import Any, Dict, Iterable
 
 import pandas as pd
+import yaml
+import pytest
 
 sys.path.insert(0, str(Path("scripts")))
 from pipeline_targets_main import (
-    add_iuphar_classification,
-    add_protein_classification,
+    _merge_species_lists,
+    _parse_species_argument,
     add_activity_fields,
+    add_iuphar_classification,
     add_isoform_fields,
+    add_protein_classification,
     add_uniprot_fields,
+    build_clients,
     extract_activity,
     extract_isoform,
     merge_chembl_fields,
+    parse_args,
 )
+from library.pipeline_targets import PipelineConfig
 
 
 def test_merge_chembl_fields_adds_columns():
@@ -73,6 +79,34 @@ def test_add_protein_classification():
     row = out.iloc[0]
     assert row["protein_class_pred_L1"] == "Receptor: GPCR"
     assert row["protein_class_pred_confidence"] == "high"
+
+
+def test_add_protein_classification_fetches_once() -> None:
+    samples = json.loads((Path("tests/data/protein_samples.json").read_text()))
+    calls: list[list[str]] = []
+
+    def fetcher(accessions: Iterable[str]) -> Dict[str, dict]:
+        collected = list(accessions)
+        calls.append(collected)
+        return {acc: samples["gpcr"] for acc in collected}
+
+    df = pd.DataFrame(
+        {
+            "uniprot_id_primary": [
+                "P00000",
+                "",
+                None,
+                float("nan"),
+                "nan",
+                "None",
+                "  ",
+                "P00000",
+            ]
+        }
+    )
+    add_protein_classification(df, fetcher)
+    assert len(calls) == 1
+    assert calls[0] == ["P00000"]
 
 
 def test_add_uniprot_fields() -> None:
@@ -146,6 +180,31 @@ def test_add_activity_fields() -> None:
     assert row["reaction_ec_numbers"] == "4.4.4.4"
 
 
+def test_add_activity_fields_reuses_entry_cache() -> None:
+    df = pd.DataFrame({"uniprot_id_primary": ["P00001"]})
+    calls: list[str] = []
+
+    def fetch_entry(_: str) -> dict:
+        calls.append("P00001")
+        return {
+            "comments": [
+                {
+                    "commentType": "CATALYTIC ACTIVITY",
+                    "reaction": {
+                        "name": {"value": "X = Y"},
+                        "ecNumber": [{"value": "4.4.4.4"}],
+                    },
+                }
+            ]
+        }
+
+    cache: dict[str, Any] = {}
+    add_activity_fields(df, fetch_entry, entry_cache=cache)
+    add_activity_fields(df, fetch_entry, entry_cache=cache)
+    assert calls == ["P00001"]
+    assert cache["P00001"]["comments"][0]["reaction"]["name"]["value"] == "X = Y"
+
+
 def test_extract_isoform() -> None:
     entry = {
         "comments": [
@@ -196,3 +255,204 @@ def test_add_isoform_fields() -> None:
     assert row["isoform_names"] == "Isoform 1"
     assert row["isoform_ids"] == "P1-1"
     assert row["isoform_synonyms"] == "Alpha"
+
+
+def test_add_isoform_fields_reuses_entry_cache() -> None:
+    df = pd.DataFrame({"uniprot_id_primary": ["P99999"]})
+    calls: list[str] = []
+
+    def fetch_entry(_: str) -> dict:
+        calls.append("P99999")
+        return {
+            "comments": [
+                {
+                    "commentType": "ALTERNATIVE PRODUCTS",
+                    "isoforms": [
+                        {
+                            "name": {"value": "Isoform 1"},
+                            "isoformIds": ["P1-1"],
+                            "synonyms": [{"value": "Alpha"}],
+                        }
+                    ],
+                }
+            ]
+        }
+
+    cache: dict[str, Any] = {}
+    add_isoform_fields(df, fetch_entry, entry_cache=cache)
+    add_isoform_fields(df, fetch_entry, entry_cache=cache)
+    assert calls == ["P99999"]
+    assert cache["P99999"]["comments"][0]["isoforms"][0]["name"]["value"] == "Isoform 1"
+
+
+def test_activity_and_isoform_share_entry_cache() -> None:
+    df = pd.DataFrame({"uniprot_id_primary": ["P12345"]})
+    calls: list[str] = []
+
+    def fetch_entry(_: str) -> dict:
+        calls.append("P12345")
+        return {
+            "comments": [
+                {
+                    "commentType": "CATALYTIC ACTIVITY",
+                    "reaction": {
+                        "name": {"value": "R = P"},
+                        "ecNumber": [{"value": "1.1.1.1"}],
+                    },
+                },
+                {
+                    "commentType": "ALTERNATIVE PRODUCTS",
+                    "isoforms": [
+                        {
+                            "name": {"value": "Isoform A"},
+                            "isoformIds": ["P12345-1"],
+                            "synonyms": [{"value": "Alpha"}],
+                        }
+                    ],
+                },
+            ]
+        }
+
+    cache: dict[str, Any] = {}
+    add_activity_fields(df, fetch_entry, entry_cache=cache)
+    add_isoform_fields(df, fetch_entry, entry_cache=cache)
+    assert calls == ["P12345"]
+
+
+def test_build_clients_infers_uniprot_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pipeline_cfg = PipelineConfig(timeout_sec=12.0, retries=4, rate_limit_rps=1.5)
+    import pipeline_targets_main as module
+
+    captured: dict[str, Any] = {}
+
+    def fake_enrich_client(*_args: Any, **kwargs: Any) -> object:
+        captured["kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr(module, "UniProtEnrichClient", fake_enrich_client)
+
+    (
+        uni_client,
+        _hgnc_client,
+        _gtop_client,
+        _ens_client,
+        _oma_client,
+        _target_species,
+        enrich_factory,
+    ) = module.build_clients("config.yaml", pipeline_cfg)
+
+    config = yaml.safe_load(Path("config.yaml").read_text())
+    uniprot_columns = config["uniprot"]["columns"]
+    field_set = {field for field in uni_client.fields.split(",") if field}
+
+    assert set(uniprot_columns).issubset(field_set)
+
+    enrich_factory()
+    assert captured["kwargs"]["request_timeout"] == pytest.approx(
+        pipeline_cfg.timeout_sec
+    )
+    assert captured["kwargs"]["max_retries"] == pipeline_cfg.retries
+    assert captured["kwargs"]["rate_limit_rps"] == pytest.approx(
+        pipeline_cfg.rate_limit_rps
+    )
+
+
+def test_build_clients_uses_uniprot_rate_limit_from_config() -> None:
+    pipeline_cfg = PipelineConfig()
+    pipeline_cfg.rate_limit_rps = 0.25
+
+    uni_client, *_ = build_clients("config.yaml", pipeline_cfg)
+
+    config = yaml.safe_load(Path("config.yaml").read_text())
+    configured_rps = float(config["uniprot"]["rate_limit"]["rps"])
+
+    assert uni_client.rate_limit.rps == configured_rps
+
+
+def test_parse_species_argument_splits_and_deduplicates() -> None:
+    result = _parse_species_argument("Human , ,Mouse , Human ")
+    assert result == ["Human", "Mouse"]
+
+
+def test_merge_species_lists_prioritises_cli_values() -> None:
+    combined = _merge_species_lists(["Mouse", "Human"], ["Human", "Rat"])
+    assert combined == ["Mouse", "Human", "Rat"]
+
+
+def test_parse_args_with_orthologs_flag(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("orthologs:\n  enabled: true\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "pipeline_targets_main",
+            "--input",
+            "input.csv",
+            "--output",
+            "output.csv",
+            "--config",
+            str(config_path),
+        ],
+    )
+    args = parse_args()
+    assert args.with_orthologs is True
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "pipeline_targets_main",
+            "--input",
+            "input.csv",
+            "--output",
+            "output.csv",
+            "--config",
+            str(config_path),
+            "--with-orthologs",
+        ],
+    )
+    args_with_flag = parse_args()
+    assert args_with_flag.with_orthologs is True
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "pipeline_targets_main",
+            "--input",
+            "input.csv",
+            "--output",
+            "output.csv",
+            "--config",
+            str(config_path),
+            "--no-with-orthologs",
+        ],
+    )
+    args_without_flag = parse_args()
+    assert args_without_flag.with_orthologs is False
+
+
+def test_parse_args_rejects_non_positive_batch_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "pipeline_targets_main",
+            "--input",
+            "input.csv",
+            "--output",
+            "output.csv",
+            "--batch-size",
+            "0",
+        ],
+    )
+    with pytest.raises(SystemExit):
+        parse_args()

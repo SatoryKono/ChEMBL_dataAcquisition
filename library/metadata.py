@@ -7,7 +7,7 @@ import logging
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml  # type: ignore[import-untyped]
 
@@ -106,27 +106,38 @@ def write_meta_yaml(
     row_count: int,
     column_count: int,
     meta_path: Path | None = None,
+    status: Literal["success", "error"] = "success",
+    error: str | None = None,
+    include_hash: bool = True,
 ) -> Path:
-    """Write dataset metadata next to ``output_path``.
+    """Writes dataset metadata to a YAML file next to the output file.
 
-    Parameters
-    ----------
-    output_path:
-        Path to the generated CSV file.
-    command:
-        Command line invocation responsible for generating the data.
-    config:
-        Normalised configuration dictionary captured from the CLI arguments.
-    row_count:
-        Number of rows persisted to the CSV file.
-    column_count:
-        Number of columns in the CSV file.
-    meta_path:
-        Optional destination for the YAML file.  When omitted, the function
-        writes ``<output_path>.meta.yaml``.
+    Args:
+        output_path: The path to the generated CSV file.
+        command: The command-line invocation that generated the data.
+        config: A normalized configuration dictionary from the CLI arguments.
+        row_count: The number of rows persisted to the CSV file.
+        column_count: The number of columns in the CSV file.
+        meta_path: An optional destination for the YAML file. If omitted, the
+            function writes to `<output_path>.meta.yaml`.
+
+    Returns:
+        The path to the written metadata file.
+
+    Other Parameters
+    ----------------
+    status:
+        Execution outcome recorded in the metadata. Defaults to ``"success"``
+        and should be set to ``"error"`` when the CLI aborts prematurely.
+    error:
+        Optional descriptive message associated with an error outcome.
+    include_hash:
+        When :data:`True`, compute and persist the SHA-256 digest alongside a
+        determinism record. Disable when the output file was not produced.
     """
 
-    target = meta_path or output_path.with_suffix(f"{output_path.suffix}.meta.yaml")
+    default_meta_path = output_path.with_name(f"{output_path.name}.meta.yaml")
+    target = meta_path or default_meta_path
     previous_metadata = _load_previous_metadata(target)
     target.parent.mkdir(parents=True, exist_ok=True)
 
@@ -135,14 +146,21 @@ def write_meta_yaml(
         "command": command,
         "config": dict(config),
         "output": str(output_path),
-        "sha256": _file_sha256(output_path),
         "rows": row_count,
         "columns": column_count,
+        "status": status,
     }
 
-    metadata["determinism"] = _determinism_record(
-        current_sha=metadata["sha256"], previous_metadata=previous_metadata
-    )
+    if error:
+        metadata["error"] = error
+
+    if include_hash:
+        metadata["sha256"] = _file_sha256(output_path)
+        metadata["determinism"] = _determinism_record(
+            current_sha=metadata["sha256"], previous_metadata=previous_metadata
+        )
+    else:
+        metadata["sha256"] = None
 
     with target.open("w", encoding="utf-8") as handle:
         yaml.safe_dump(metadata, handle, allow_unicode=True, sort_keys=False)

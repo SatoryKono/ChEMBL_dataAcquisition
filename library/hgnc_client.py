@@ -11,12 +11,16 @@ Algorithm Notes
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, asdict
-from pathlib import Path
-from typing import Dict, List
 import logging
-import time
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+ 
+from types import TracebackType
+from typing import Any,Dict, List
+import logging
+
 
 import pandas as pd
 import requests
@@ -28,9 +32,14 @@ except ModuleNotFoundError:  # pragma: no cover
     from .data_profiling import analyze_table_quality
 
 try:  # pragma: no cover - support package and script imports
-    from .http_client import CacheConfig, create_http_session
+    from .http_client import CacheConfig, HttpClient
 except ImportError:  # pragma: no cover
-    from http_client import CacheConfig, create_http_session  # type: ignore[no-redef]
+    from http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
+
+try:  # pragma: no cover - support package and script imports
+    from .chembl2uniprot.config import _apply_env_overrides
+except ImportError:  # pragma: no cover
+    from chembl2uniprot.config import _apply_env_overrides  # type: ignore[no-redef]
 
 LOGGER = logging.getLogger(__name__)
 
@@ -106,12 +115,23 @@ def load_config(path: str | Path, *, section: str | None = None) -> Config:
     """
 
     with Path(path).open("r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh) or {}
+        loaded = yaml.safe_load(fh) or {}
+    if not isinstance(loaded, dict):
+        msg = f"Root of {path} must be a mapping"
+        raise TypeError(msg)
+    data: Dict[str, Any]
     if section:
         try:
-            data = data[section]
+            section_payload = loaded[section]
         except KeyError as exc:  # pragma: no cover - defensive
             raise KeyError(f"Section '{section}' not found in {path}") from exc
+        if not isinstance(section_payload, dict):
+            msg = f"Section '{section}' in {path} must be a mapping"
+            raise TypeError(msg)
+        data = dict(section_payload)
+    else:
+        data = dict(loaded)
+    _apply_env_overrides(data, section=section)
     return Config(
         hgnc=HGNCServiceConfig(**data["hgnc"]),
         network=NetworkConfig(**data["network"]),
@@ -125,33 +145,21 @@ def load_config(path: str | Path, *, section: str | None = None) -> Config:
 # Rate limiting and HTTP helpers
 
 
-@dataclass
-class RateLimiter:
-    """Simple time-based rate limiter."""
-
-    rps: float
-    last_call: float = 0.0
-
-    def wait(self) -> None:
-        """Sleep as necessary to satisfy the configured rate limit."""
-
-        if self.rps <= 0:
-            return
-        interval = 1.0 / self.rps
-        now = time.monotonic()
-        delta = now - self.last_call
-        if delta < interval:
-            time.sleep(interval - delta)
-        self.last_call = time.monotonic()
-
-
 # ---------------------------------------------------------------------------
 # HGNC and UniProt clients
 
 
 @dataclass
 class HGNCRecord:
-    """Mapping information for a single UniProt accession."""
+    """Represents mapping information for a single UniProt accession.
+
+    Attributes:
+        uniprot_id: The UniProt accession number.
+        hgnc_id: The HGNC identifier.
+        gene_symbol: The official gene symbol.
+        gene_name: The official gene name.
+        protein_name: The recommended protein name from UniProt.
+    """
 
     uniprot_id: str
     hgnc_id: str
@@ -161,12 +169,40 @@ class HGNCRecord:
 
 
 class HGNCClient:
-    """Minimal client for querying the HGNC API."""
+    """A minimal client for querying the HGNC API.
+
+    Args:
+        cfg: The configuration object for the client.
+    """
 
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
-        self.rate_limiter = RateLimiter(cfg.rate_limit.rps)
-        self.session = create_http_session(cfg.cache)
+        self.http = HttpClient(
+            timeout=cfg.network.timeout_sec,
+            max_retries=cfg.network.max_retries,
+            rps=cfg.rate_limit.rps,
+            cache_config=cfg.cache,
+        )
+
+    def close(self) -> None:
+        """Release HTTP resources associated with the client."""
+
+        self.http.close()
+
+    def __enter__(self) -> "HGNCClient":
+        """Enter the managed context, returning ``self``."""
+
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Ensure resources are released when leaving a context manager block."""
+
+        self.close()
 
     def _request(self, url: str) -> requests.Response:
         """Perform a GET request with retry and rate limiting.
@@ -187,27 +223,11 @@ class HGNCClient:
             If the request fails after all retries.
         """
 
-        last_exc: Exception | None = None
-        for attempt in range(self.cfg.network.max_retries):
-            self.rate_limiter.wait()
-            try:
-                resp = self.session.get(
-                    url,
-                    timeout=self.cfg.network.timeout_sec,
-                    headers={"Accept": "application/json"},
-                )
-            except requests.RequestException as exc:  # network error
-                last_exc = exc
-            else:
-                if resp.status_code >= 500:
-                    last_exc = requests.HTTPError(
-                        f"Server error {resp.status_code} for {url}"
-                    )
-                else:
-                    return resp
-            time.sleep(2**attempt)
-        assert last_exc is not None
-        raise last_exc
+        return self.http.request(
+            "get",
+            url,
+            headers={"Accept": "application/json"},
+        )
 
     def _fetch_protein_name(self, uniprot_id: str) -> str:
         """Fetch the recommended protein name from UniProt for a given ID.
@@ -350,11 +370,16 @@ def map_uniprot_to_hgnc(
     raw_ids: List[str] = [str(v) for v in df[column]]
     unique_ids = list(dict.fromkeys(filter(None, raw_ids)))
 
-    client = HGNCClient(cfg)
-    max_workers = int(cfg.rate_limit.rps) or 1
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        results = executor.map(client.fetch, unique_ids)
-        mapping: Dict[str, HGNCRecord] = dict(zip(unique_ids, results))
+    max_workers = max(1, int(cfg.rate_limit.rps))
+    with HGNCClient(cfg) as client:
+        if not unique_ids:
+            mapping: Dict[str, HGNCRecord] = {}
+        elif max_workers == 1 or len(unique_ids) == 1:
+            mapping = {uid: client.fetch(uid) for uid in unique_ids}
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                results = executor.map(client.fetch, unique_ids)
+                mapping = dict(zip(unique_ids, results))
 
     rows = [
         asdict(mapping.get(uid, HGNCRecord(uid, "", "", "", ""))) for uid in raw_ids

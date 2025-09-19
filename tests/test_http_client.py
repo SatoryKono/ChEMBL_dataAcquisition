@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import threading
+import time
 
 import pytest
 import requests  # type: ignore[import-untyped]
@@ -259,3 +261,40 @@ def test_rate_limiter_penalty_blocks_until_elapsed(monkeypatch) -> None:
     # Subsequent waits without additional penalties do not sleep again.
     limiter.wait()
     assert pytest.approx(2.5, rel=1e-3) == clock.monotonic_time
+
+
+def test_rate_limiter_serialises_updates_across_threads() -> None:
+    """Concurrent ``wait`` calls honour the configured requests-per-second cap."""
+
+    limiter = RateLimiter(rps=50)
+    thread_count = 5
+    per_thread_calls = 10
+    total_calls = thread_count * per_thread_calls
+    timestamps: list[float] = []
+    timestamp_lock = threading.Lock()
+    start_barrier = threading.Barrier(thread_count + 1)
+
+    def worker() -> None:
+        start_barrier.wait()
+        for _ in range(per_thread_calls):
+            limiter.wait()
+            stamp = time.perf_counter()
+            with timestamp_lock:
+                timestamps.append(stamp)
+
+    threads = [threading.Thread(target=worker) for _ in range(thread_count)]
+    for thread in threads:
+        thread.start()
+
+    start_barrier.wait()
+    for thread in threads:
+        thread.join()
+
+    assert len(timestamps) == total_calls
+    ordered = sorted(timestamps)
+    elapsed = ordered[-1] - ordered[0]
+    assert elapsed > 0
+
+    expected_min = (total_calls - 1) / limiter.rps
+    # Allow a small 10% tolerance to account for scheduling variance.
+    assert elapsed >= expected_min * 0.9

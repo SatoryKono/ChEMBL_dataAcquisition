@@ -26,7 +26,9 @@ ChemblClient = importlib.import_module("library.chembl_client").ChemblClient
 get_activities = importlib.import_module("library.chembl_library").get_activities
 read_ids = importlib.import_module("library.io").read_ids
 CsvConfig = importlib.import_module("library.io_utils").CsvConfig
-chembl_activities_main = importlib.import_module("scripts.chembl_activities_main").main
+chembl_activities_module = importlib.import_module("scripts.chembl_activities_main")
+chembl_activities_main = chembl_activities_module.main
+chembl_activities_parse_args = chembl_activities_module.parse_args
 
 
 def test_read_ids_limit(tmp_path: Path) -> None:
@@ -49,6 +51,40 @@ def test_chembl_client_handles_activity_404(
     assert client.fetch_activity("CHEMBL404") is None
 
 
+def test_chembl_client_enriches_data_validity_warning(
+    requests_mock: requests_mock_lib.Mocker,
+) -> None:
+    base_url = "https://chembl.mock"
+    activity_with_comment = {
+        "activity_chembl_id": "CHEMBL1",
+        "assay_chembl_id": "ASSAY1",
+        "data_validity_comment": "Potential transcription error",
+        "data_validity_description": "Values appear to be an order of magnitude different",
+    }
+    activity_with_flag = {
+        "activity_chembl_id": "CHEMBL2",
+        "assay_chembl_id": "ASSAY2",
+        "data_validity_warning": "false",
+    }
+    requests_mock.get(
+        f"{base_url}/activity/CHEMBL1.json",
+        json=activity_with_comment,
+    )
+    requests_mock.get(
+        f"{base_url}/activity/CHEMBL2.json",
+        json=activity_with_flag,
+    )
+
+    client = ChemblClient(base_url=base_url)
+    enriched = client.fetch_activity("CHEMBL1")
+    assert enriched is not None
+    assert enriched["data_validity_warning"] is True
+
+    flagged = client.fetch_activity("CHEMBL2")
+    assert flagged is not None
+    assert flagged["data_validity_warning"] is False
+
+
 def test_get_activities_batches_requests() -> None:
     calls: List[List[str]] = []
 
@@ -69,6 +105,13 @@ def test_get_activities_batches_requests() -> None:
     assert calls == [["CHEMBL1", "CHEMBL2"], ["CHEMBL3"]]
 
 
+@pytest.mark.parametrize("chunk_size", [0, -5])
+def test_parse_args_rejects_non_positive_chunk_sizes(chunk_size: int) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        chembl_activities_parse_args(["--chunk-size", str(chunk_size)])
+    assert excinfo.value.code == 2
+
+
 def test_normalize_activities() -> None:
     raw = pd.DataFrame(
         [
@@ -79,6 +122,7 @@ def test_normalize_activities() -> None:
                 "standard_value": "10",
                 "standard_flag": "1",
                 "potential_duplicate": "True",
+                "data_validity_warning": True,
                 "ligand_efficiency": {"LE": 1, "LLE": 2},
                 "activity_properties": [
                     {"name": "propB", "value": 2},
@@ -101,6 +145,7 @@ def test_normalize_activities() -> None:
     assert normalised.loc[0, "standard_value"] == pytest.approx(10.0)
     assert normalised.loc[0, "standard_flag"] == 1
     assert bool(normalised.loc[0, "potential_duplicate"]) is True
+    assert bool(normalised.loc[0, "data_validity_warning"]) is True
     assert normalised.loc[0, "ligand_efficiency"] == {"LE": 1, "LLE": 2}
     assert normalised.loc[0, "activity_properties"] == [
         {"name": "propA", "value": 1},
@@ -196,6 +241,13 @@ def test_chembl_activities_main_end_to_end(
     for activity_id in ["CHEMBL1", "CHEMBL2"]:
         payload = dict(payload_template)
         payload["activity_chembl_id"] = activity_id
+        if activity_id == "CHEMBL1":
+            payload["data_validity_comment"] = "Potential transcription error"
+            payload["data_validity_description"] = (
+                "Values appear to be an order of magnitude different"
+            )
+        else:
+            payload["data_validity_warning"] = "false"
         requests_mock.get(f"{base_url}/activity/{activity_id}.json", json=payload)
 
     output_csv = tmp_path / "out.csv"
@@ -218,8 +270,14 @@ def test_chembl_activities_main_end_to_end(
     assert output_csv.exists()
     df = pd.read_csv(output_csv)
     assert sorted(df["activity_chembl_id"].tolist()) == ["CHEMBL1", "CHEMBL2"]
+    df_sorted = df.sort_values("activity_chembl_id").reset_index(drop=True)
+    first = df_sorted.loc[df_sorted["activity_chembl_id"] == "CHEMBL1"].iloc[0]
+    second = df_sorted.loc[df_sorted["activity_chembl_id"] == "CHEMBL2"].iloc[0]
+    assert first["data_validity_comment"] == "Potential transcription error"
+    assert str(first["data_validity_warning"]).lower() in {"true", "1"}
+    assert str(second["data_validity_warning"]).lower() in {"false", "0"}
 
-    meta_file = output_csv.with_suffix(".csv.meta.yaml")
+    meta_file = output_csv.with_name(f"{output_csv.name}.meta.yaml")
     assert meta_file.exists()
 
     second_exit = chembl_activities_main(
@@ -243,9 +301,8 @@ def test_chembl_activities_main_end_to_end(
     assert determinism["matches_previous"] is True
     assert determinism["previous_sha256"] == determinism["current_sha256"]
 
-    quality_report = Path(f"{output_csv.with_suffix('')}_quality_report_table.csv")
+    base_path = output_csv.with_name(output_csv.stem)
+    quality_report = Path(f"{base_path}_quality_report_table.csv")
     assert quality_report.exists()
-    corr_report = Path(
-        f"{output_csv.with_suffix('')}_data_correlation_report_table.csv"
-    )
+    corr_report = Path(f"{base_path}_data_correlation_report_table.csv")
     assert corr_report.exists()

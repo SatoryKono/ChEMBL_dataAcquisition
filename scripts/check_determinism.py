@@ -17,6 +17,7 @@ if __package__ in {None, ""}:
 
     _ensure_project_root()
 
+from library.cli_common import resolve_cli_sidecar_paths  # noqa: E402
 from library.io_utils import CsvConfig, write_rows  # noqa: E402
 from library.logging_utils import configure_logging  # noqa: E402
 from library.metadata import write_meta_yaml  # noqa: E402
@@ -40,7 +41,14 @@ def _sample_rows() -> Sequence[Dict[str, Any]]:
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """Parse command line arguments for the determinism checker."""
+    """Parses command-line arguments for the determinism checker.
+
+    Args:
+        argv: A sequence of command-line arguments. If None, `sys.argv` is used.
+
+    Returns:
+        An `argparse.Namespace` object containing the parsed arguments.
+    """
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -82,7 +90,14 @@ def _write_and_record(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the determinism check and update ``.meta.yaml`` with the outcome."""
+    """Runs the determinism check and updates the `.meta.yaml` file with the outcome.
+
+    Args:
+        argv: A sequence of command-line arguments. If None, `sys.argv` is used.
+
+    Returns:
+        An exit code, 0 for success and 1 for failure.
+    """
 
     args = parse_args(argv)
     configure_logging("INFO")
@@ -91,7 +106,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     rows = _sample_rows()
     columns = ("id", "names")
     output_path = args.output.resolve()
-    meta_path = output_path.with_suffix(f"{output_path.suffix}.meta.yaml")
+    meta_path, _, _ = resolve_cli_sidecar_paths(output_path)
     command = " ".join(
         shlex.quote(part) for part in (sys.argv[0], *(argv or sys.argv[1:]))
     )

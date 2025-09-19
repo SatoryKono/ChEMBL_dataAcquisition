@@ -21,9 +21,10 @@ from library.assay_postprocessing import postprocess_assays
 from library.assay_validation import AssaysSchema, validate_assays
 from library.chembl_client import ChemblClient
 from library.chembl_library import get_assays
+from library.cli_common import resolve_cli_sidecar_paths, serialise_dataframe
 from library.data_profiling import analyze_table_quality
 from library.io import read_ids
-from library.io_utils import CsvConfig, serialise_cell
+from library.io_utils import CsvConfig
 from library.metadata import write_meta_yaml
 from library.normalize_assays import normalize_assays
 from library.logging_utils import configure_logging
@@ -38,17 +39,15 @@ def _default_output_name(input_path: str) -> str:
     return f"output_{stem}_{date_suffix}.csv"
 
 
-def _serialise_complex_columns(df: pd.DataFrame, list_format: str) -> pd.DataFrame:
-    result = df.copy()
-    for column in result.columns:
-        result[column] = result[column].map(
-            lambda value: serialise_cell(value, list_format)
-        )
-    return result
-
-
 def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
-    """Parse command line arguments for the assay pipeline CLI."""
+    """Parses command-line arguments for the assay pipeline CLI.
+
+    Args:
+        args: A sequence of command-line arguments. If None, `sys.argv` is used.
+
+    Returns:
+        An `argparse.Namespace` object containing the parsed arguments.
+    """
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -63,7 +62,10 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         "--column", default="assay_chembl_id", help="Column containing assay IDs"
     )
     parser.add_argument(
-        "--chunk-size", type=int, default=20, help="Number of IDs fetched per batch"
+        "--chunk-size",
+        type=int,
+        default=20,
+        help="Number of IDs fetched per batch (must be positive)",
     )
     parser.add_argument(
         "--timeout", type=float, default=30.0, help="HTTP timeout in seconds"
@@ -102,7 +104,10 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--meta-output", default=None, help="Optional metadata YAML path"
     )
-    return parser.parse_args(args)
+    parsed_args = parser.parse_args(args)
+    if parsed_args.chunk_size <= 0:
+        parser.error("--chunk-size must be a positive integer")
+    return parsed_args
 
 
 def _prepare_configuration(namespace: argparse.Namespace) -> dict[str, object]:
@@ -120,7 +125,16 @@ def _prepare_configuration(namespace: argparse.Namespace) -> dict[str, object]:
 def run_pipeline(
     args: argparse.Namespace, *, command_parts: Sequence[str] | None = None
 ) -> int:
-    """Execute the assay acquisition pipeline with ``args``."""
+    """Executes the assay acquisition pipeline with the given arguments.
+
+    Args:
+        args: An `argparse.Namespace` object containing the pipeline arguments.
+        command_parts: A sequence of command-line arguments used to invoke the
+            pipeline. If None, `sys.argv` is used.
+
+    Returns:
+        An exit code, 0 for success and 1 for failure.
+    """
 
     input_path = Path(args.input)
     if not input_path.exists():
@@ -129,12 +143,11 @@ def run_pipeline(
     output_path = (
         Path(args.output) if args.output else Path(_default_output_name(args.input))
     )
-    errors_path = (
-        Path(args.errors_output)
-        if args.errors_output
-        else output_path.with_suffix(f"{output_path.suffix}.errors.json")
+    meta_path, errors_path, quality_base = resolve_cli_sidecar_paths(
+        output_path,
+        meta_output=args.meta_output,
+        errors_output=args.errors_output,
     )
-    meta_path = Path(args.meta_output) if args.meta_output else None
 
     csv_cfg = CsvConfig(
         sep=args.sep, encoding=args.encoding, list_format=args.list_format
@@ -177,7 +190,7 @@ def run_pipeline(
     if sort_columns:
         validated = validated.sort_values(sort_columns).reset_index(drop=True)
 
-    serialised = _serialise_complex_columns(validated, args.list_format)
+    serialised = serialise_dataframe(validated, args.list_format, inplace=True)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     serialised.to_csv(output_path, index=False, sep=args.sep, encoding=args.encoding)
 
@@ -193,14 +206,21 @@ def run_pipeline(
         meta_path=meta_path,
     )
 
-    analyze_table_quality(serialised, table_name=str(output_path.with_suffix("")))
+    analyze_table_quality(serialised, table_name=str(quality_base))
 
     LOGGER.info("Assay table written to %s", output_path)
     return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point used by the CLI and tests."""
+    """The entry point used by the CLI and tests.
+
+    Args:
+        argv: A sequence of command-line arguments. If None, `sys.argv` is used.
+
+    Returns:
+        An exit code, 0 for success and 1 for failure.
+    """
 
     args = parse_args(argv)
     configure_logging(args.log_level, log_format=args.log_format)

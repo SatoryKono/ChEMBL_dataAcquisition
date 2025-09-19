@@ -16,11 +16,12 @@ Algorithm Notes
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import logging
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Sequence
 
 import pandas as pd
+import requests
 
 # ``chembl_targets`` can be imported either as part of the ``library`` package or
 # as a standalone module during testing. We therefore try a relative import
@@ -97,13 +98,13 @@ class TargetConfig:
 
 
 def normalise_ids(ids: Sequence[str]) -> List[str]:
-    """Return cleaned and deduplicated ChEMBL identifiers.
+    """Returns a list of cleaned and deduplicated ChEMBL identifiers.
 
-    Parameters
-    ----------
-    ids:
-        Raw sequence of identifiers possibly containing duplicates or empty
-        entries.
+    Args:
+        ids: A raw sequence of identifiers, which may contain duplicates or empty entries.
+
+    Returns:
+        A list of cleaned and deduplicated ChEMBL identifiers.
     """
 
     cleaned = []
@@ -322,17 +323,21 @@ def _extract_protein_classifications(payload: Dict[str, Any]) -> List[str]:
 def fetch_targets(
     ids: Sequence[str], cfg: TargetConfig, *, batch_size: int = 20
 ) -> pd.DataFrame:
-    """Fetch ChEMBL targets and return a normalised :class:`~pandas.DataFrame`.
+    """Fetches ChEMBL targets and returns a normalized pandas DataFrame.
 
-    Parameters
-    ----------
-    ids:
-        Sequence of target ChEMBL identifiers.
-    cfg:
-        Configuration governing network behaviour, serialisation options and
-        the set of columns returned in the output.
-    batch_size:
-        Maximum number of identifiers queried per HTTP request.
+    Args:
+        ids: A sequence of target ChEMBL identifiers.
+        cfg: The configuration for the fetch operation.
+        batch_size: The maximum number of identifiers to query per HTTP request.
+
+    Returns:
+        A pandas DataFrame containing the normalized target data.
+
+    Raises:
+        requests.HTTPError: If the ChEMBL API responds with a non-success status.
+        requests.RequestException: If a network-level failure occurs while
+            contacting the ChEMBL API.
+        ValueError: If the response payload cannot be decoded as JSON.
     """
 
     norm_ids = normalise_ids(ids)
@@ -352,21 +357,40 @@ def fetch_targets(
             "limit": str(len(chunk)),
         }
         url = f"{base}/target"
+        chunk_label = ",".join(chunk)
         try:
             resp = client.request("get", url, params=params)
-            if resp.status_code == 200:
+            if resp.status_code != 200:
+                LOGGER.error("Unexpected HTTP %s for %s", resp.status_code, chunk_label)
+                resp.raise_for_status()
+            try:
                 data = resp.json()
-                payload_map = {
-                    t.get("target_chembl_id"): t for t in data.get("targets", []) or []
-                }
-            else:
-                LOGGER.warning(
-                    "Non-200 response for %s: %s", ",".join(chunk), resp.status_code
-                )
+            except ValueError as exc:
+                LOGGER.error("Invalid JSON payload for %s: %s", chunk_label, exc)
+                raise
+            targets_payload: list[Any] = []
+            if isinstance(data, dict):
+                raw_targets = data.get("targets")
+                if isinstance(raw_targets, list):
+                    targets_payload = raw_targets
+            if not targets_payload:
+                LOGGER.warning("Empty target payload received for %s", chunk_label)
                 payload_map = {}
-        except Exception as exc:  # noqa: BLE001 - we log and continue
-            LOGGER.warning("Failed to fetch %s: %s", ",".join(chunk), exc)
-            payload_map = {}
+            else:
+                payload_map = {
+                    t.get("target_chembl_id"): t
+                    for t in targets_payload
+                    if isinstance(t, dict)
+                }
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else "?"
+            LOGGER.error(
+                "HTTP error while fetching %s (status %s): %s", chunk_label, status, exc
+            )
+            raise
+        except requests.RequestException as exc:
+            LOGGER.error("Request error while fetching %s: %s", chunk_label, exc)
+            raise
         for chembl_id in chunk:
             payload = payload_map.get(chembl_id, {})
             genes = _extract_gene_symbols(payload)

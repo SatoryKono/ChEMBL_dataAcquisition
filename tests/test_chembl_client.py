@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
 import requests  # type: ignore[import-untyped]
 import requests_mock
 
@@ -48,6 +50,46 @@ def test_get_documents_parses_response() -> None:
     assert df.loc[0, "pubmed_id"] == "1"
 
 
+def test_request_json_returns_empty_dict_for_404(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    cfg = ApiCfg(timeout_connect=1.0, timeout_read=2.0)
+    client = ChemblClient(http_client=HttpClient(timeout=1.0, max_retries=1, rps=0))
+    url = "https://www.ebi.ac.uk/chembl/api/data/document.json"
+
+    with requests_mock.Mocker() as mocker:
+        mocker.get(url, status_code=404)
+        caplog.set_level(logging.WARNING)
+        payload = client.request_json(url, cfg=cfg, timeout=cfg.timeout_read)
+
+    assert payload == {}
+    assert any("404" in record.message for record in caplog.records)
+    last_request = mocker.last_request
+    assert last_request is not None
+    assert last_request.headers["Accept"] == "application/json"
+    assert last_request.headers["User-Agent"] == cfg.user_agent
+
+
+def test_request_json_raises_for_html_response(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    cfg = ApiCfg()
+    client = ChemblClient(http_client=HttpClient(timeout=1.0, max_retries=1, rps=0))
+    url = "https://www.ebi.ac.uk/chembl/api/data/document.json"
+
+    with requests_mock.Mocker() as mocker:
+        mocker.get(
+            url,
+            text="<html><body>Error</body></html>",
+            headers={"Content-Type": "text/html"},
+        )
+        caplog.set_level(logging.WARNING)
+        with pytest.raises(ValueError):
+            client.request_json(url, cfg=cfg, timeout=cfg.timeout_read)
+
+    assert any("Unexpected Content-Type" in record.message for record in caplog.records)
+
+
 def test_fetch_assay_returns_none_for_404_response() -> None:
     assay_id = "CHEMBL404"
     url = f"https://www.ebi.ac.uk/chembl/api/data/assay/{assay_id}.json"
@@ -84,7 +126,9 @@ def test_get_documents_batches_requests_and_filters_duplicates() -> None:
         def __init__(self) -> None:
             self.calls: list[str] = []
 
-        def request_json(self, url: str, *, cfg: ApiCfg, timeout: float) -> dict[str, Any]:
+        def request_json(
+            self, url: str, *, cfg: ApiCfg, timeout: float
+        ) -> dict[str, Any]:
             self.calls.append(url)
             ids_part = url.split("document_chembl_id__in=")[1]
             identifiers = ids_part.split(",")

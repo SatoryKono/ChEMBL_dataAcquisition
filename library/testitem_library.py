@@ -103,7 +103,16 @@ def _normalise_numeric(property_name: str, value: Any) -> Any:
 
 
 def _prepare_columns(properties: Sequence[str]) -> Dict[str, str]:
-    return {prop: f"pubchem_{_to_snake_case(prop)}" for prop in properties}
+    """Return a mapping from PubChem property names to column headers."""
+
+    unique_properties = list(dict.fromkeys(properties))
+    return {prop: f"pubchem_{_to_snake_case(prop)}" for prop in unique_properties}
+
+
+PUBCHEM_PROPERTY_COLUMN_MAP: Dict[str, str] = _prepare_columns(PUBCHEM_PROPERTIES)
+PUBCHEM_PROPERTY_COLUMNS: tuple[str, ...] = tuple(
+    PUBCHEM_PROPERTY_COLUMN_MAP[prop] for prop in PUBCHEM_PROPERTIES
+)
 
 
 def _int_from_config(config: Mapping[str, Any], key: str, default: int) -> int:
@@ -188,14 +197,43 @@ class _PubChemRequest:
 
         return self.http_client.session
 
+    def _log_http_error(
+        self,
+        status: int | None,
+        *,
+        context: str,
+        smiles: str,
+        method: str,
+    ) -> None:
+        status_msg = f" {status}" if status is not None else ""
+        verb = method.upper()
+        if status == 400 and verb == "GET":
+            LOGGER.debug(
+                "HTTP error%s when requesting PubChem %s for %s via %s",
+                status_msg,
+                context,
+                smiles,
+                verb,
+            )
+            return
+        LOGGER.warning(
+            "HTTP error%s when requesting PubChem %s for %s via %s",
+            status_msg,
+            context,
+            smiles,
+            verb,
+        )
+
     def _get_json(
         self,
         url: str,
         *,
         smiles: str,
         context: str,
-    ) -> Mapping[str, Any] | None:
-        """Perform a GET request and decode the JSON payload.
+        method: str = "get",
+        data: Mapping[str, Any] | None = None,
+    ) -> tuple[Mapping[str, Any] | None, int | None]:
+        """Perform an HTTP request and decode the JSON payload.
 
         Parameters
         ----------
@@ -205,56 +243,95 @@ class _PubChemRequest:
             SMILES string used for logging.
         context:
             Short description of the request type (e.g. ``"properties"``).
+        method:
+            HTTP verb executed against the PubChem API. Defaults to ``"get"``.
+        data:
+            Optional request payload submitted for POST fallbacks.
 
         Returns
         -------
-        Mapping[str, Any] | None
-            Parsed JSON payload or ``None`` when the request fails.
+        tuple[Mapping[str, Any] | None, int | None]
+            Pair consisting of the parsed JSON payload (or ``None`` when the
+            request fails) and the received HTTP status code when available.
         """
 
         headers = {"Accept": "application/json", "User-Agent": self.user_agent}
+        request_kwargs: dict[str, Any] = {"timeout": self.timeout, "headers": headers}
+        if data is not None:
+            request_kwargs["data"] = data
         try:
-
-            response = self.session.get(url, timeout=self.timeout, headers=headers)
-            if response.status_code == 404:
+            response = self.http_client.request(method, url, **request_kwargs)
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            if status == 404:
                 LOGGER.debug(
                     "PubChem returned 404 for %s while fetching %s", smiles, context
                 )
-                return None
-            response.raise_for_status()
-        except requests.HTTPError:
-            LOGGER.warning(
-                "HTTP error when requesting PubChem %s for %s", context, smiles
-            )
-            return None
+                return None, status
+            self._log_http_error(status, context=context, smiles=smiles, method=method)
+            return None, status
         except requests.RequestException:
             LOGGER.warning(
-                "Network error when requesting PubChem %s for %s", context, smiles
-            )
-            return None
-
-        try:
-            return response.json()
-        except ValueError:
-            LOGGER.warning(
-                "Failed to decode JSON response from PubChem %s for %s",
+                "Network error when requesting PubChem %s for %s via %s",
                 context,
                 smiles,
+                method.upper(),
             )
-            return None
+            return None, None
+
+        if response.status_code == 404:
+            LOGGER.debug(
+                "PubChem returned 404 for %s while fetching %s", smiles, context
+            )
+            return None, 404
+
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else None
+            self._log_http_error(status, context=context, smiles=smiles, method=method)
+            return None, status
+
+        try:
+            return response.json(), response.status_code
+        except ValueError:
+            LOGGER.warning(
+                "Failed to decode JSON response from PubChem %s for %s via %s",
+                context,
+                smiles,
+                method.upper(),
+            )
+            return None, response.status_code
 
     def fetch(self, smiles: str) -> Mapping[str, object]:
         encoded = quote(smiles, safe="")
         results: dict[str, object] = {}
 
-        property_fields = list(dict.fromkeys(self.properties))
+        requested_properties = list(dict.fromkeys(self.properties))
+        property_fields = [prop for prop in requested_properties if prop != "CID"]
         property_success = False
         if property_fields:
             url = (
                 f"{self.base_url.rstrip('/')}/compound/smiles/{encoded}/property/"
                 f"{','.join(property_fields)}/JSON"
             )
-            payload = self._get_json(url, smiles=smiles, context="properties")
+            payload, status = self._get_json(url, smiles=smiles, context="properties")
+            if payload is None and status == 400:
+                LOGGER.info(
+                    "Retrying PubChem properties request for %s using POST payload",
+                    smiles,
+                )
+                post_url = (
+                    f"{self.base_url.rstrip('/')}/compound/smiles/property/"
+                    f"{','.join(property_fields)}/JSON"
+                )
+                payload, _ = self._get_json(
+                    post_url,
+                    smiles=smiles,
+                    context="properties",
+                    method="post",
+                    data={"smiles": smiles},
+                )
             if payload is not None:
                 properties = payload.get("PropertyTable", {}).get("Properties", [])
                 if properties:
@@ -263,9 +340,26 @@ class _PubChemRequest:
                         results[prop] = _normalise_numeric(prop, record.get(prop))
                     property_success = True
 
-        if property_success and "CID" in self.properties and results.get("CID") is None:
+        if "CID" in requested_properties and results.get("CID") is None:
+            if not property_success:
+                LOGGER.debug(
+                    "Retrying PubChem CID lookup for %s after property request failed",
+                    smiles,
+                )
             cid_url = f"{self.base_url.rstrip('/')}/compound/smiles/{encoded}/cids/JSON"
-            payload = self._get_json(cid_url, smiles=smiles, context="CID list")
+            payload, status = self._get_json(cid_url, smiles=smiles, context="CID list")
+            if payload is None and status == 400:
+                LOGGER.info(
+                    "Retrying PubChem CID lookup for %s using POST payload", smiles
+                )
+                cid_post_url = f"{self.base_url.rstrip('/')}/compound/smiles/cids/JSON"
+                payload, _ = self._get_json(
+                    cid_post_url,
+                    smiles=smiles,
+                    context="CID list",
+                    method="post",
+                    data={"smiles": smiles},
+                )
             if payload is not None:
                 identifiers = payload.get("IdentifierList", {}).get("CID", [])
                 if identifiers:
@@ -301,44 +395,27 @@ def add_pubchem_data(
     http_client_config: Mapping[str, Any] | None = None,
     session: requests.Session | None = None,
 ) -> pd.DataFrame:
-    """Augment ``df`` with PubChem descriptors based on SMILES strings.
+    """Augments a DataFrame with PubChem descriptors based on SMILES strings.
 
-    Parameters
-    ----------
-    df:
-        Input molecule table.  The function returns ``df`` unchanged when the
-        frame is empty or does not contain ``smiles_column``.
-    smiles_column:
-        Name of the column containing SMILES representations used to query the
-        PubChem service.
-    properties:
-        Sequence of property names requested from the API.  Defaults to the
-        ``PUBCHEM_PROPERTIES`` tuple defined in this module.
-    timeout:
-        Socket timeout for PubChem HTTP requests in seconds.
-    base_url:
-        Base URL of the PubChem PUG REST API.
-    user_agent:
-        Custom ``User-Agent`` header sent with each HTTP request.
-    http_client:
-        Optional :class:`~library.http_client.HttpClient` used for outbound
-        requests. When omitted a new client is created with sensible defaults
-        for retry and rate limiting.
-    http_client_config:
-        Optional mapping overriding the HTTP client defaults. Supported keys are
-        ``max_retries``, ``rps``, ``backoff_multiplier``,
-        ``retry_penalty_seconds`` and ``status_forcelist``. Ignored when
-        ``http_client`` is provided.
-    session:
-        Optional :class:`requests.Session` reused when a new
-        :class:`HttpClient` is instantiated internally. Retained for backwards
-        compatibility with older code paths.
+    Args:
+        df: The input molecule table. The function returns the DataFrame unchanged
+            if it is empty or does not contain the `smiles_column`.
+        smiles_column: The name of the column containing SMILES representations
+            used to query the PubChem service.
+        properties: A sequence of property names to request from the API.
+        timeout: The socket timeout for PubChem HTTP requests in seconds.
+        base_url: The base URL of the PubChem PUG REST API.
+        user_agent: The custom User-Agent header to send with each HTTP request.
+        http_client: An optional HttpClient to use for outbound requests. If
+            omitted, a new client is created with sensible defaults.
+        http_client_config: An optional mapping to override the HTTP client
+            defaults. Ignored if `http_client` is provided.
+        session: An optional requests.Session to reuse when a new HttpClient is
+            instantiated internally.
 
-    Returns
-    -------
-    pandas.DataFrame
-        A copy of the input frame enriched with ``pubchem_*`` columns.  Missing
-        annotations remain represented as ``pd.NA`` values.
+    Returns:
+        A copy of the input DataFrame enriched with `pubchem_*` columns. Missing
+        annotations are represented as `pd.NA`.
     """
 
     if df.empty:
@@ -390,4 +467,8 @@ def add_pubchem_data(
     return enriched
 
 
-__all__ = ["add_pubchem_data", "PUBCHEM_PROPERTIES"]
+__all__ = [
+    "add_pubchem_data",
+    "PUBCHEM_PROPERTIES",
+    "PUBCHEM_PROPERTY_COLUMNS",
+]

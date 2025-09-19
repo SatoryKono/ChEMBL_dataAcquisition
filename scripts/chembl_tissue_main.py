@@ -23,7 +23,7 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import List, Sequence
+from typing import Mapping, Sequence
 
 import requests
 
@@ -172,7 +172,7 @@ def _read_identifiers_from_csv(
     column: str,
     sep: str,
     encoding: str,
-) -> List[str]:
+) -> list[str]:
     """Return identifiers from ``csv_path`` extracted from ``column``."""
 
     with csv_path.open("r", encoding=encoding, newline="") as handle:
@@ -181,7 +181,7 @@ def _read_identifiers_from_csv(
             raise ValueError(
                 f"Input file {csv_path} does not contain required column {column!r}"
             )
-        values: List[str] = []
+        values: list[str] = []
         for row in reader:
             raw_value = row.get(column)
             if raw_value is None:
@@ -194,10 +194,10 @@ def _read_identifiers_from_csv(
 
 def _collect_identifiers(
     args: argparse.Namespace,
-) -> List[str]:
+) -> list[str]:
     """Collect tissue identifiers from CLI arguments and optional CSV input."""
 
-    identifiers: List[str] = []
+    identifiers: list[str] = []
     if args.chembl_id:
         identifiers.append(args.chembl_id)
     input_path = Path(args.input)
@@ -227,7 +227,12 @@ def _build_cache_config(args: argparse.Namespace) -> CacheConfig | None:
     return CacheConfig(enabled=True, path=args.cache_path, ttl_seconds=args.cache_ttl)
 
 
-def _write_output(records: Sequence[dict], output_path: Path, *, encoding: str) -> None:
+def _write_output(
+    records: Sequence[Mapping[str, object]],
+    output_path: Path,
+    *,
+    encoding: str,
+) -> None:
     """Serialise ``records`` to ``output_path`` as UTF-8 encoded JSON."""
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -237,7 +242,14 @@ def _write_output(records: Sequence[dict], output_path: Path, *, encoding: str) 
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Program entry point returning an exit status code."""
+    """The main entry point for the script.
+
+    Args:
+        argv: A sequence of command-line arguments. If None, `sys.argv` is used.
+
+    Returns:
+        An exit code, 0 for success and 1 for failure.
+    """
 
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -252,7 +264,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         LOGGER.error("%s", exc)
         return 1
 
-    normalised_ids: List[str] = []
+    normalised_ids: list[str] = []
     seen: set[str] = set()
     for raw in raw_ids:
         try:
@@ -283,7 +295,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     client = create_http_client(config)
 
-    records: List[dict] = []
+    records: list[dict[str, object]] = []
     skipped = 0
     for tissue_id in normalised_ids:
         try:

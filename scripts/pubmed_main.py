@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import logging
 import sys
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, MutableMapping, Sequence
+from typing import Any, Dict, List, Mapping, MutableMapping, Sequence, cast
 
 import pandas as pd
 import yaml
@@ -40,11 +41,12 @@ from library.semantic_scholar_client import (
     fetch_semantic_scholar_records,
 )
 from library.openalex_client import OpenAlexRecord, fetch_openalex_records
-from library.crossref_client import fetch_crossref_records
+from library.crossref_client import CrossrefRecord, fetch_crossref_records
 from library.logging_utils import configure_logging
 
 LOGGER = logging.getLogger("pubmed_main")
 DEFAULT_LOG_FORMAT = "human"
+DEFAULT_COMMAND = "all"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "io": {"sep": ",", "encoding": "utf-8"},
@@ -83,12 +85,24 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "workers": 1,
         "column_pubmed": "PMID",
         "column_chembl": "document_chembl_id",
+        "column_crossref": "DOI",
         "status_forcelist": [408, 409, 429, 500, 502, 503, 504],
     },
 }
 
 
 OPENALEX_ONLY_PLACEHOLDER_ERROR = "PubMed metadata not requested (OpenAlex-only run)"
+
+
+CROSSREF_COLUMNS = [
+    "crossref.DOI",
+    "crossref.Type",
+    "crossref.Subtype",
+    "crossref.Title",
+    "crossref.Subtitle",
+    "crossref.Subject",
+    "crossref.Error",
+]
 
 
 def _build_semantic_scholar_dataframe(
@@ -118,6 +132,31 @@ def _build_semantic_scholar_dataframe(
     return df
 
 
+def _build_crossref_dataframe(records: Sequence[CrossrefRecord]) -> pd.DataFrame:
+    """Return a DataFrame containing Crossref metadata only.
+
+    Parameters
+    ----------
+    records:
+        Sequence of parsed Crossref responses.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Normalised table containing Crossref-only metadata columns.
+    """
+
+    if records:
+        df = pd.DataFrame([record.to_dict() for record in records])
+    else:
+        df = pd.DataFrame(columns=CROSSREF_COLUMNS)
+    for column in CROSSREF_COLUMNS:
+        if column not in df.columns:
+            df[column] = pd.NA
+    df = df.reindex(columns=CROSSREF_COLUMNS)
+    return df
+
+
 def _deep_update(
     base: MutableMapping[str, Any], updates: Mapping[str, Any]
 ) -> MutableMapping[str, Any]:
@@ -133,6 +172,29 @@ def _deep_update(
     return base
 
 
+def _normalise_crossref_doi(doi: str | None) -> str | None:
+    """Return a canonical DOI representation suitable for Crossref lookups."""
+
+    if not doi:
+        return None
+    value = doi.strip()
+    if not value:
+        return None
+    lowered = value.lower()
+    prefixes = (
+        "urn:doi:",
+        "doi:",
+        "https://doi.org/",
+        "http://doi.org/",
+    )
+    for prefix in prefixes:
+        if lowered.startswith(prefix):
+            value = value[len(prefix) :]
+            lowered = value.lower()
+    cleaned = value.strip()
+    return cleaned.lower() or None
+
+
 def load_config(path: str | None) -> Dict[str, Any]:
     config = deepcopy(DEFAULT_CONFIG)
     if path:
@@ -143,7 +205,8 @@ def load_config(path: str | None) -> Dict[str, Any]:
             if not isinstance(file_cfg, Mapping):
                 msg = f"Configuration in {path} is not a mapping"
                 raise ValueError(msg)
-            _deep_update(config, file_cfg)  # type: ignore[arg-type]
+            file_mapping = cast(Mapping[str, Any], file_cfg)
+            _deep_update(config, file_mapping)
         else:
             LOGGER.warning("Config file %s not found; using defaults", path)
     return config
@@ -205,12 +268,13 @@ def _build_global_parser(
     """
 
     parser = argparse.ArgumentParser(add_help=False)
+    default_config_value: Any = argparse.SUPPRESS
+    if include_defaults:
+        default_config_value = str(default_config)
     parser.add_argument(
         "--config",
         help="Path to YAML configuration file",
-        default=(
-            str(default_config) if include_defaults else argparse.SUPPRESS  # type: ignore[arg-type]
-        ),
+        default=default_config_value,
     )
     parser.add_argument(
         "--input",
@@ -257,14 +321,115 @@ def _build_global_parser(
     return parser
 
 
+class ColumnNotFoundError(Exception):
+    """Raised when the expected column is not present in the CSV file."""
+
+    def __init__(self, column: str, available: Sequence[str]):
+        super().__init__(f"Column '{column}' not found in input")
+        self.column = column
+        self.available = list(available)
+
+
+def _detect_csv_separator(
+    path: Path, *, encoding: str, sample_size: int = 65536
+) -> str | None:
+    """Detect the delimiter used in a CSV file.
+
+    Parameters
+    ----------
+    path:
+        CSV file path.
+    encoding:
+        Text encoding used to decode the file.
+    sample_size:
+        Maximum number of characters inspected when inferring the delimiter.
+
+    Returns
+    -------
+    str | None
+        The detected delimiter if inference succeeds, otherwise :data:`None`.
+    """
+
+    with path.open("r", encoding=encoding, newline="") as handle:
+        sample = handle.read(sample_size)
+    if not sample:
+        return None
+    sniffer = csv.Sniffer()
+    try:
+        dialect = sniffer.sniff(sample, delimiters=",\t;|")
+    except csv.Error:
+        return None
+    return dialect.delimiter
+
+
+def _read_csv_column(path: Path, column: str, *, sep: str, encoding: str) -> pd.Series:
+    """Return a single column from a CSV file as a string series."""
+
+    try:
+        frame = pd.read_csv(
+            path,
+            sep=sep,
+            encoding=encoding,
+            dtype=str,
+            usecols=[column],
+        )
+    except ValueError as error:
+        if "Usecols do not match columns" in str(error):
+            header = pd.read_csv(
+                path,
+                sep=sep,
+                encoding=encoding,
+                dtype=str,
+                nrows=0,
+            )
+            raise ColumnNotFoundError(column, header.columns.tolist()) from error
+        raise
+    return frame[column].fillna("")
+
+
 def _read_identifier_column(
     path: Path, column: str, *, sep: str, encoding: str
 ) -> List[str]:
-    df = pd.read_csv(path, sep=sep, encoding=encoding, dtype=str)
-    if column not in df.columns:
-        msg = f"Column '{column}' not found in input"
-        raise SystemExit(msg)
-    values = [str(value).strip() for value in df[column].fillna("")]
+    try:
+        series = _read_csv_column(path, column, sep=sep, encoding=encoding)
+    except (pd.errors.ParserError, ColumnNotFoundError) as error:
+        detected_sep = _detect_csv_separator(path, encoding=encoding)
+        if detected_sep and detected_sep != sep:
+            LOGGER.warning(
+                (
+                    "Failed to parse %s with separator %r; retrying with detected "
+                    "separator %r"
+                ),
+                path,
+                sep,
+                detected_sep,
+            )
+            try:
+                series = _read_csv_column(
+                    path, column, sep=detected_sep, encoding=encoding
+                )
+            except ColumnNotFoundError as retry_error:
+                available = ", ".join(retry_error.available) or "<no columns>"
+                msg = f"Column '{column}' not found in input. Available columns: {available}"
+                raise SystemExit(msg) from retry_error
+            except pd.errors.ParserError as retry_error:
+                msg = (
+                    f"Failed to parse '{path}' using detected separator {detected_sep!r}: "
+                    f"{retry_error}"
+                )
+                raise SystemExit(msg) from retry_error
+        else:
+            if isinstance(error, ColumnNotFoundError):
+                available = ", ".join(error.available) or "<no columns>"
+                msg = f"Column '{column}' not found in input. Available columns: {available}"
+                raise SystemExit(msg) from error
+            msg = (
+                f"Failed to parse '{path}' using separator {sep!r}: {error}. "
+                "Provide --sep/--encoding options or update the configuration to match "
+                "the input format."
+            )
+            raise SystemExit(msg) from error
+    values = [str(value).strip() for value in series]
     return [value for value in values if value]
 
 
@@ -336,17 +501,20 @@ def _gather_pubmed_sources(
     openalex_client = _create_http_client(openalex_cfg)
     openalex_records = fetch_openalex_records(pmids, client=openalex_client)
 
-    dois: List[str] = []
+    doi_set: set[str] = set()
+
+    def _collect_doi(candidate: str | None) -> None:
+        normalised = _normalise_crossref_doi(candidate)
+        if normalised:
+            doi_set.add(normalised)
+
     for pubmed_record in pubmed_records:
-        if pubmed_record.doi:
-            dois.append(pubmed_record.doi)
+        _collect_doi(pubmed_record.doi)
     for scholar_record in scholar_records:
-        if scholar_record.doi:
-            dois.append(scholar_record.doi)
+        _collect_doi(scholar_record.doi)
     for openalex_record in openalex_records:
-        if openalex_record.doi:
-            dois.append(openalex_record.doi)
-    unique_dois = sorted({doi for doi in dois if doi})
+        _collect_doi(openalex_record.doi)
+    unique_dois = sorted(doi_set)
 
     crossref_cfg = cfg["crossref"]
     crossref_client = _create_http_client(crossref_cfg)
@@ -369,7 +537,12 @@ def _gather_openalex_sources(
     openalex_client = _create_http_client(openalex_cfg)
     openalex_records = fetch_openalex_records(pmids, client=openalex_client)
 
-    dois = sorted({record.doi for record in openalex_records if record.doi})
+    doi_set: set[str] = set()
+    for record in openalex_records:
+        normalised = _normalise_crossref_doi(record.doi)
+        if normalised:
+            doi_set.add(normalised)
+    dois = sorted(doi_set)
     crossref_records: List[Any]
     if dois:
         crossref_cfg = cfg["crossref"]
@@ -392,18 +565,64 @@ def _write_output(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_path, sep=sep, index=False, encoding=encoding)
     checksum = compute_file_hash(output_path)
-    report = quality_report(df)
+    report = cast(Dict[str, Any], quality_report(df))
     report["file_sha256"] = checksum
     report["output"] = str(output_path)
-    meta_path = output_path.with_suffix(output_path.suffix + ".meta.json")
+    meta_path = output_path.with_name(f"{output_path.name}.meta.json")
     save_quality_report(meta_path, report)
     LOGGER.info("Wrote %d rows to %s", len(df), output_path)
     LOGGER.info("Metadata report saved to %s", meta_path)
     return report
 
 
+def run_crossref_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    """Writes Crossref metadata for the provided DOI values to disk.
+
+    Args:
+        args: Parsed command-line options.
+        config: The effective configuration mapping with CLI overrides applied.
+    """
+
+    io_cfg = config["io"]
+    column = args.column or config["pipeline"].get("column_crossref", "DOI")
+    doi_values = _read_identifier_column(
+        args.input, column, sep=io_cfg["sep"], encoding=io_cfg["encoding"]
+    )
+    LOGGER.info("Loaded %d DOI values", len(doi_values))
+
+    # Normalise DOIs to the canonical lower-case format used for Crossref lookups
+    # while preserving the first occurrence ordering for deterministic fetches.
+    seen: set[str] = set()
+    dois: List[str] = []
+    for value in doi_values:
+        normalised = _normalise_crossref_doi(value)
+        if not normalised or normalised in seen:
+            continue
+        seen.add(normalised)
+        dois.append(normalised)
+
+    if not dois:
+        LOGGER.warning("No valid DOI values found; writing empty Crossref output")
+
+    crossref_cfg = config["crossref"]
+    crossref_client = _create_http_client(crossref_cfg)
+    records = fetch_crossref_records(dois, client=crossref_client)
+
+    df = _build_crossref_dataframe(records)
+    df = dataframe_to_strings(df)
+    df = df.sort_values("crossref.DOI", na_position="last").reset_index(drop=True)
+    _write_output(
+        df, output_path=args.output, sep=io_cfg["sep"], encoding=io_cfg["encoding"]
+    )
+
+
 def run_openalex_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
-    """Write OpenAlex and Crossref metadata for the provided PMIDs to disk."""
+    """Writes OpenAlex and Crossref metadata for the provided PMIDs to disk.
+
+    Args:
+        args: Parsed command-line options.
+        config: The effective configuration mapping with CLI overrides applied.
+    """
 
     io_cfg = config["io"]
     column = args.column or config["pipeline"].get("column_pubmed", "PMID")
@@ -442,6 +661,13 @@ def run_openalex_command(args: argparse.Namespace, config: Dict[str, Any]) -> No
 
 
 def run_pubmed_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    """Runs the PubMed command, which fetches and merges data from PubMed and
+    partner sources.
+
+    Args:
+        args: Parsed command-line options.
+        config: The effective configuration mapping with CLI overrides applied.
+    """
     io_cfg = config["io"]
     column = args.column or config["pipeline"].get("column_pubmed", "PMID")
     ids = _read_identifier_column(
@@ -491,6 +717,12 @@ def run_pubmed_command(args: argparse.Namespace, config: Dict[str, Any]) -> None
 
 
 def run_chembl_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    """Runs the ChEMBL command, which downloads ChEMBL document metadata.
+
+    Args:
+        args: Parsed command-line options.
+        config: The effective configuration mapping with CLI overrides applied.
+    """
     io_cfg = config["io"]
     column = args.column or config["pipeline"].get(
         "column_chembl", "document_chembl_id"
@@ -547,6 +779,13 @@ def run_chembl_command(args: argparse.Namespace, config: Dict[str, Any]) -> None
 
 
 def run_all_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    """Runs the 'all' command, which fetches ChEMBL documents and enriches them
+    with data from the PubMed ecosystem.
+
+    Args:
+        args: Parsed command-line options.
+        config: The effective configuration mapping with CLI overrides applied.
+    """
     io_cfg = config["io"]
     column = args.column or config["pipeline"].get(
         "column_chembl", "document_chembl_id"
@@ -618,6 +857,11 @@ def run_all_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Builds the command-line parser for the script.
+
+    Returns:
+        An `argparse.ArgumentParser` object.
+    """
     default_config = (
         Path(__file__).resolve().parent.parent / "config" / "documents.yaml"
     )
@@ -673,7 +917,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="global_chunk_size",
         type=int,
         default=None,
-        help="Override the chunk size for ChEMBL document downloads",
+        help="Override the chunk size for ChEMBL document downloads (must be positive)",
     )
     parser.add_argument(
         "--timeout",
@@ -687,7 +931,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="global_semantic_scholar_chunk_size",
         type=int,
         default=None,
-        help="Override the Semantic Scholar chunk size",
+        help="Override the Semantic Scholar chunk size (must be positive)",
     )
     parser.add_argument(
         "--semantic-scholar-timeout",
@@ -696,7 +940,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override the Semantic Scholar timeout",
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command")
+    parser.set_defaults(
+        command=DEFAULT_COMMAND,
+        batch_size=None,
+        sleep=None,
+        workers=None,
+        openalex_rps=None,
+        crossref_rps=None,
+        chunk_size=None,
+        timeout=None,
+        semantic_scholar_rps=None,
+        semantic_scholar_chunk_size=None,
+        semantic_scholar_timeout=None,
+    )
 
     pubmed_parser = subparsers.add_parser(
         "pubmed",
@@ -709,7 +966,12 @@ def build_parser() -> argparse.ArgumentParser:
     pubmed_parser.add_argument("--openalex-rps", type=float, default=None)
     pubmed_parser.add_argument("--crossref-rps", type=float, default=None)
     pubmed_parser.add_argument("--semantic-scholar-rps", type=float, default=None)
-    pubmed_parser.add_argument("--semantic-scholar-chunk-size", type=int, default=None)
+    pubmed_parser.add_argument(
+        "--semantic-scholar-chunk-size",
+        type=int,
+        default=None,
+        help="Override the Semantic Scholar chunk size (must be positive)",
+    )
     pubmed_parser.add_argument("--semantic-scholar-timeout", type=float, default=None)
 
     openalex_parser = subparsers.add_parser(
@@ -721,12 +983,24 @@ def build_parser() -> argparse.ArgumentParser:
     openalex_parser.add_argument("--openalex-rps", type=float, default=None)
     openalex_parser.add_argument("--crossref-rps", type=float, default=None)
 
+    crossref_parser = subparsers.add_parser(
+        "crossref",
+        help="Fetch Crossref metadata only",
+        parents=[common_parser],
+    )
+    crossref_parser.add_argument("--crossref-rps", type=float, default=None)
+
     chembl_parser = subparsers.add_parser(
         "chembl",
         help="Download ChEMBL document metadata",
         parents=[common_parser],
     )
-    chembl_parser.add_argument("--chunk-size", type=int, default=None)
+    chembl_parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=None,
+        help="Override the chunk size for ChEMBL document downloads (must be positive)",
+    )
     chembl_parser.add_argument("--timeout", type=float, default=None)
 
     scholar_parser = subparsers.add_parser(
@@ -734,7 +1008,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fetch Semantic Scholar metadata",
         parents=[common_parser],
     )
-    scholar_parser.add_argument("--semantic-scholar-chunk-size", type=int, default=None)
+    scholar_parser.add_argument(
+        "--semantic-scholar-chunk-size",
+        type=int,
+        default=None,
+        help="Override the Semantic Scholar chunk size (must be positive)",
+    )
     scholar_parser.add_argument("--semantic-scholar-rps", type=float, default=None)
     scholar_parser.add_argument("--semantic-scholar-timeout", type=float, default=None)
 
@@ -748,13 +1027,66 @@ def build_parser() -> argparse.ArgumentParser:
     all_parser.add_argument("--workers", type=int, default=None)
     all_parser.add_argument("--openalex-rps", type=float, default=None)
     all_parser.add_argument("--crossref-rps", type=float, default=None)
-    all_parser.add_argument("--chunk-size", type=int, default=None)
+    all_parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=None,
+        help="Override the chunk size for ChEMBL document downloads (must be positive)",
+    )
     all_parser.add_argument("--timeout", type=float, default=None)
     all_parser.add_argument("--semantic-scholar-rps", type=float, default=None)
-    all_parser.add_argument("--semantic-scholar-chunk-size", type=int, default=None)
+    all_parser.add_argument(
+        "--semantic-scholar-chunk-size",
+        type=int,
+        default=None,
+        help="Override the Semantic Scholar chunk size (must be positive)",
+    )
     all_parser.add_argument("--semantic-scholar-timeout", type=float, default=None)
 
     return parser
+
+
+def _ensure_positive_chunk_size(
+    parser: argparse.ArgumentParser,
+    namespace: argparse.Namespace,
+    attribute: str,
+    option_string: str,
+) -> None:
+    """Validate that ``attribute`` on ``namespace`` is a positive integer."""
+
+    value = getattr(namespace, attribute, None)
+    if value is not None and value <= 0:
+        parser.error(f"{option_string} must be a positive integer")
+
+
+def _validate_chunk_size_options(
+    parser: argparse.ArgumentParser, namespace: argparse.Namespace
+) -> None:
+    """Validate all chunk-size related CLI options."""
+
+    _ensure_positive_chunk_size(parser, namespace, "global_chunk_size", "--chunk-size")
+    _ensure_positive_chunk_size(parser, namespace, "chunk_size", "--chunk-size")
+    _ensure_positive_chunk_size(
+        parser,
+        namespace,
+        "global_semantic_scholar_chunk_size",
+        "--semantic-scholar-chunk-size",
+    )
+    _ensure_positive_chunk_size(
+        parser,
+        namespace,
+        "semantic_scholar_chunk_size",
+        "--semantic-scholar-chunk-size",
+    )
+
+
+def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments and validate chunk-size options."""
+
+    parser = build_parser()
+    parsed_args = parser.parse_args(args)
+    _validate_chunk_size_options(parser, parsed_args)
+    return parsed_args
 
 
 def _cli_option(args: argparse.Namespace, *names: str) -> Any | None:
@@ -769,6 +1101,12 @@ def _cli_option(args: argparse.Namespace, *names: str) -> Any | None:
 
 
 def apply_cli_overrides(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    """Applies command-line argument overrides to the configuration.
+
+    Args:
+        args: The parsed command-line arguments.
+        config: The configuration dictionary to update.
+    """
     if args.sep:
         config["io"]["sep"] = args.sep
     if args.encoding:
@@ -784,12 +1122,13 @@ def apply_cli_overrides(args: argparse.Namespace, config: Dict[str, Any]) -> Non
         openalex_rps = _cli_option(args, "openalex_rps", "global_openalex_rps")
         if openalex_rps is not None:
             config["openalex"]["rps"] = float(openalex_rps)
-        crossref_rps = _cli_option(args, "crossref_rps", "global_crossref_rps")
-        if crossref_rps is not None:
-            config["crossref"]["rps"] = float(crossref_rps)
         workers = _cli_option(args, "workers", "global_workers")
         if workers is not None:
             config["pipeline"]["workers"] = int(workers)
+    if args.command in {"pubmed", "all", "openalex", "crossref"}:
+        crossref_rps = _cli_option(args, "crossref_rps", "global_crossref_rps")
+        if crossref_rps is not None:
+            config["crossref"]["rps"] = float(crossref_rps)
     if args.command in {"pubmed", "all", "scholar"}:
         scholar_rps = _cli_option(
             args,
@@ -824,7 +1163,12 @@ def apply_cli_overrides(args: argparse.Namespace, config: Dict[str, Any]) -> Non
 def run_semantic_scholar_command(
     args: argparse.Namespace, config: Dict[str, Any]
 ) -> None:
-    """Write Semantic Scholar metadata for the provided PMIDs to disk."""
+    """Writes Semantic Scholar metadata for the provided PMIDs to disk.
+
+    Args:
+        args: Parsed command-line options.
+        config: The effective configuration mapping with CLI overrides applied.
+    """
 
     io_cfg = config["io"]
     column = args.column or config["pipeline"].get("column_pubmed", "PMID")
@@ -848,8 +1192,8 @@ def run_semantic_scholar_command(
 
 
 def main() -> None:
-    parser = build_parser()
-    args = parser.parse_args()
+    """The main entry point for the script."""
+    args = parse_args()
     configure_logging(args.log_level, log_format=args.log_format)
     config = load_config(args.config)
     apply_cli_overrides(args, config)
@@ -866,6 +1210,8 @@ def main() -> None:
         run_pubmed_command(args, config)
     elif args.command == "openalex":
         run_openalex_command(args, config)
+    elif args.command == "crossref":
+        run_crossref_command(args, config)
     elif args.command == "chembl":
         run_chembl_command(args, config)
     elif args.command == "scholar":

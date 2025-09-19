@@ -46,7 +46,21 @@ LOGGER = logging.getLogger(__name__)
 
 @dataclass
 class Ortholog:
-    """Normalised representation of an orthologous gene."""
+    """A normalized representation of an orthologous gene.
+
+    Attributes:
+        target_species: The species of the target gene.
+        target_gene_symbol: The symbol of the target gene.
+        target_ensembl_gene_id: The Ensembl gene ID of the target gene.
+        target_uniprot_id: The UniProt ID of the target gene.
+        homology_type: The type of homology (e.g., 'ortholog_one2one').
+        perc_id: The percentage of identity between the two sequences.
+        perc_pos: The percentage of positive-scoring matches between the two sequences.
+        is_high_confidence: Whether the orthology relationship is high-confidence.
+        dn: The rate of non-synonymous substitutions.
+        ds: The rate of synonymous substitutions.
+        source_db: The source database of the orthology information.
+    """
 
     target_species: str
     target_gene_symbol: str
@@ -61,7 +75,11 @@ class Ortholog:
     source_db: str = "Ensembl"
 
     def to_ordered_dict(self) -> Dict[str, Any]:
-        """Return a dictionary with alphabetically sorted keys."""
+        """Returns a dictionary with alphabetically sorted keys.
+
+        Returns:
+            A dictionary containing the ortholog's data.
+        """
 
         data: Dict[str, Any] = {
             "dn": self.dn,
@@ -86,7 +104,14 @@ _SPECIES_MAP = {
     "human": "homo_sapiens",
     "mouse": "mus_musculus",
     "rat": "rattus_norvegicus",
-    "dog": "canis_familiaris",
+    # The Ensembl API expects the full species name ``canis_lupus_familiaris``
+    # for dog ortholog queries.  The previously used alias
+    # ``canis_familiaris`` triggered HTTP 400 errors and prevented the pipeline
+    # from retrieving ortholog data for genes when dog was included in the
+    # target species list.  Normalise both the friendly ``dog`` alias and the
+    # shortened scientific name to the canonical value accepted by the API.
+    "dog": "canis_lupus_familiaris",
+    "canis_familiaris": "canis_lupus_familiaris",
     "macaque": "macaca_mulatta",
     "zebrafish": "danio_rerio",
 }
@@ -120,21 +145,15 @@ def _species_from_gene(ensembl_gene_id: str) -> Optional[str]:
 
 @dataclass
 class EnsemblHomologyClient:
-    """Client for the Ensembl REST ``/homology`` endpoint.
+    """A client for the Ensembl REST `/homology` endpoint.
 
-    Parameters
-    ----------
-    base_url:
-        Root URL of the Ensembl REST API.
-    network:
-        Network configuration shared with other UniProt clients.
-    rate_limit:
-        Rate limiting parameters enforcing polite API usage.
-    cache:
-        Optional HTTP cache configuration applied to all requests.
-    http_client:
-        Optional :class:`HttpClient` instance. When ``None`` the client is
-        created automatically using ``network`` and ``rate_limit`` parameters.
+    Args:
+        base_url: The root URL of the Ensembl REST API.
+        network: The network configuration shared with other UniProt clients.
+        rate_limit: The rate limiting parameters for polite API usage.
+        cache: An optional HTTP cache configuration to apply to all requests.
+        http_client: An optional HttpClient instance. If None, a new client is
+            created automatically.
     """
 
     base_url: str
@@ -345,24 +364,18 @@ class EnsemblHomologyClient:
 
 @dataclass
 class OmaClient:
-    """Very small wrapper around the OMA REST API.
+    """A minimal wrapper around the OMA REST API.
 
-    The current implementation serves as a fallback and returns an empty list
-    when no data can be retrieved.  The interface mirrors that of
-    :class:`EnsemblHomologyClient` to allow easy substitution.
+    This client serves as a fallback and returns an empty list if no data can be
+    retrieved. Its interface mirrors that of the EnsemblHomologyClient to allow
+    for easy substitution.
 
-    Parameters
-    ----------
-    base_url:
-        Root URL of the OMA API.
-    network:
-        Network configuration specifying timeouts and retries.
-    rate_limit:
-        Rate limiting applied to outbound requests.
-    cache:
-        Optional HTTP cache configuration applied to all requests.
-    http_client:
-        Optional :class:`HttpClient` instance reused across calls.
+    Args:
+        base_url: The root URL of the OMA API.
+        network: The network configuration, specifying timeouts and retries.
+        rate_limit: The rate limiting to apply to outbound requests.
+        cache: An optional HTTP cache configuration to apply to all requests.
+        http_client: An optional HttpClient instance to reuse across calls.
     """
 
     base_url: str

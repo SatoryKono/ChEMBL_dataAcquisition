@@ -20,6 +20,7 @@ from __future__ import annotations
 import csv
 import logging
 from pathlib import Path
+from collections.abc import Callable
 from typing import Iterator, Set
 
 from .io_utils import CsvConfig
@@ -28,9 +29,22 @@ LOGGER = logging.getLogger(__name__)
 
 
 def read_ids(
-    path: Path, column: str, cfg: CsvConfig, *, limit: int | None = None
+    path: Path,
+    column: str,
+    cfg: CsvConfig,
+    *,
+    limit: int | None = None,
+    normalise: Callable[[str], str] | None = str.upper,
 ) -> Iterator[str]:
-    """Yield unique identifiers from ``column`` of ``path`` lazily.
+    """Yields unique identifiers from a specified column of a CSV file lazily.
+
+
+    Args:
+        path: The path to the CSV file containing the identifiers.
+        column: The name of the column holding the identifiers of interest.
+        cfg: The CSV configuration, specifying the delimiter and encoding.
+        limit: An optional maximum number of unique identifiers to yield. If None,
+            the entire file is streamed.
 
     Parameters
     ----------
@@ -43,16 +57,17 @@ def read_ids(
     limit:
         Optional maximum number of **unique** identifiers to yield. ``None``
         disables limiting and streams the entire file.
+    normalise:
+        Callable applied to each non-empty cell before deduplication and
+        yielding. The default converts values to upper case. Pass ``None`` to
+        preserve the original casing while still trimming whitespace.
 
-    Yields
-    ------
-    str
+
+    Yields:
         Upper-case identifier values with surrounding whitespace removed.
 
-    Raises
-    ------
-    KeyError
-        If ``column`` is missing from the CSV header.
+    Raises:
+        KeyError: If the specified column is missing from the CSV header.
     """
 
     LOGGER.debug("Reading identifiers from %s (column=%s)", path, column)
@@ -68,7 +83,7 @@ def read_ids(
             raw_value = (row.get(column) or "").strip()
             if not raw_value:
                 continue
-            normalised = raw_value.upper()
+            normalised = normalise(raw_value) if normalise is not None else raw_value
             if normalised in seen:
                 continue
             seen.add(normalised)

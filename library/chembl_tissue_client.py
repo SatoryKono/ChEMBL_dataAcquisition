@@ -71,7 +71,14 @@ class TissueConfig:
 
 
 def create_http_client(config: TissueConfig) -> HttpClient:
-    """Return an :class:`HttpClient` configured from ``config``."""
+    """Returns an HttpClient configured from a TissueConfig object.
+
+    Args:
+        config: The TissueConfig object.
+
+    Returns:
+        An HttpClient instance.
+    """
 
     return HttpClient(
         timeout=config.timeout_sec,
@@ -86,23 +93,18 @@ class TissueNotFoundError(RuntimeError):
 
 
 def normalise_tissue_id(value: str) -> str:
-    """Return a canonical, upper-case tissue identifier.
+    """Returns a canonical, upper-case tissue identifier.
 
-    Parameters
-    ----------
-    value:
-        Raw identifier that may include leading/trailing whitespace or be in a
-        lower-case representation.
+    Args:
+        value: A raw identifier that may include leading/trailing whitespace or be in a
+            lower-case representation.
 
-    Returns
-    -------
-    str
-        Normalised tissue identifier in upper-case form.
+    Returns:
+        The normalized tissue identifier in upper-case form.
 
-    Raises
-    ------
-    ValueError
-        Raised when ``value`` is empty after stripping whitespace.
+    Raises:
+        ValueError: If the value is empty after stripping whitespace or does not
+            match the expected pattern.
     """
 
     if value is None:
@@ -160,23 +162,17 @@ def fetch_tissue_record(
     config: TissueConfig | None = None,
     client: HttpClient | None = None,
 ) -> Dict[str, object]:
-    """Retrieve metadata for a single tissue from ChEMBL.
+    """Retrieves metadata for a single tissue from ChEMBL.
 
-    Parameters
-    ----------
-    chembl_id:
-        Tissue ChEMBL identifier (case-insensitive). Whitespace is stripped and
-        the value is normalised to upper-case.
-    config:
-        Optional :class:`TissueConfig` overriding connection settings.
-    client:
-        Optional pre-configured :class:`HttpClient`. When omitted, a new client
-        is created based on ``config``.
+    Args:
+        chembl_id: The ChEMBL identifier for the tissue (case-insensitive).
+            Whitespace is stripped, and the value is normalized to upper-case.
+        config: An optional TissueConfig object to override connection settings.
+        client: An optional pre-configured HttpClient. If omitted, a new client
+            is created based on the provided or default config.
 
-    Returns
-    -------
-    Dict[str, object]
-        Parsed JSON payload representing the tissue.
+    Returns:
+        A dictionary representing the parsed JSON payload for the tissue.
     """
 
     tissue_id = normalise_tissue_id(chembl_id)
@@ -192,21 +188,19 @@ def fetch_tissues(
     client: HttpClient | None = None,
     continue_on_error: bool = False,
 ) -> List[Dict[str, object]]:
-    """Retrieve multiple tissue records in sequence.
+    """Retrieves multiple tissue records in sequence.
 
-    Parameters
-    ----------
-    ids:
-        Sequence of ChEMBL tissue identifiers. Duplicates are ignored while
-        preserving input order.
-    config:
-        Optional :class:`TissueConfig` instance.
-    client:
-        Optional shared :class:`HttpClient`.
-    continue_on_error:
-        When ``True`` any :class:`ValueError`, :class:`TissueNotFoundError` or
-        :class:`requests.RequestException` is logged and skipped instead of
-        aborting the entire retrieval process.
+    Args:
+        ids: A sequence of ChEMBL tissue identifiers. Duplicates are ignored while
+            preserving input order.
+        config: An optional TissueConfig instance.
+        client: An optional shared HttpClient.
+        continue_on_error: If True, any ValueError, TissueNotFoundError, or
+            requests.RequestException is logged and skipped instead of aborting
+            the entire retrieval process.
+
+    Returns:
+        A list of dictionaries, where each dictionary represents a tissue record.
     """
 
     cfg = config or TissueConfig()

@@ -1,0 +1,10 @@
+{
+  "error_counts": {
+    "crossref.Error": 0
+  },
+  "file_sha256": "877962b79bcb787b719ca8344d2837be557da02fca0b95493daa83930097ef4f",
+  "missing_doi": 0,
+  "output": "data\\output\\output.document_crossreff.csv",
+  "publication_class_distribution": {},
+  "row_count": 15669
+}

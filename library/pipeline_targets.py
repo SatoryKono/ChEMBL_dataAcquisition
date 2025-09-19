@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import logging
 from math import isnan
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Callable, Dict, List, Sequence
+from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
+from typing import Any, Callable, Dict, List, MutableMapping, Sequence
 
 import pandas as pd
 from typing import TYPE_CHECKING
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 if TYPE_CHECKING:  # pragma: no cover - for static type checking only
     from .chembl_targets import TargetConfig, fetch_targets
@@ -47,6 +48,13 @@ else:  # pragma: no cover - support both package and direct imports
             extract_isoforms,
             normalize_entry,
         )
+
+try:  # pragma: no cover - import fallback mirrors the logic above
+    from .chembl2uniprot.config import _apply_env_overrides as apply_env_overrides
+except ImportError:  # pragma: no cover - script execution without package context
+    from chembl2uniprot.config import (  # type: ignore[import-not-found]
+        _apply_env_overrides as apply_env_overrides,
+    )
 
 LOGGER = logging.getLogger(__name__)
 
@@ -109,18 +117,76 @@ DEFAULT_COLUMNS = [
     "timestamp_utc",
 ]
 
+_INVALID_IDENTIFIER_LITERALS = frozenset({"", "nan", "none", "null", "na", "n/a"})
 
-@dataclass
-class IupharConfig:
+
+_DEFAULT_SPECIES_PRIORITY = ("Human", "Homo sapiens")
+
+
+def _default_timestamp() -> str:
+    """Return an ISO 8601 timestamp in UTC for configuration defaults."""
+
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _coerce_str_sequence(
+    value: Any, *, default: Sequence[str], context: str
+) -> List[str]:
+    """Return ``value`` as a list of strings honouring configuration defaults."""
+
+    if value is None:
+        return list(default)
+    candidate = value
+    if isinstance(candidate, str):
+        text = candidate.strip()
+        if not text:
+            return []
+        try:
+            decoded = json.loads(text)
+        except json.JSONDecodeError:
+            return [text]
+        candidate = decoded
+    if isinstance(candidate, SequenceABC) and not isinstance(
+        candidate, (bytes, bytearray, str)
+    ):
+        result: List[str] = []
+        for item in candidate:
+            if not isinstance(item, str):
+                msg = (
+                    f"Expected entries of '{context}' to be strings, "
+                    f"found {type(item).__name__!s}"
+                )
+                raise TypeError(msg)
+            result.append(item)
+        return result
+    if isinstance(candidate, str):  # pragma: no cover - handled above defensively
+        return [candidate]
+    msg = f"Expected '{context}' to be a sequence of strings"
+    raise TypeError(msg)
+
+
+class IupharConfig(BaseModel):
     """Settings for querying the IUPHAR/GtoP service."""
+
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
     affinity_parameter: str = "pKi"
     approved_only: bool | None = None
     primary_target_only: bool = True
 
+    @field_validator("approved_only", mode="before")
+    @classmethod
+    def _normalise_optional_bool(cls, value: Any) -> bool | None:
+        """Normalise textual representations of optional boolean fields."""
 
-@dataclass
-class PipelineConfig:
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in {"null", "none", ""}:
+                return None
+        return value
+
+
+class PipelineConfig(BaseModel):
     """High level pipeline configuration.
 
     Attributes
@@ -148,56 +214,113 @@ class PipelineConfig:
         with the same configuration remain reproducible.
     """
 
-    rate_limit_rps: float = 2.0
-    retries: int = 3
-    timeout_sec: float = 30.0
-    species_priority: List[str] = field(
-        default_factory=lambda: ["Human", "Homo sapiens"]
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+
+    rate_limit_rps: float = Field(default=2.0, gt=0)
+    retries: int = Field(default=3, ge=0)
+    timeout_sec: float = Field(default=30.0, gt=0)
+    species_priority: List[str] = Field(
+        default_factory=lambda: list(_DEFAULT_SPECIES_PRIORITY)
     )
     list_format: str = "json"
     include_sequence: bool = False
     include_isoforms: bool = False
-    columns: List[str] = field(default_factory=lambda: list(DEFAULT_COLUMNS))
-    iuphar: IupharConfig = field(default_factory=IupharConfig)
-    timestamp_utc: str = field(
-        default_factory=lambda: datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    )
+    columns: List[str] = Field(default_factory=lambda: list(DEFAULT_COLUMNS))
+    iuphar: IupharConfig = Field(default_factory=IupharConfig)
+    timestamp_utc: str = Field(default_factory=_default_timestamp)
+
+    @field_validator("iuphar", mode="before")
+    @classmethod
+    def _default_iuphar(cls, value: Any) -> dict[str, Any] | IupharConfig:
+        """Allow ``null`` IUPHAR configuration entries in YAML files."""
+
+        if value is None:
+            return {}
+        return value
+
+    @field_validator("species_priority", mode="before")
+    @classmethod
+    def _validate_species_priority(cls, value: Any) -> List[str]:
+        """Coerce the species priority field into a list of strings."""
+
+        return _coerce_str_sequence(
+            value,
+            default=_DEFAULT_SPECIES_PRIORITY,
+            context="pipeline.species_priority",
+        )
+
+    @field_validator("columns", mode="before")
+    @classmethod
+    def _validate_columns(cls, value: Any) -> List[str]:
+        """Coerce the column list into a list of strings."""
+
+        return _coerce_str_sequence(
+            value, default=DEFAULT_COLUMNS, context="pipeline.columns"
+        )
+
+    @field_validator("list_format")
+    @classmethod
+    def _validate_list_format(cls, value: str) -> str:
+        """Ensure the list serialisation format is supported."""
+
+        cleaned = value.strip().lower()
+        if cleaned not in {"json", "pipe"}:
+            msg = "list_format must be either 'json' or 'pipe'"
+            raise ValueError(msg)
+        return cleaned
+
+    @field_validator("timestamp_utc", mode="before")
+    @classmethod
+    def _normalise_timestamp(cls, value: Any) -> str:
+        """Normalise timestamps to RFC 3339 compliant strings."""
+
+        if value is None:
+            return _default_timestamp()
+        if isinstance(value, datetime):
+            instant = value if value.tzinfo else value.replace(tzinfo=UTC)
+            return instant.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        if isinstance(value, str):
+            return value
+        msg = "timestamp_utc must be an ISO 8601 string"
+        raise TypeError(msg)
 
 
 # ---------------------------------------------------------------------------
 # Configuration helpers
 
 
+def _ensure_mapping(
+    value: Any, *, context: str, allow_none: bool = True
+) -> dict[str, Any]:
+    """Return ``value`` as a dictionary ensuring it is a mapping."""
+
+    if value is None:
+        if allow_none:
+            return {}
+        msg = f"Expected '{context}' to be a mapping, not null"
+        raise TypeError(msg)
+    if isinstance(value, MappingABC):
+        return dict(value)
+    msg = f"Expected '{context}' to be a mapping, not {type(value).__name__!s}"
+    raise TypeError(msg)
+
+
 def load_pipeline_config(path: str) -> PipelineConfig:
-    """Load ``PipelineConfig`` from a YAML file."""
+    """Load :class:`PipelineConfig` from ``path`` applying environment overrides."""
 
     import yaml  # type: ignore[import]
 
     with open(path, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh) or {}
-    cfg = data.get("pipeline", {})
-    iuphar = cfg.get("iuphar", {})
-    cfg_kwargs: Dict[str, Any] = {
-        "rate_limit_rps": cfg.get("rate_limit_rps", 2.0),
-        "retries": cfg.get("retries", 3),
-        "timeout_sec": cfg.get("timeout_sec", 30.0),
-        "species_priority": list(
-            cfg.get("species_priority", ["Human", "Homo sapiens"])
-        ),
-        "list_format": cfg.get("list_format", "json"),
-        "include_sequence": cfg.get("include_sequence", False),
-        "include_isoforms": cfg.get("include_isoforms", False),
-        "columns": list(cfg.get("columns", DEFAULT_COLUMNS)),
-        "iuphar": IupharConfig(
-            affinity_parameter=iuphar.get("affinity_parameter", "pKi"),
-            approved_only=iuphar.get("approved_only"),
-            primary_target_only=iuphar.get("primary_target_only", True),
-        ),
-    }
-    timestamp_cfg = cfg.get("timestamp_utc")
-    if isinstance(timestamp_cfg, str):
-        cfg_kwargs["timestamp_utc"] = timestamp_cfg
-    return PipelineConfig(**cfg_kwargs)
+    config_root = _ensure_mapping(
+        data, context="pipeline configuration", allow_none=False
+    )
+    pipeline_section = _ensure_mapping(config_root.get("pipeline"), context="pipeline")
+    apply_env_overrides(pipeline_section, section="pipeline")
+    try:
+        return PipelineConfig.model_validate(pipeline_section)
+    except ValidationError as exc:  # pragma: no cover - exercised in tests
+        raise ValueError(str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -324,6 +447,31 @@ def _load_serialised_list(serialised: Any | None, list_format: str) -> List[Any]
     raise ValueError(f"Unsupported list_format: {list_format}")
 
 
+def _normalise_identifier_value(value: Any) -> str:
+    """Return a cleaned identifier string or ``""`` when invalid."""
+
+    if pd.isna(value):
+        return ""
+    text = str(value).strip()
+    if text.lower() in _INVALID_IDENTIFIER_LITERALS:
+        return ""
+    return text
+
+
+def _clean_identifier_sequence(values: Sequence[Any]) -> list[str]:
+    """Return unique, order-preserving identifiers from ``values``."""
+
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in values:
+        identifier = _normalise_identifier_value(raw)
+        if not identifier or identifier in seen:
+            continue
+        seen.add(identifier)
+        cleaned.append(identifier)
+    return cleaned
+
+
 def _select_primary(
     entries: List[Dict[str, Any]], priority: Sequence[str]
 ) -> Dict[str, Any] | None:
@@ -370,40 +518,40 @@ def run_pipeline(
     oma_client: OmaClient | None = None,
     target_species: Sequence[str] | None = None,
     progress_callback: Callable[[int], None] | None = None,
+    entry_cache: MutableMapping[str, Any] | None = None,
 ) -> pd.DataFrame:
-    """Orchestrate data acquisition for ``ids``.
+    """Orchestrates data acquisition for a sequence of ChEMBL target identifiers.
 
-    Parameters
-    ----------
-    ids:
-        Sequence of target ChEMBL identifiers.
-    cfg:
-        Pipeline configuration controlling behaviour.
-    chembl_fetcher:
-        Function used to download ChEMBL target information.
-    chembl_config:
-        Configuration passed to ``chembl_fetcher``. When ``None`` a
-        :class:`TargetConfig` using the pipeline's list format is created.
-    uniprot_client:
-        Client instance for the UniProt service.
-    hgnc_client:
-        Optional client for HGNC lookups.
-    gtop_client:
-        Optional client for IUPHAR/GtoP data.
-    ensembl_client:
-        Optional client for Ensembl ortholog retrieval.
-    oma_client:
-        Optional client for OMA ortholog lookups.
-    target_species:
-        List of species considered when retrieving orthologs.
-    progress_callback:
-        Optional callback receiving the incremental count of processed records.
-        Can be used to update external progress indicators.
+    Args:
+        ids: A sequence of target ChEMBL identifiers.
+        cfg: The pipeline configuration.
+        chembl_fetcher: The function used to download ChEMBL target information.
+        chembl_config: The configuration passed to the `chembl_fetcher`.
+        uniprot_client: The client instance for the UniProt service.
+        hgnc_client: An optional client for HGNC lookups.
+        gtop_client: An optional client for IUPHAR/GtoP data.
+        ensembl_client: An optional client for Ensembl ortholog retrieval.
+        oma_client: An optional client for OMA ortholog lookups.
+        target_species: A list of species to consider when retrieving orthologs.
+        progress_callback: An optional callback that receives the incremental count
+            of processed records.
+        entry_cache: Optional mapping storing previously fetched UniProt entries.
+            When supplied, the cache is updated with records retrieved during the
+            pipeline execution so that downstream enrichment steps can reuse the
+            data without additional network requests.
+
+    Returns:
+        A pandas DataFrame containing the orchestrated data.
     """
 
     chembl_cfg = chembl_config or TargetConfig(list_format=cfg.list_format)
-    chembl_df = chembl_fetcher(ids, chembl_cfg)
+    cleaned_ids = _clean_identifier_sequence(ids)
+    if not cleaned_ids:
+        chembl_df = pd.DataFrame(columns=chembl_cfg.columns)
+    else:
+        chembl_df = chembl_fetcher(cleaned_ids, chembl_cfg)
     records: List[Dict[str, Any]] = []
+    fetch_full_entry = bool(cfg.include_isoforms or ensembl_client or oma_client)
     for row in chembl_df.to_dict(orient="records"):
         chembl_id = row.get("target_chembl_id", "")
         comps = _load_serialised_list(row.get("target_components"), cfg.list_format)
@@ -411,8 +559,19 @@ def run_pipeline(
         uniprot_entries: List[Dict[str, Any]] = []
         raw_entries: Dict[str, Dict[str, Any]] = {}
         for acc in sorted(dict.fromkeys(accessions)):
-            if cfg.include_isoforms or ensembl_client or oma_client:
-                raw = uniprot_client.fetch_entry_json(acc)
+            if not acc:
+                continue
+            cached_entry: Any = None
+            cache_has_key = False
+            if entry_cache is not None and acc in entry_cache:
+                cache_has_key = True
+                cached_entry = entry_cache[acc]
+            if fetch_full_entry:
+                raw = cached_entry
+                if raw is None and not cache_has_key:
+                    raw = uniprot_client.fetch_entry_json(acc)
+                    if entry_cache is not None:
+                        entry_cache[acc] = raw
                 if raw:
                     raw_entries[acc] = raw
                     fasta_headers: List[str] = []
@@ -428,9 +587,10 @@ def run_pipeline(
                         )
                     )
             else:
-                raw = uniprot_client.fetch(acc)
+                raw = cached_entry
+                if raw is None and not cache_has_key:
+                    raw = uniprot_client.fetch(acc)
                 if raw:
-                    raw_entries[acc] = raw
                     uniprot_entries.append(
                         normalize_entry(raw, include_sequence=cfg.include_sequence)
                     )

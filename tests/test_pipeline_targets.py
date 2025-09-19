@@ -3,14 +3,19 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Any, Dict, Iterable, List
 
 import pandas as pd
 import pytest
 import requests
 
 from hgnc_client import HGNCRecord
-from pipeline_targets import PipelineConfig, run_pipeline
+from pipeline_targets import (
+    DEFAULT_COLUMNS,
+    PipelineConfig,
+    load_pipeline_config,
+    run_pipeline,
+)
 
 sys.path.insert(0, str(Path("scripts")))
 from pipeline_targets_main import add_protein_classification
@@ -56,6 +61,9 @@ class DummyUniProt:
         self.records = records
 
     def fetch(self, acc: str) -> Dict | None:  # pragma: no cover - simple
+        return self.records.get(acc)
+
+    def fetch_entry_json(self, acc: str) -> Dict | None:  # pragma: no cover - simple
         return self.records.get(acc)
 
 
@@ -106,6 +114,53 @@ def make_chembl_df(accessions: List[str]) -> pd.DataFrame:
     )
 
 
+def test_load_pipeline_config_handles_null_sections(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        """
+pipeline:
+  columns: null
+  iuphar: null
+  species_priority: null
+        """.strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    cfg = load_pipeline_config(str(cfg_path))
+    assert cfg.columns == DEFAULT_COLUMNS
+    assert cfg.species_priority == ["Human", "Homo sapiens"]
+    assert cfg.iuphar.approved_only is None
+    assert cfg.iuphar.primary_target_only is True
+
+
+def test_load_pipeline_config_rejects_invalid_types(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "config_invalid.yaml"
+    cfg_path.write_text(
+        """
+pipeline:
+  retries: not-a-number
+        """.strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="retries"):
+        load_pipeline_config(str(cfg_path))
+
+
+def test_load_pipeline_config_env_overrides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg_path = tmp_path / "config_env.yaml"
+    cfg_path.write_text("pipeline:\n  list_format: json\n", encoding="utf-8")
+    monkeypatch.setenv("CHEMBL_DA__PIPELINE__LIST_FORMAT", "pipe")
+    monkeypatch.setenv("CHEMBL_DA__PIPELINE__IUPHAR__APPROVED_ONLY", "true")
+    monkeypatch.setenv("CHEMBL_DA__PIPELINE__SPECIES_PRIORITY", '["Mouse", "Rat"]')
+    cfg = load_pipeline_config(str(cfg_path))
+    assert cfg.list_format == "pipe"
+    assert cfg.iuphar.approved_only is True
+    assert cfg.species_priority == ["Mouse", "Rat"]
+
+
 def test_pipeline_single_target(monkeypatch):
     def chembl_fetch(ids, cfg=None):
         return make_chembl_df(["P12345"])
@@ -150,6 +205,57 @@ def test_pipeline_single_target(monkeypatch):
     assert "Pref" in names_all and "Protein P12345" in names_all
     syns_all = row["synonyms_all"].split("|")
     assert "Syn1" in syns_all
+
+
+def test_pipeline_fetches_isoforms_when_enabled(monkeypatch):
+    def chembl_fetch(ids, cfg=None):
+        return make_chembl_df(["P12345"])
+
+    class RecordingUniProt(DummyUniProt):
+        def __init__(self, records: Dict[str, Dict]):
+            super().__init__(records)
+            self.isoform_calls: List[str] = []
+            self.entry_calls: List[str] = []
+
+        def fetch_entry_json(self, acc: str) -> Dict | None:
+            self.entry_calls.append(acc)
+            return self.records.get(acc)
+
+        def fetch_isoforms_fasta(self, acc: str) -> List[str]:
+            self.isoform_calls.append(acc)
+            return [f">sp|{acc}-1|"]
+
+    uni = RecordingUniProt(
+        {
+            "P12345": make_uniprot(
+                "P12345",
+                "Homo sapiens",
+                9606,
+                ["Eukaryota", "Chordata", "Mammalia", "Primates", "Hominidae"],
+                hgnc="HGNC:1",
+            )
+        }
+    )
+    hgnc = DummyHGNC({"P12345": HGNCRecord("P12345", "HGNC:1", "SYMB", "Name", "Prot")})
+    gtop = DummyGtoP({})
+    monkeypatch.setattr("pipeline_targets.resolve_target", fake_resolve)
+    cfg = PipelineConfig(include_isoforms=True)
+
+    cache: Dict[str, Dict[str, Any]] = {}
+    df = run_pipeline(
+        ["CHEMBL1"],
+        cfg,
+        chembl_fetcher=chembl_fetch,
+        uniprot_client=uni,
+        hgnc_client=hgnc,
+        gtop_client=gtop,
+        entry_cache=cache,
+    )
+
+    assert not df.empty
+    assert uni.isoform_calls == ["P12345"]
+    assert uni.entry_calls == ["P12345"]
+    assert cache["P12345"]["primaryAccession"] == "P12345"
 
 
 def test_pipeline_selects_human_uniprot(monkeypatch):

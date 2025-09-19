@@ -1,0 +1,11 @@
+modify chembl_testitems_main.py and testitem_library.py to correctly extract 
+salt_chembl_id
+parent_chembl_id
+pubchem_cid
+pubchem_molecular_formula
+pubchem_molecular_weight
+pubchem_tpsa
+pubchem_x_log_p
+pubchem_h_bond_donor_count
+pubchem_h_bond_acceptor_count
+pubchem_rotatable_bond_count

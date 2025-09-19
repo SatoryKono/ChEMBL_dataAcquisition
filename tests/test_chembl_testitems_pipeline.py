@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import pytest
 import requests_mock as requests_mock_lib
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,7 +14,12 @@ if str(ROOT) not in sys.path:
 
 read_ids = importlib.import_module("library.io").read_ids
 CsvConfig = importlib.import_module("library.io_utils").CsvConfig
-chembl_testitems_main = importlib.import_module("scripts.chembl_testitems_main").main
+chembl_testitems_module = importlib.import_module("scripts.chembl_testitems_main")
+chembl_testitems_main = chembl_testitems_module.main
+chembl_testitems_parse_args = chembl_testitems_module.parse_args
+PUBCHEM_PROPERTIES = importlib.import_module(
+    "library.testitem_library"
+).PUBCHEM_PROPERTIES
 
 
 def test_read_ids_limit(tmp_path: Path) -> None:
@@ -24,6 +30,13 @@ def test_read_ids_limit(tmp_path: Path) -> None:
     cfg = CsvConfig(sep=",", encoding="utf-8")
     ids = list(read_ids(target, "molecule_chembl_id", cfg, limit=1))
     assert ids == ["CHEMBL1"]
+
+
+@pytest.mark.parametrize("chunk_size", [0, -7])
+def test_testitems_cli_rejects_non_positive_chunk_sizes(chunk_size: int) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        chembl_testitems_parse_args(["--chunk-size", str(chunk_size)])
+    assert excinfo.value.code == 2
 
 
 def test_chembl_testitems_main_dry_run(tmp_path: Path) -> None:
@@ -111,12 +124,12 @@ def test_chembl_testitems_main_end_to_end(
 
     requests_mock.get(
         f"{pubchem_base}/compound/smiles/C/property/"
-        "CID,MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
+        "MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
         json=_pubchem_response(11, "CH4"),
     )
     requests_mock.get(
         f"{pubchem_base}/compound/smiles/CC/property/"
-        "CID,MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
+        "MolecularFormula,MolecularWeight,TPSA,XLogP,HBondDonorCount,HBondAcceptorCount,RotatableBondCount/JSON",
         json=_pubchem_response(22, "C2H6"),
     )
     requests_mock.get(
@@ -161,12 +174,11 @@ def test_chembl_testitems_main_end_to_end(
         == "CHEMBL2"
     )
 
-    meta_file = output_csv.with_suffix(".csv.meta.yaml")
+    meta_file = output_csv.with_name(f"{output_csv.name}.meta.yaml")
     assert meta_file.exists()
 
-    quality_report = Path(f"{output_csv.with_suffix('')}_quality_report_table.csv")
+    base_path = output_csv.with_name(output_csv.stem)
+    quality_report = Path(f"{base_path}_quality_report_table.csv")
     assert quality_report.exists()
-    corr_report = Path(
-        f"{output_csv.with_suffix('')}_data_correlation_report_table.csv"
-    )
+    corr_report = Path(f"{base_path}_data_correlation_report_table.csv")
     assert corr_report.exists()

@@ -3,11 +3,41 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
-from hgnc_client import map_uniprot_to_hgnc
+from hgnc_client import HGNCClient, load_config, map_uniprot_to_hgnc
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config.yaml"
+
+
+class FakeClock:
+    """Deterministic clock used to capture retry delays."""
+
+    def __init__(self) -> None:
+        self.monotonic_time = 0.0
+        self.wall_time = 1_000_000.0
+        self.sleeps: list[float] = []
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.monotonic_time += seconds
+        self.wall_time += seconds
+
+    def monotonic(self) -> float:
+        return self.monotonic_time
+
+    def time(self) -> float:
+        return self.wall_time
+
+
+def _patch_clock(monkeypatch, clock: FakeClock) -> None:
+    """Patch ``time``-related functions for deterministic retry timing."""
+
+    monkeypatch.setattr("tenacity.nap.time.sleep", clock.sleep)
+    monkeypatch.setattr("library.http_client.time.sleep", clock.sleep)
+    monkeypatch.setattr("library.http_client.time.monotonic", clock.monotonic)
+    monkeypatch.setattr("library.http_client.time.time", clock.time)
 
 
 def _write_csv(path: Path, values: list[str]) -> None:
@@ -177,3 +207,62 @@ def test_parallel_requests_call_count(requests_mock, tmp_path: Path) -> None:
     map_uniprot_to_hgnc(in_csv, out_csv, CONFIG, config_section="hgnc")
     expected_requests = len({"P35348", "P24530"}) * 2
     assert requests_mock.call_count == expected_requests
+
+
+def test_hgnc_client_recovers_after_retry_after(
+    monkeypatch, requests_mock, caplog
+) -> None:
+    clock = FakeClock()
+    _patch_clock(monkeypatch, clock)
+    caplog.set_level("WARNING", "library.http_client")
+
+    cfg = load_config(CONFIG, section="hgnc")
+    with HGNCClient(cfg) as client:
+        accession = "P35348"
+        hgnc_url = f"https://rest.genenames.org/fetch/uniprot_ids/{accession}"
+        requests_mock.get(
+            hgnc_url,
+            [
+                {
+                    "status_code": 429,
+                    "headers": {"Retry-After": "1.5"},
+                    "json": {"response": {"docs": []}},
+                },
+                {
+                    "status_code": 200,
+                    "json": {
+                        "response": {
+                            "docs": [
+                                {
+                                    "symbol": "ADRA1A",
+                                    "name": "adrenoceptor alpha 1A",
+                                    "hgnc_id": "HGNC:277",
+                                }
+                            ]
+                        }
+                    },
+                },
+            ],
+        )
+        uniprot_url = f"https://rest.uniprot.org/uniprotkb/{accession}.json"
+        requests_mock.get(
+            uniprot_url,
+            json={
+                "proteinDescription": {
+                    "recommendedName": {
+                        "fullName": {"value": "Alpha-1A adrenergic receptor"}
+                    }
+                }
+            },
+        )
+
+        record = client.fetch(accession)
+
+    assert record.hgnc_id == "HGNC:277"
+    assert record.gene_symbol == "ADRA1A"
+    hgnc_calls = [
+        call for call in requests_mock.request_history if call.url == hgnc_url
+    ]
+    assert len(hgnc_calls) == 2
+    assert any(pytest.approx(delay, rel=1e-3) == 1.5 for delay in clock.sleeps)
+    assert "retrying after 1.50 seconds" in caplog.text

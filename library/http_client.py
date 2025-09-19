@@ -18,15 +18,17 @@ Algorithm Notes
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from importlib import import_module
 import logging
 from pathlib import Path
-from types import ModuleType
+import threading
+from types import ModuleType, TracebackType
 import time
 
+from threading import Lock, RLock
 from typing import Any, Iterable, Mapping, Tuple, cast
 
 
@@ -72,13 +74,8 @@ def _parse_retry_after(value: str | None) -> float | None:
         return max(0.0, seconds)
 
 
-def _retry_after_from_response(response: requests.Response) -> float | None:
-    """Extract the retry delay from ``response`` when advertised by the server.
-
-    The helper honours both the standard ``Retry-After`` header and Semantic
-    Scholar's ``X-RateLimit-Reset`` field which returns a UNIX timestamp for the
-    next available window.
-    """
+def retry_after_from_response(response: requests.Response) -> float | None:
+    """Extract the retry delay advertised by ``response`` when available."""
 
     retry_after = _parse_retry_after(response.headers.get("Retry-After"))
     if retry_after is not None:
@@ -95,6 +92,12 @@ def _retry_after_from_response(response: requests.Response) -> float | None:
     if delay <= 0:
         return None
     return delay
+
+
+def _retry_after_from_response(response: requests.Response) -> float | None:
+    """Backward compatible wrapper for :func:`retry_after_from_response`."""
+
+    return retry_after_from_response(response)
 
 
 class RetryAfterWaitStrategy(wait_base):
@@ -122,7 +125,7 @@ class RetryAfterWaitStrategy(wait_base):
             return None
         exception = retry_state.outcome.exception()
         if isinstance(exception, requests.HTTPError) and exception.response is not None:
-            return _retry_after_from_response(exception.response)
+            return retry_after_from_response(exception.response)
         return None
 
 
@@ -262,25 +265,35 @@ class RateLimiter:
     rps: float
     last_call: float = 0.0
     blocked_until: float = 0.0
+    lock: RLock = field(default_factory=RLock, init=False, repr=False, compare=False)
 
     def wait(self) -> None:
         """Sleep just enough to satisfy the configured rate limit."""
 
-        now = time.monotonic()
-        if self.blocked_until > now:
-            time.sleep(self.blocked_until - now)
-            now = time.monotonic()
-
-        if self.rps > 0:
-            interval = 1.0 / self.rps
-            delta = now - self.last_call
-            if delta < interval:
-                time.sleep(interval - delta)
+        sleep_for = 0.0
+        while True:
+            with self.lock:
                 now = time.monotonic()
+                wait_until = self.blocked_until if self.blocked_until > now else now
 
-        self.last_call = now
-        if self.blocked_until < now:
-            self.blocked_until = now
+                if self.rps > 0:
+                    interval = 1.0 / self.rps
+                    next_allowed = self.last_call + interval
+                    if next_allowed > wait_until:
+                        wait_until = next_allowed
+
+                if wait_until > now:
+                    sleep_for = wait_until - now
+                else:
+                    current_time = max(now, time.monotonic())
+                    self.last_call = current_time
+                    if self.blocked_until < current_time:
+                        self.blocked_until = current_time
+                    return
+
+            if sleep_for <= 0:
+                continue
+            time.sleep(sleep_for)
 
     def apply_penalty(self, delay_seconds: float | None) -> None:
         """Delay the next request by ``delay_seconds`` when positive.
@@ -296,41 +309,32 @@ class RateLimiter:
         if not delay_seconds or delay_seconds <= 0:
             return
         target = time.monotonic() + delay_seconds
-        if target > self.blocked_until:
-            self.blocked_until = target
+        with self.lock:
+            if target > self.blocked_until:
+                self.blocked_until = target
 
 
 class HttpClient:
-    """Обёртка вокруг :mod:`requests` с поддержкой повторов, кэширования и ограничения скорости.
+    """A wrapper around :mod:`requests` with support for retries, caching, and rate limiting.
 
-    Parameters
-    ----------
-    timeout:
-        Таймаут по умолчанию для запросов. Может быть либо одним числом
-        (float), применяемым к фазам соединения и чтения, либо кортежем
-        ``(connect, read)``.
-    max_retries:
-        Максимальное количество попыток при временных ошибках.
-    rps:
-        Целевое количество запросов в секунду, реализуемое через простой token bucket.
-    status_forcelist:
-        Коды HTTP-статусов, при которых будет выполняться повтор запроса. По
-        умолчанию используется ``DEFAULT_STATUS_FORCELIST``, исключающая
-        ``404 Not Found``. Чтобы расширить стандартный набор, передайте
-        собственный итератор, например ``DEFAULT_STATUS_FORCELIST | {404}``
-        для повторов ответов ``404`` в специфичных сценариях (например, при
-        работе с нестабильными индексами).
-    backoff_multiplier:
-        Множитель для экспоненциальной задержки между попытками.
-    retry_penalty_seconds:
-        Дополнительная задержка для будущих запросов после получения ответа
-        ``429 Too Many Requests``, если сервер не указал ``Retry-After``.
-    cache_config:
-        Необязательная конфигурация кэширования HTTP-запросов.
-    session:
-        Необязательный :class:`requests.Session`, позволяющий использовать
-        заранее сконфигурированную сессию (например, с кэшем или кастомными
-        заголовками).
+    Args:
+        timeout: Default request timeout. Can be either a single float
+            applied to the connect and read phases, or a tuple of
+            ``(connect, read)`` timeouts.
+        max_retries: Maximum number of retries for transient errors.
+        rps: Target requests per second, implemented via a simple token bucket.
+        status_forcelist: HTTP status codes that trigger a retry. Defaults to
+            ``DEFAULT_STATUS_FORCELIST``, which excludes ``404 Not Found``.
+            To extend the default set, pass a custom iterator, e.g.,
+            ``DEFAULT_STATUS_FORCELIST | {404}`` to retry ``404`` responses
+            in specific scenarios (e.g., when dealing with unstable indexes).
+        backoff_multiplier: Multiplier for the exponential backoff delay between retries.
+        retry_penalty_seconds: Additional delay for future requests after receiving a
+            ``429 Too Many Requests`` response, if the server did not provide a
+            ``Retry-After`` header.
+        cache_config: Optional configuration for HTTP request caching.
+        session: Optional :class:`requests.Session` to use, allowing for a
+            pre-configured session (e.g., with caching or custom headers).
     """
 
     def __init__(
@@ -351,17 +355,61 @@ class HttpClient:
             self.timeout = (timeout, timeout)
         self.max_retries = max_retries
         self.rate_limiter = RateLimiter(rps)
-        if session is not None:
-            self.session = session
-        else:
-            # Если передан cache_config, используем create_http_session, иначе обычную сессию
-            self.session = create_http_session(cache_config)
+        self._cache_config = cache_config
+        self._thread_local = threading.local()
+        self._session_lock = Lock()
+        self._owned_sessions: list[requests.Session] = []
+        self._shared_session = session
         if status_forcelist is None:
             self.status_forcelist = set(DEFAULT_STATUS_FORCELIST)
         else:
             self.status_forcelist = set(status_forcelist)
         self.backoff_multiplier = backoff_multiplier
         self.retry_penalty_seconds = retry_penalty_seconds
+
+    @property
+    def session(self) -> requests.Session:
+        """Return the thread-local :class:`requests.Session` instance."""
+
+        if self._shared_session is not None:
+            return self._shared_session
+        session = getattr(self._thread_local, "session", None)
+        if session is None:
+            session = create_http_session(self._cache_config)
+            setattr(self._thread_local, "session", session)
+            with self._session_lock:
+                self._owned_sessions.append(session)
+        return session
+
+    def close(self) -> None:
+        """Close any HTTP sessions owned by this client."""
+
+        if self._shared_session is not None:
+            return
+        with self._session_lock:
+            sessions = list(self._owned_sessions)
+            self._owned_sessions.clear()
+        for session in sessions:
+            try:
+                session.close()
+            except AttributeError:  # pragma: no cover - defensive
+                continue
+        self._thread_local = threading.local()
+
+    def __enter__(self) -> "HttpClient":
+        """Return ``self`` to support ``with`` statements."""
+
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Close owned sessions when leaving a context manager block."""
+
+        self.close()
 
     def request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
         """Perform an HTTP request honouring retry and rate limits.
@@ -399,7 +447,7 @@ class HttpClient:
             LOGGER.debug("HTTP %s %s (timeout=%s)", method.upper(), url, timeout)
             resp = self.session.request(method, url, timeout=timeout, **kwargs)
             if resp.status_code in self.status_forcelist:
-                retry_after = _retry_after_from_response(resp)
+                retry_after = retry_after_from_response(resp)
                 if retry_after is not None:
                     LOGGER.warning(
                         "Transient HTTP %s for %s %s; retrying after %.2f seconds",
@@ -410,14 +458,25 @@ class HttpClient:
                     )
                     self.rate_limiter.apply_penalty(retry_after)
                 else:
-                    LOGGER.warning(
-                        "Transient HTTP %s for %s %s",
-                        resp.status_code,
-                        method.upper(),
-                        url,
-                    )
+                    penalty = None
                     if resp.status_code == 429 and self.retry_penalty_seconds > 0:
-                        self.rate_limiter.apply_penalty(self.retry_penalty_seconds)
+                        penalty = self.retry_penalty_seconds
+                        self.rate_limiter.apply_penalty(penalty)
+                    if penalty:
+                        LOGGER.warning(
+                            "Transient HTTP %s for %s %s; retrying after %.2f seconds",
+                            resp.status_code,
+                            method.upper(),
+                            url,
+                            penalty,
+                        )
+                    else:
+                        LOGGER.warning(
+                            "Transient HTTP %s for %s %s",
+                            resp.status_code,
+                            method.upper(),
+                            url,
+                        )
                 resp.raise_for_status()
             return resp
 
@@ -429,5 +488,7 @@ __all__ = [
     "DEFAULT_STATUS_FORCELIST",
     "HttpClient",
     "RateLimiter",
+    "RetryAfterWaitStrategy",
+    "retry_after_from_response",
     "create_http_session",
 ]

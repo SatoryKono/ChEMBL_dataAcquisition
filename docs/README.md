@@ -107,12 +107,23 @@ map_chembl_to_uniprot(
 )
 ```
 
+Running the CLI also produces a family of sidecar artefacts next to the main
+CSV. Metadata is written to ``<output>.meta.yaml`` (for example,
+``output.csv.meta.yaml``) and records the effective runtime configuration along
+with row and column counts. Any identifiers rejected by the UniProt mapping
+service are persisted to ``<output>.errors.json``. The file is removed when no
+failures are detected. Data quality and correlation reports are generated using
+the same base filename as other CLIs in this repository, enabling consistent
+downstream automation.
+
 
 ## UniProt dump
 
 The ``get_uniprot_target_data.py`` script retrieves detailed information about
 UniProt targets.  Provide a CSV file with a column containing UniProt accession
-IDs and obtain a normalised dump with deterministic column ordering.
+IDs and obtain a normalised dump with deterministic column ordering. By
+default the CLI looks for a column named ``uniprot_id``; use ``--column`` to
+point to a different header when necessary.
 
 ```bash
 python scripts/get_uniprot_target_data.py \
@@ -124,6 +135,47 @@ python scripts/get_uniprot_target_data.py \
 
 The behaviour is configured via ``config.yaml``.  Lists are serialised either as
 JSON (default) or as ``|``-delimited strings depending on the configuration.
+The relevant configuration sections are:
+
+- ``output`` – CSV separator, encoding, default list serialisation format and
+  whether sequences are exported.
+- ``uniprot`` – REST endpoint, ``network`` settings (timeout and retries),
+  ``rate_limit`` (requests per second) and optional request-level cache for
+  UniProtKB.
+- ``orthologs`` – toggle for ortholog enrichment, allowed species and nested
+  ``network``/``rate_limit`` sections together with an optional cache
+  configuration.
+- ``http_cache`` – global HTTP cache used as a fallback when a section does not
+  define its own cache settings.
+
+Each setting can be overridden via environment variables prefixed with
+``CHEMBL_DA__``.  Components of the configuration path are separated with double
+underscores, for example::
+
+    export CHEMBL_DA__OUTPUT__SEP="\t"
+    export CHEMBL_DA__UNIPROT__RATE_LIMIT__RPS=6
+    export CHEMBL_DA__ORTHOLOGS__NETWORK__TIMEOUT_SEC=45
+    export CHEMBL_DA__ORTHOLOGS__TARGET_SPECIES="[\"Human\", \"Mouse\"]"
+    export CHEMBL_DA__HTTP_CACHE__ENABLED=true
+
+These overrides are processed before validation.  The loader uses dedicated
+Pydantic models for the ``uniprot``, ``hgnc``, ``gtop`` and ``orthologs``
+sections so type mismatches or missing keys are reported with descriptive error
+messages.
+
+Every run also emits companion sidecar files next to the main CSV.  Validation
+issues are stored in ``<output_filename>.errors.json`` and provenance metadata
+in ``<output_filename>.meta.yaml`` where ``<output_filename>`` is the entire
+output name (for example ``targets_dump.tar.gz``).  Basic data quality metrics
+are calculated via ``library.data_profiling.analyze_table_quality`` which saves
+reports using the same base filename.
+
+The main table is always derived from the :func:`library.cli_common.serialise_dataframe`
+result and written with :meth:`pandas.DataFrame.to_csv`. Metadata generation and
+quality analysis therefore inspect the same payload that ultimately lands on
+disk. Secondary exports such as ortholog or isoform tables continue to use
+:func:`library.io_utils.write_rows` until they are migrated to the DataFrame
+pipeline.
 
 
 ### Including orthologs
@@ -181,11 +233,16 @@ python scripts/get_target_data_main.py \
     --input targets.csv \
     --output targets_dump.csv \
     --column target_chembl_id \
-    --log-level INFO
+    --sep , \
+    --encoding utf-8-sig \
+    --list-format json \
+    --log-level INFO \
+    --meta-output targets_dump.csv.meta.yaml
 ```
 
-Nested fields in the output are encoded as JSON strings to ensure
-deterministic, machine-readable results.
+Nested fields in the output are encoded deterministically according to
+``--list-format``. The CLI writes both ``targets_dump.csv`` and a metadata
+sidecar capturing the command invocation, file checksum, and table dimensions.
 
 The set of columns retrieved from ChEMBL can be customised in
 ``config.yaml`` under the ``chembl.columns`` section.
@@ -205,6 +262,24 @@ The output contains one row per ``target_chembl_id`` with blocks of columns
 covering identifiers, taxonomy, sequence features, cross-references and a brief
 IUPHAR summary.  Lists are serialised as JSON arrays and sorted to guarantee
 reproducible files.  See the source for the full column list.
+
+The CLI honours defaults from ``config.yaml`` but command line switches always
+take precedence. For example ``--list-format`` overrides ``pipeline.list_format``
+and ``--species`` prepends values to ``pipeline.species_priority``. Ortholog
+enrichment follows the ``orthologs.enabled`` setting unless either
+``--with-orthologs`` or ``--no-with-orthologs`` is supplied, providing an easy
+way to enable or disable the feature without editing YAML files.
+
+Environment variables prefixed with ``CHEMBL_DA__PIPELINE__`` offer an
+alternative override mechanism when editing configuration files is not
+practical. For instance ``CHEMBL_DA__PIPELINE__LIST_FORMAT=pipe`` switches list
+serialisation globally, while ``CHEMBL_DA__PIPELINE__IUPHAR__APPROVED_ONLY=true``
+enables the corresponding IUPHAR filter.
+
+Optional sections such as ``orthologs``, ``chembl`` or ``uniprot_enrich`` can be
+set to ``null`` in the configuration file when they are not required. The
+pipeline falls back to sensible defaults in this case while still allowing the
+sections to be re-enabled later without removing placeholder keys.
 
 
 ## CSV output conventions

@@ -1,9 +1,9 @@
 import logging
-import random
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, Iterable, List, Optional
+from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock, local
+from typing import Any, Dict, Iterable, List, Optional
 
 import pandas as pd
 import requests  # type: ignore[import-untyped]
@@ -12,6 +12,11 @@ try:
     from data_profiling import analyze_table_quality
 except ModuleNotFoundError:  # pragma: no cover
     from ..data_profiling import analyze_table_quality
+
+try:  # pragma: no cover - support script execution without package context
+    from ..http_client import CacheConfig, HttpClient
+except (ModuleNotFoundError, ImportError):  # pragma: no cover
+    from library.http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
 
 OUTPUT_COLUMNS = [
     "uniprotkb_Id",
@@ -61,6 +66,16 @@ OUTPUT_COLUMNS = [
 LOGGER = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class _HttpClientSettings:
+    """Immutable configuration required to construct :class:`HttpClient` instances."""
+
+    timeout: float
+    max_retries: int
+    rate_limit_rps: float
+    cache_config: Optional[CacheConfig]
+
+
 def _serialize_list(values: Iterable[str], sep: str) -> str:
     """Serialize an iterable of strings into a single delimited string.
 
@@ -94,10 +109,22 @@ class UniProtClient:
     This client provides methods to fetch and parse protein data from UniProt,
     with support for batching, caching, and retries.
 
+    Concurrency
+    -----------
+    The immutable HTTP configuration (timeouts, retries, and rate limiting) is
+    captured during construction.  When :meth:`fetch_all` executes work in a
+    thread pool each worker lazily instantiates its own :class:`HttpClient`
+    using those settings, ensuring that ``requests.Session`` instances are not
+    shared across threads.  When callers inject a pre-configured HTTP client or
+    session, requests are synchronised via an internal lock so that
+    thread-safety is preserved even though the underlying client instance is
+    shared.
+
     Attributes
     ----------
-    session:
-        A `requests.Session` object for making HTTP requests.
+    http_client:
+        High level HTTP client handling retries, rate limiting, and optional
+        persistent caching.
     max_workers:
         The maximum number of threads to use for concurrent requests.
     base_url:
@@ -110,18 +137,70 @@ class UniProtClient:
 
     def __init__(
         self,
-        session: Optional[requests.Session] = None,
+        http_client: Optional[HttpClient] = None,
+        *,
+        cache_config: Optional[CacheConfig] = None,
         max_workers: int = 4,
         base_url: str = "https://rest.uniprot.org/uniprotkb",
         list_sep: str = "|",
+        request_timeout: float = 30.0,
+        max_retries: int = 5,
+        rate_limit_rps: float = 0.0,
+        session: Optional[requests.Session] = None,
     ) -> None:
-        self.session = session or requests.Session()
+        self.http_client = http_client or HttpClient(
+            timeout=request_timeout,
+            max_retries=max_retries,
+            rps=rate_limit_rps,
+            cache_config=cache_config,
+            session=session,
+        )
         self.max_workers = max_workers
         self.base_url = base_url.rstrip("/")
         self.cache: Dict[str, Dict[str, str]] = {}
         self.list_sep = list_sep
+        self._http_client_settings: Optional[_HttpClientSettings]
+        self._request_lock: Optional[Lock]
+        self._thread_local_clients: Optional[Any]
+        if http_client is None and session is None:
+            self._http_client_settings = _HttpClientSettings(
+                timeout=request_timeout,
+                max_retries=max_retries,
+                rate_limit_rps=rate_limit_rps,
+                cache_config=cache_config,
+            )
+            self._thread_local_clients = local()
+            setattr(self._thread_local_clients, "http_client", self.http_client)
+            self._request_lock = None
+        else:
+            self._http_client_settings = None
+            self._thread_local_clients = None
+            self._request_lock = Lock()
 
     # Retry logic with exponential backoff
+    def _create_http_client(self) -> HttpClient:
+        """Return a new :class:`HttpClient` built from stored configuration."""
+
+        if self._http_client_settings is None:
+            raise RuntimeError("Thread-local clients require stored settings")
+        return HttpClient(
+            timeout=self._http_client_settings.timeout,
+            max_retries=self._http_client_settings.max_retries,
+            rps=self._http_client_settings.rate_limit_rps,
+            cache_config=self._http_client_settings.cache_config,
+        )
+
+    def _get_http_client(self) -> HttpClient:
+        """Return the thread-local HTTP client for the active worker."""
+
+        if self._thread_local_clients is None:
+            return self.http_client
+        client = getattr(self._thread_local_clients, "http_client", None)
+        if client is None:
+            client = self._create_http_client()
+            setattr(self._thread_local_clients, "http_client", client)
+        return client
+
     def _request(self, method: str, url: str, **kwargs) -> Optional[requests.Response]:
         """Perform an HTTP request with exponential backoff.
 
@@ -143,25 +222,19 @@ class UniProtClient:
         Optional[requests.Response]
             The HTTP response object if the request is successful, otherwise None.
         """
-        last_exc: Optional[Exception] = None
-        for attempt in range(5):
-            try:
-                resp = self.session.request(method, url, timeout=30, **kwargs)
-            except requests.RequestException as exc:  # network errors
-                last_exc = exc
-                wait = (2**attempt) + random.random()
-                time.sleep(wait)
-                continue
-            if resp.status_code == 200:
-                return resp
-            if resp.status_code in {429, 500, 502, 503, 504}:
-                wait = (2**attempt) + random.random()
-                time.sleep(wait)
-                continue
-            return resp
-        if last_exc:
-            raise RuntimeError(f"Failed to fetch {url}: {last_exc}")
-        return None
+
+        client = self._get_http_client()
+        method_lower = method.lower()
+        try:
+            if self._request_lock is not None:
+                with self._request_lock:
+                    response = client.request(method_lower, url, **kwargs)
+            else:
+                response = client.request(method_lower, url, **kwargs)
+        except requests.RequestException as exc:
+            LOGGER.warning("Request failed for %s: %s", url, exc)
+            return None
+        return response
 
     def _fetch_single(self, accession: str) -> Optional[dict]:
         """Fetch a single UniProt entry by its accession number.

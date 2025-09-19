@@ -1,0 +1,19 @@
+generated_at: '2025-09-17T12:16:54.650009+00:00'
+command: '''scripts\chembl_assays_main.py'' --input ''data\input\assay2.csv'' --output
+  ''data\output\output.assay.csv'''
+config:
+  input: data\input\assay2.csv
+  column: assay_chembl_id
+  chunk_size: 20
+  timeout: 30.0
+  max_retries: 3
+  rps: 2.0
+  base_url: https://www.ebi.ac.uk/chembl/api/data
+  sep: ','
+  encoding: utf-8
+  list_format: json
+  log_level: INFO
+output: data\output\output.assay.csv
+sha256: ac96a7dacb117c722e81db3d5457ef6815a417d8342bdc10bda578ff52be5687
+rows: 41568
+columns: 30

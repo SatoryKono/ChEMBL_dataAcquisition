@@ -69,8 +69,7 @@ class TestitemsSchema(BaseModel):
                 int_value = int(float(stripped))
             except ValueError as exc:  # pragma: no cover - defensive branch
                 raise ValueError("max_phase must be an integer") from exc
-            if int_value < 0:
-                raise ValueError("max_phase must be non-negative")
+
             return int_value
         try:
             int_value = int(value)
@@ -167,7 +166,16 @@ def validate_testitems(
     *,
     errors_path: Path,
 ) -> pd.DataFrame:
-    """Validate rows in ``df`` against ``schema`` and write failures."""
+    """Validates rows in a DataFrame against the given schema and writes failures to a file.
+
+    Args:
+        df: The pandas DataFrame to validate.
+        schema: The Pydantic schema to validate against.
+        errors_path: The path to the file where validation errors will be written.
+
+    Returns:
+        A new DataFrame containing only the valid rows.
+    """
 
     if df.empty:
         LOGGER.info("Validation skipped because the DataFrame is empty")

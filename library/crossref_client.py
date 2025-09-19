@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import logging
-from typing import Any, Dict, List, Mapping, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Sequence
 from urllib.parse import quote
 
 import requests
@@ -24,27 +24,72 @@ def _clean_string(value: Any) -> str | None:
     return None
 
 
+def _dedupe_preserve_order(values: Iterable[str]) -> List[str]:
+    """Return ``values`` without duplicates while preserving the input order."""
+
+    seen: set[str] = set()
+    ordered: List[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered
+
+
+def _coerce_sequence(value: Any) -> List[Any]:
+    """Return ``value`` as a list while preserving the original ordering."""
+
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    return [value]
+
+
+def _normalise_strings(value: Any) -> List[str]:
+    """Extract cleaned string values from ``value`` preserving order."""
+
+    strings: List[str] = []
+    for item in _coerce_sequence(value):
+        if isinstance(item, str):
+            candidate = _clean_string(item)
+            if candidate:
+                strings.append(candidate)
+    return strings
+
+
 def _normalise_subject(subject: Any) -> List[str]:
-    if isinstance(subject, list):
-        values: List[str] = []
-        for item in subject:
-            if isinstance(item, Mapping):
-                name = _clean_string(item.get("name"))
+    values: List[str] = []
+    for item in _coerce_sequence(subject):
+        if isinstance(item, Mapping):
+            for key in ("name", "value"):
+                name = _clean_string(item.get(key))
                 if name:
                     values.append(name)
-                    continue
-            text = _clean_string(item)
-            if text:
-                values.append(text)
-        return values
-    if isinstance(subject, str) and subject.strip():
-        return [subject.strip()]
-    return []
+                    break
+            continue
+        text = _clean_string(item)
+        if text:
+            values.append(text)
+    return _dedupe_preserve_order(values)
 
 
 @dataclass
 class CrossrefRecord:
-    """Container for a Crossref work."""
+    """A container for a Crossref work.
+
+    Attributes:
+        doi: The DOI of the work.
+        type: The type of the work (e.g., 'journal-article').
+        subtype: The subtype of the work (e.g., 'research-article').
+        title: The title of the work.
+        subtitle: The subtitle of the work.
+        subject: A list of subjects associated with the work.
+        error: An error message if the request failed.
+    """
 
     doi: str
     type: str | None
@@ -55,7 +100,11 @@ class CrossrefRecord:
     error: str | None = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Return a serialisable representation of the record."""
+        """Returns a serializable representation of the record.
+
+        Returns:
+            A dictionary containing the record's data.
+        """
 
         return {
             "crossref.DOI": self.doi,
@@ -85,7 +134,15 @@ def fetch_crossref_records(
     *,
     client: HttpClient,
 ) -> List[CrossrefRecord]:
-    """Fetch metadata from Crossref for a sequence of DOIs."""
+    """Fetches metadata from Crossref for a sequence of DOIs.
+
+    Args:
+        dois: A sequence of DOIs to fetch.
+        client: An HttpClient instance.
+
+    Returns:
+        A list of CrossrefRecord objects.
+    """
 
     cleaned = [doi.strip() for doi in dois if doi and doi.strip()]
     if not cleaned:
@@ -132,22 +189,21 @@ def fetch_crossref_records(
             records[doi] = CrossrefRecord.from_error(doi, msg)
             continue
 
-        titles = message.get("title") or []
-        title = (
-            _clean_string(titles[0]) if titles and isinstance(titles[0], str) else None
-        )
-        subtitles = message.get("subtitle") or []
-        subtitle = (
-            _clean_string(subtitles[0])
-            if subtitles and isinstance(subtitles[0], str)
-            else None
-        )
+        titles = _normalise_strings(message.get("title"))
+        title = titles[0] if titles else None
+
+        subtitle_values = _normalise_strings(message.get("subtitle"))
+        subtitle = "|".join(subtitle_values) if subtitle_values else None
+
+        subtype_values = _normalise_strings(message.get("subtype"))
+        subtype = subtype_values[0] if subtype_values else None
+
         subject = _normalise_subject(message.get("subject"))
 
         records[doi] = CrossrefRecord(
             doi=doi,
             type=_clean_string(message.get("type")),
-            subtype=_clean_string(message.get("subtype")),
+            subtype=subtype,
             title=title,
             subtitle=subtitle,
             subject=subject,

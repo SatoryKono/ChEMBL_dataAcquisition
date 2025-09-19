@@ -11,7 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from library.orthologs import EnsemblHomologyClient  # type: ignore  # noqa: E402
+from library.orthologs import (  # type: ignore  # noqa: E402
+    EnsemblHomologyClient,
+    _map_species,
+)
 from library.uniprot_normalize import extract_ensembl_gene_ids  # type: ignore  # noqa: E402
 from library.uniprot_client import NetworkConfig, RateLimitConfig  # type: ignore  # noqa: E402
 
@@ -57,6 +60,13 @@ def make_response(
     else:
         response._content = b""
     return response
+
+
+def test_species_mapping_handles_dog_aliases() -> None:
+    """Ensure dog aliases resolve to the Ensembl canonical species name."""
+
+    assert _map_species("dog") == "canis_lupus_familiaris"
+    assert _map_species("canis_familiaris") == "canis_lupus_familiaris"
 
 
 def test_extract_ensembl_gene_ids() -> None:

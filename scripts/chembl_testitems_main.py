@@ -19,6 +19,7 @@ if __package__ in {None, ""}:
 
 from library.cli_common import (
     ensure_output_dir,
+    resolve_cli_sidecar_paths,
     serialise_dataframe,
     write_cli_metadata,
 )
@@ -34,6 +35,7 @@ from library.testitem_library import (
     PUBCHEM_DEFAULT_MAX_RETRIES,
     PUBCHEM_DEFAULT_RETRY_PENALTY,
     PUBCHEM_DEFAULT_RPS,
+    PUBCHEM_PROPERTY_COLUMNS,
     add_pubchem_data,
 )
 from library.testitem_validation import TestitemsSchema, validate_testitems
@@ -41,6 +43,12 @@ from library.logging_utils import configure_logging
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_LOG_FORMAT = "human"
+
+REQUIRED_ENRICHED_COLUMNS: tuple[str, ...] = (
+    "salt_chembl_id",
+    "parent_chembl_id",
+    *PUBCHEM_PROPERTY_COLUMNS,
+)
 
 
 def _default_output_name(input_path: str) -> str:
@@ -77,8 +85,35 @@ def _serialise_complex_columns(df: pd.DataFrame, list_format: str) -> pd.DataFra
     return result
 
 
+def _ensure_output_columns(df: pd.DataFrame, columns: Sequence[str]) -> pd.DataFrame:
+    """Ensure ``df`` exposes ``columns`` by filling missing ones with ``pd.NA``.
+
+    The helper returns the original ``DataFrame`` when all requested columns are
+    already present; otherwise it returns a shallow copy where the missing
+    columns have been initialised with ``pd.NA`` values.  This behaviour keeps
+    downstream validation deterministic by guaranteeing that optional
+    descriptors such as ``salt_chembl_id`` and the PubChem enrichment fields
+    always exist, even if the upstream APIs did not return data for them.
+    """
+
+    missing = [column for column in columns if column not in df.columns]
+    if not missing:
+        return df
+    enriched = df.copy()
+    for column in missing:
+        enriched[column] = pd.NA
+    return enriched
+
+
 def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
-    """Parse command line arguments for the molecule pipeline CLI."""
+    """Parses command-line arguments for the molecule pipeline CLI.
+
+    Args:
+        args: A sequence of command-line arguments. If None, `sys.argv` is used.
+
+    Returns:
+        An `argparse.Namespace` object containing the parsed arguments.
+    """
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -93,7 +128,10 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         "--column", default="molecule_chembl_id", help="Column containing molecule IDs"
     )
     parser.add_argument(
-        "--chunk-size", type=int, default=20, help="Number of IDs fetched per batch"
+        "--chunk-size",
+        type=int,
+        default=20,
+        help="Number of IDs fetched per batch (must be positive)",
     )
     parser.add_argument(
         "--timeout", type=float, default=30.0, help="HTTP timeout in seconds"
@@ -196,7 +234,10 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Read and validate the input file without fetching or writing output",
     )
-    return parser.parse_args(args)
+    parsed_args = parser.parse_args(args)
+    if parsed_args.chunk_size <= 0:
+        parser.error("--chunk-size must be a positive integer")
+    return parsed_args
 
 
 def _limited_ids(
@@ -208,7 +249,16 @@ def _limited_ids(
 def run_pipeline(
     args: argparse.Namespace, *, command_parts: Sequence[str] | None = None
 ) -> int:
-    """Execute the molecule acquisition pipeline with ``args``."""
+    """Executes the molecule acquisition pipeline with the given arguments.
+
+    Args:
+        args: An `argparse.Namespace` object containing the pipeline arguments.
+        command_parts: A sequence of command-line arguments used to invoke the
+            pipeline. If None, `sys.argv` is used.
+
+    Returns:
+        An exit code, 0 for success and 1 for failure.
+    """
 
     if args.limit is not None and args.limit <= 0:
         raise ValueError("--limit must be a positive integer")
@@ -220,12 +270,11 @@ def run_pipeline(
     output_path = (
         Path(args.output) if args.output else Path(_default_output_name(args.input))
     )
-    errors_path = (
-        Path(args.errors_output)
-        if args.errors_output
-        else output_path.with_suffix(f"{output_path.suffix}.errors.json")
+    meta_path, errors_path, quality_base = resolve_cli_sidecar_paths(
+        output_path,
+        meta_output=args.meta_output,
+        errors_output=args.errors_output,
     )
-    meta_path = Path(args.meta_output) if args.meta_output else None
 
     csv_cfg = CsvConfig(
         sep=args.sep, encoding=args.encoding, list_format=args.list_format
@@ -272,7 +321,9 @@ def run_pipeline(
         user_agent=args.pubchem_user_agent,
         http_client_config=pubchem_http_client_config,
     )
+    enriched = _ensure_output_columns(enriched, REQUIRED_ENRICHED_COLUMNS)
     validated = validate_testitems(enriched, errors_path=errors_path)
+    validated = _ensure_output_columns(validated, REQUIRED_ENRICHED_COLUMNS)
 
     schema_columns = [
         column
@@ -296,7 +347,7 @@ def run_pipeline(
             drop=True
         )
 
-    serialised = serialise_dataframe(validated, args.list_format)
+    serialised = serialise_dataframe(validated, args.list_format, inplace=True)
     ensure_output_dir(output_path)
     serialised.to_csv(output_path, index=False, sep=args.sep, encoding=args.encoding)
 
@@ -309,14 +360,21 @@ def run_pipeline(
         meta_path=meta_path,
     )
 
-    analyze_table_quality(serialised, table_name=str(output_path.with_suffix("")))
+    analyze_table_quality(serialised, table_name=str(quality_base))
 
     LOGGER.info("Molecule table written to %s", output_path)
     return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point used by the CLI and tests."""
+    """The entry point used by the CLI and tests.
+
+    Args:
+        argv: A sequence of command-line arguments. If None, `sys.argv` is used.
+
+    Returns:
+        An exit code, 0 for success and 1 for failure.
+    """
 
     args = parse_args(argv)
     configure_logging(args.log_level, log_format=args.log_format)

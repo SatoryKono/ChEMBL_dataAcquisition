@@ -41,13 +41,11 @@ DEFAULT_ENCODING = "utf-8"
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Entry point for the command line interface.
+    """The entry point for the command-line interface.
 
-    Parameters
-    ----------
-    argv:
-        Optional list of command line arguments. When ``None`` the arguments
-        provided on the command line are used.
+    Args:
+        argv: An optional list of command-line arguments. If None, the
+            arguments are taken from `sys.argv`.
     """
 
     parser = argparse.ArgumentParser(description="Enrich UniProt data in a CSV file")

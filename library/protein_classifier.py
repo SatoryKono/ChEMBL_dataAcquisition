@@ -360,7 +360,14 @@ def _classify_L1(signals: SignalDict) -> ClassificationResult:
 
 
 def classify_L1(signals: SignalDict) -> str:
-    """Classify the protein into a coarse L1 class."""
+    """Classifies the protein into a coarse L1 class.
+
+    Args:
+        signals: A dictionary of signals extracted from the UniProt entry.
+
+    Returns:
+        The L1 classification label.
+    """
     return _classify_L1(signals).label
 
 
@@ -549,7 +556,15 @@ def _classify_L2(signals: SignalDict, l1: str) -> ClassificationResult:
 
 
 def classify_L2(signals: SignalDict, l1: str) -> str:
-    """Classify the protein into L2 given the L1 class."""
+    """Classifies the protein into an L2 class, given the L1 class.
+
+    Args:
+        signals: A dictionary of signals extracted from the UniProt entry.
+        l1: The L1 classification label.
+
+    Returns:
+        The L2 classification label.
+    """
     return _classify_L2(signals, l1).label
 
 
@@ -613,7 +628,16 @@ def _classify_L3(signals: SignalDict, l1: str, l2: str) -> ClassificationResult:
 
 
 def classify_L3(signals: SignalDict, l1: str, l2: str) -> str:
-    """Classify the protein into L3 given L1 and L2 classes."""
+    """Classifies the protein into an L3 class, given the L1 and L2 classes.
+
+    Args:
+        signals: A dictionary of signals extracted from the UniProt entry.
+        l1: The L1 classification label.
+        l2: The L2 classification label.
+
+    Returns:
+        The L3 classification label.
+    """
     return _classify_L3(signals, l1, l2).label
 
 
@@ -621,18 +645,15 @@ def classify_L3(signals: SignalDict, l1: str, l2: str) -> str:
 
 
 def classify_protein(entry: Dict[str, Any]) -> Dict[str, Any]:
-    """Classify a UniProt entry into hierarchical protein classes.
+    """Classifies a UniProt entry into hierarchical protein classes.
 
-    Parameters
-    ----------
-    entry:
-        UniProt JSON dictionary.
+    Args:
+        entry: A UniProt JSON dictionary.
 
-    Returns
-    -------
-    dict
-        Mapping with keys ``protein_class_L1``, ``protein_class_L2``,
-        ``protein_class_L3``, ``rule_id``, ``evidence`` and ``confidence``.
+    Returns:
+        A dictionary with the following keys: `protein_class_L1`,
+        `protein_class_L2`, `protein_class_L3`, `rule_id`, `evidence`,
+        and `confidence`.
     """
     signals = extract_signals(entry)
     l1_res = _classify_L1(signals)

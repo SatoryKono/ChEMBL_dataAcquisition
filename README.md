@@ -16,26 +16,84 @@ The primary goal of this project is to provide a deterministic and configurable 
 
 ## Requirements
 
-*   Python >= 3.10
-*   pandas >= 1.5
-*   requests >= 2.31
-*   PyYAML >= 6.0
-*   jsonschema >= 4.17
-*   tqdm >= 4.66
-*   tenacity >= 8.2
-*   pydantic >= 2.0
+The project targets Python 3.12. [`requirements.lock`](requirements.lock) is the
+single source of truth for fully pinned dependencies. The compact
+[`constraints.txt`](constraints.txt) file is generated from the lock file and is
+used during installation to apply the exact versions resolved by `pip-compile`.
+`pyproject.toml` mirrors these versions by declaring the pinned releases as the
+minimum supported versions.
 
-### Development Requirements
+### Runtime dependencies
 
-*   pytest >= 7.4
-*   requests-mock >= 1.11
-*   hypothesis >= 6.0
-*   black >= 23.0
-*   ruff >= 0.1
-*   mypy >= 1.4
-*   types-PyYAML >= 6.0.12
-*   types-requests >= 2.31.0.10
-*   types-jsonschema >= 4.17.0
+| Package        | Pinned version |
+| -------------- | -------------- |
+| pandas         | 2.3.2          |
+| requests       | 2.32.5         |
+| PyYAML         | 6.0.2          |
+| jsonschema     | 4.25.1         |
+| tqdm           | 4.67.1         |
+| tenacity       | 9.1.2          |
+| pydantic       | 2.11.9         |
+| requests-cache | 1.2.1          |
+| packaging      | 25.0           |
+
+### Development dependencies
+
+| Package         | Pinned version |
+| --------------- | -------------- |
+| pytest          | 8.4.2          |
+| requests-mock   | 1.12.1         |
+| hypothesis      | 6.138.17       |
+| black           | 25.1.0         |
+| ruff            | 0.13.0         |
+| mypy            | 1.18.1         |
+| pandas-stubs    | 2.3.2.250827   |
+| types-PyYAML    | 6.0.12.20250915 |
+| types-requests  | 2.32.4.20250913 |
+| types-jsonschema| 4.25.1.20250822 |
+| types-pytz      | 2025.2.0.20250809 |
+
+To refresh these pins run `pip-compile` to update `requirements.lock`, regenerate
+the short constraints file, and verify that `pyproject.toml` still reflects the
+resolved versions:
+
+```bash
+pip-compile --resolver=backtracking pyproject.toml --output-file requirements.lock
+python scripts/update_constraints_main.py
+python scripts/check_dependency_versions_main.py
+```
+
+`pip-compile` is part of `pip-tools` and can be installed in a dedicated update
+environment. The verification step ensures that the lower bounds in
+`pyproject.toml` match the pinned versions in `constraints.txt`.
+
+## Installation
+
+1.  Create and activate a virtual environment:
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate  # On Windows, use `.venv\Scripts\activate`
+    ```
+
+2.  Upgrade ``pip`` and install the project with the pinned dependencies:
+    ```bash
+    python -m pip install --upgrade pip
+    pip install --constraint constraints.txt .[dev]
+    ```
+    Omit ``.[dev]`` if you only need the runtime dependencies.
+
+    To confirm that the installation metadata remains in sync with the lock
+    files, run:
+
+    ```bash
+    python scripts/check_dependency_versions_main.py
+    ```
+
+3.  Install the pre-commit hooks to ensure consistent formatting, linting, type
+    checking, and tests before each commit:
+    ```bash
+    pre-commit install
+    ```
 
 ## Testing
 
@@ -53,24 +111,23 @@ inspect the slowest tests:
 pytest --maxfail=1 --durations=10
 ```
 
-## Installation
+## Code Quality Checks
 
-1.  Create and activate a virtual environment:
-    ```bash
-    python -m venv .venv
-    source .venv/bin/activate  # On Windows, use `.venv\Scripts\activate`
-    ```
+Static analysis and formatting are enforced via pre-commit hooks. To run the
+individual tools manually execute:
 
-2.  Install the project in editable mode with development dependencies:
-    ```bash
-    pip install -e .[dev]
-    ```
+```bash
+ruff check .
+ruff format .  # or `black .` to match the configured formatter
+mypy --strict --ignore-missing-imports .
+pytest
+```
 
-3.  Install the pre-commit hooks to ensure consistent formatting, linting, type
-    checking, and tests before each commit:
-    ```bash
-    pre-commit install
-    ```
+Alternatively, execute all checks in one go with:
+
+```bash
+pre-commit run --all-files
+```
 
 ## Project Structure
 
@@ -95,6 +152,40 @@ The repository is organized as follows:
 
 The pipeline is primarily driven by the scripts in the `scripts/` directory. Each script provides a command-line interface for a specific task.
 
+### Memory considerations
+
+`scripts/get_target_data_main.py` streams the identifier column directly from disk using `library.io.read_ids`. The generator is consumed once by the batching helper, which means the CLI never materialises the full list of target identifiers in memory. Only a single chunk of identifiers—200 rows by default via `STREAM_BATCH_SIZE`—and the current response DataFrame are resident at any given time. Workflows that need to iterate over the identifiers repeatedly must reopen the input file or explicitly cache the values to avoid exhausting memory on large datasets.
+
+## Output Artefacts and Determinism
+
+Every CLI produces a primary CSV file together with deterministic companion
+artefacts. The helper :func:`library.cli_common.resolve_cli_sidecar_paths`
+derives these paths so that additional tables generated by a workflow (for
+example isoform or ortholog exports) receive their own diagnostics. For an
+output named `targets.csv` the following files are created in the same
+directory:
+
+*   `targets.csv`: The canonical dataset produced from a serialised DataFrame
+    via :meth:`pandas.DataFrame.to_csv`. Secondary lookup tables such as
+    isoform or ortholog exports continue to rely on
+    :func:`library.io_utils.write_rows` until they are migrated to the
+    DataFrame-based path.
+*   `targets.csv.meta.yaml`: Metadata produced by
+    :func:`library.cli_common.write_cli_metadata` capturing the command line,
+    resolved configuration, row/column counts, and SHA-256 checksum.
+*   `targets.csv.errors.json` (optional): Validation findings emitted by schema
+    checks when present.
+*   `targets_quality_report_table.csv` and `targets_numeric_correlation.csv`:
+    Profiling reports generated by :func:`library.data_profiling.analyze_table_quality`.
+
+The metadata includes a `determinism` block that records the current hash, the
+previous run (when available), and a running baseline. All CLI implementations
+sort their rows before serialisation and rely on `serialise_dataframe` to turn
+lists or dictionaries into stable JSON fragments. As a result repeated
+executions with the same inputs yield byte-identical CSV files and unchanged
+metadata digests, which enables the `scripts/check_determinism.py` smoke test to
+flag regressions quickly.
+
 ### Configuration
 
 The pipeline's behavior is controlled by the `config.yaml` file. This file contains settings for API endpoints, network parameters, data processing options, and output formats. A JSON schema for this file is provided in `schemas/config.schema.json`.
@@ -114,6 +205,14 @@ The loader is case-insensitive and coerces primitive values automatically, so th
 ```bash
 export CHEMBL_BATCH__SIZE=10  # Equivalent to CHEMBL_DA__BATCH__SIZE
 python scripts/chembl2uniprot_main.py --config my_config.yaml
+```
+
+The unified target pipeline honours the same convention. For instance, to switch the serialisation format without editing `config.yaml` use:
+
+```bash
+export CHEMBL_DA__PIPELINE__LIST_FORMAT=pipe
+export CHEMBL_DA__PIPELINE__IUPHAR__APPROVED_ONLY=true
+python scripts/pipeline_targets_main.py --input data/input/targets.csv --output data/output/final_targets.csv
 ```
 
 Always define the environment variables in the shell session before launching the CLI so that the overrides are visible to the Python process.
@@ -154,6 +253,10 @@ The `scripts/` directory contains several other scripts for performing specific 
 *   `get_cell_line_main.py`: Download metadata for specific ChEMBL cell lines and
     serialise the records as JSON lines.
 *   `get_uniprot_target_data.py`: Retrieve and normalize detailed information about UniProt targets.
+    The input CSV must expose a `uniprot_id` column unless `--column` is used to
+    point at an alternative header. When the provided input path does not
+    reference an existing file, the CLI logs a clear error message and exits with
+    a status code of `1` so that automation can detect the failure immediately.
 *   `get_hgnc_by_uniprot.py`: Map UniProt accessions to HGNC identifiers.
 *   `dump_gtop_target.py`: Download comprehensive GtoPdb target information.
 *   `protein_classify_main.py`: Classify proteins based on UniProt data.
@@ -260,6 +363,77 @@ python scripts/chembl_activities_main.py \
     --log-format json
 ```
 
-Validation errors are persisted to `<output>.errors.json` while dataset metadata
-is written to `<output>.meta.yaml`. Quality and correlation reports are produced
-alongside the main CSV file.
+The `--chunk-size` option must be a positive integer; zero or negative values
+are rejected during argument parsing.
+
+Validation errors are persisted to `<output_filename>.errors.json`, where
+`<output_filename>` includes the complete original name (for example,
+`dataset.tar.gz.errors.json`). Dataset metadata is written to
+`<output_filename>.meta.yaml`, and quality plus correlation reports are produced
+alongside the main CSV file using the same base filename.
+
+### Performance smoke testing
+
+`chembl_activities_main.py` is the preferred entry point for quick performance
+smoke checks because it supports both `--dry-run` and `--limit` arguments. The
+snippet below exercises the CLI against the bundled
+`tests/data/activities_input.csv` file without making network calls while
+capturing the runtime via `time.perf_counter`:
+
+```bash
+python - <<'PY'
+import pathlib
+import runpy
+import sys
+import time
+
+sys.path.insert(0, str(pathlib.Path('scripts').resolve()))
+sys.argv = [
+    'chembl_activities_main.py',
+    '--input',
+    'tests/data/activities_input.csv',
+    '--dry-run',
+    '--limit',
+    '50',
+]
+start = time.perf_counter()
+try:
+    runpy.run_path('scripts/chembl_activities_main.py', run_name='__main__')
+except SystemExit as exc:
+    if exc.code not in (0, None):
+        raise
+elapsed = time.perf_counter() - start
+print(f"Dry-run completed in {elapsed:.3f}s")
+PY
+```
+
+Engineers can drop the `--dry-run` flag and keep a small `--limit` (for example
+`--limit 5`) to perform a short end-to-end request against the live API:
+
+```bash
+python scripts/chembl_activities_main.py \
+    --input tests/data/activities_input.csv \
+    --output output/activities_smoke.csv \
+    --column activity_chembl_id \
+    --limit 5 \
+    --chunk-size 5 \
+    --log-level INFO
+```
+
+As above, ensure that `--chunk-size` is set to a positive integer before
+running the command.
+
+Add the first command to the CI smoke test job to guard against regressions in
+argument parsing and input handling without depending on external services.
+
+### CSV serialisation guidelines
+
+The command-line interfaces rely on :func:`library.cli_common.serialise_dataframe`
+before exporting tables with :meth:`pandas.DataFrame.to_csv`. The helper only
+materialises object-like columns and accepts ``inplace=True`` to mutate the
+input DataFrame, which halves the temporary memory footprint when the original
+object is no longer needed. Nevertheless, the final CSV export still requires
+the entire table to reside in memory because pandas buffers rows until the write
+completes. For multi-gigabyte datasets either enable ``inplace=True`` (the
+default for the bundled CLIs) or switch to chunked writes by passing
+``chunksize`` to :meth:`pandas.DataFrame.to_csv` when customising scripts.

@@ -4,7 +4,10 @@ The :func:`load_and_validate_config` function reads a YAML configuration file,
 validates it against a JSON schema located next to the config file and builds a
 :class:`Config` object with strong type checks. Environment variables prefixed
 with ``CHEMBL_DA__`` or the legacy ``CHEMBL_`` override values from the YAML
-file (e.g. ``CHEMBL_DA__CHEMBL2UNIPROT__BATCH__SIZE=5``).
+file (e.g. ``CHEMBL_DA__CHEMBL2UNIPROT__BATCH__SIZE=5``). Overrides are applied
+before schema validation, ensuring invalid environment-provided values are
+rejected. The resulting precedence is ``YAML < environment variables <
+resolve_runtime_options`` (CLI), keeping every layer type-checked.
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ import json
 import logging
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Literal, cast
 
@@ -78,6 +82,7 @@ class RetryConfig(BaseModel):
 
     max_attempts: int = Field(gt=0)
     backoff_sec: float = Field(ge=0)
+    penalty_sec: float | None = Field(default=None, ge=0)
 
 
 class UniprotConfig(BaseModel):
@@ -138,6 +143,66 @@ class Config(BaseModel):
     network: NetworkConfig
     batch: BatchConfig
     logging: LoggingConfig
+
+
+@dataclass(frozen=True)
+class ResolvedRuntimeOptions:
+    """Effective runtime options derived from YAML and CLI inputs."""
+
+    log_level: str
+    log_format: Literal["human", "json"]
+    separator: str
+    input_encoding: str
+    output_encoding: str
+
+
+def resolve_runtime_options(
+    cfg: Config,
+    *,
+    cli_log_level: str | None = None,
+    cli_log_format: Literal["human", "json"] | None = None,
+    cli_sep: str | None = None,
+    cli_encoding: str | None = None,
+) -> ResolvedRuntimeOptions:
+    """Merge CLI overrides with the YAML configuration values.
+
+    Parameters
+    ----------
+    cfg:
+        Parsed configuration obtained from :func:`load_and_validate_config`.
+    cli_log_level:
+        Optional log level supplied via the command line interface.  When
+        ``None`` the YAML value is used.
+    cli_log_format:
+        Optional log format specified via CLI.  ``None`` falls back to the
+        configuration file.
+    cli_sep:
+        CSV column separator provided through CLI.  ``None`` preserves the
+        separator from the configuration file.
+    cli_encoding:
+        Text encoding supplied by the CLI.  ``None`` keeps the input and output
+        encodings defined in the configuration file.
+
+    Returns
+    -------
+    ResolvedRuntimeOptions
+        Object containing the effective runtime options for logging and CSV I/O.
+    """
+
+    log_level = cli_log_level if cli_log_level is not None else cfg.logging.level
+    log_format = cli_log_format if cli_log_format is not None else cfg.logging.format
+    separator = cli_sep if cli_sep is not None else cfg.io.csv.separator
+    input_encoding = cli_encoding if cli_encoding is not None else cfg.io.input.encoding
+    output_encoding = (
+        cli_encoding if cli_encoding is not None else cfg.io.output.encoding
+    )
+    return ResolvedRuntimeOptions(
+        log_level=log_level,
+        log_format=log_format,
+        separator=separator,
+        input_encoding=input_encoding,
+        output_encoding=output_encoding,
+    )
 
 
 def _normalise_column_aliases(
@@ -234,6 +299,20 @@ def _read_json(path: Path) -> Dict[str, Any]:
     return cast(Dict[str, Any], data)
 
 
+def _coerce_env_value(raw_value: str) -> Any:
+    """Attempt to parse ``raw_value`` into a structured Python object."""
+
+    if raw_value == "":
+        return ""
+    try:
+        coerced = yaml.safe_load(raw_value)
+    except yaml.YAMLError:  # pragma: no cover - extremely rare parsing issue
+        return raw_value
+    if coerced is None and raw_value.strip() not in {"null", "~"}:
+        return raw_value
+    return coerced
+
+
 def _apply_env_overrides(
     data: Dict[str, Any], *, section: str | None = None
 ) -> Dict[str, Any]:
@@ -290,7 +369,7 @@ def _apply_env_overrides(
             ref = ref.setdefault(part, {})
         if not valid_path or not isinstance(ref, dict):
             continue
-        ref[path[-1]] = value
+        ref[path[-1]] = _coerce_env_value(value)
     return data
 
 
@@ -339,6 +418,8 @@ def load_and_validate_config(
             config_dict = config_dict[section]
         except KeyError as exc:  # pragma: no cover - defensive programming
             raise KeyError(f"Section '{section}' not found in {config_path}") from exc
+
+    _apply_env_overrides(config_dict, section=section)
     columns_dict = _normalise_column_aliases(config_dict.get("columns", {}))
     config_dict["columns"] = columns_dict
 
@@ -368,7 +449,6 @@ def load_and_validate_config(
             messages.append(f"{path}: {err.message}")
         raise ValueError("Configuration validation error(s): " + "; ".join(messages))
 
-    _apply_env_overrides(config_dict, section=section)
     LOGGER.debug("Loaded configuration from %s", config_path)
     try:
         return Config(**config_dict)

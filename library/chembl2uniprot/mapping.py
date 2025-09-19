@@ -19,12 +19,12 @@ Algorithm Notes
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from urllib.parse import urljoin
- 
-from typing import Any, Dict, Iterable, Iterator, List, Set, cast, Literal,  Sequence
+
+from typing import Any, Dict, Iterable, Iterator, List, Set, cast, Literal, Sequence
 
 import hashlib
 import json
@@ -34,21 +34,70 @@ import time
 import pandas as pd
 import requests
 from tenacity import (
+    RetryCallState,
     retry,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
 )
 
-from .config import Config, RetryConfig, UniprotConfig, load_and_validate_config
+from .config import (
+    Config,
+    ResolvedRuntimeOptions,
+    RetryConfig,
+    UniprotConfig,
+    load_and_validate_config,
+    resolve_runtime_options,
+)
 from .logging_utils import configure_logging
+
+try:  # pragma: no cover - import resolution varies between runtime contexts
+    from http_client import (  # type: ignore[import-not-found]
+        DEFAULT_STATUS_FORCELIST,
+        RateLimiter,
+        RetryAfterWaitStrategy,
+        retry_after_from_response,
+    )
+except ImportError:  # pragma: no cover - fallback when executed as a package
+    from ..http_client import (
+        DEFAULT_STATUS_FORCELIST,
+        RateLimiter,
+        RetryAfterWaitStrategy,
+        retry_after_from_response,
+    )
+
+try:
+    from cli_common import ensure_output_dir, resolve_cli_sidecar_paths
+except ModuleNotFoundError:  # pragma: no cover
+    from ..cli_common import ensure_output_dir, resolve_cli_sidecar_paths
 
 try:
     from data_profiling import analyze_table_quality
 except ModuleNotFoundError:  # pragma: no cover
     from ..data_profiling import analyze_table_quality
 
+try:
+    from metadata import write_meta_yaml
+except ModuleNotFoundError:  # pragma: no cover
+    from ..metadata import write_meta_yaml
+
 LOGGER = logging.getLogger(__name__)
+
+
+DEFAULT_USER_AGENT = "ChEMBLDataAcquisition/chembl2uniprot"
+"""Descriptive User-Agent used for UniProt API requests."""
+
+
+def _create_session() -> requests.Session:
+    """Return a :class:`requests.Session` pre-configured for UniProt calls."""
+
+    session = requests.Session()
+    # Identify the integration clearly to aid UniProt troubleshooting.
+    session.headers.update({"User-Agent": DEFAULT_USER_AGENT})
+    return session
+
+
+_SESSION: requests.Session = _create_session()
 
 
 FAILED_IDS_ERROR_THRESHOLD = 100
@@ -130,41 +179,6 @@ def _stream_unique_ids(
                 continue
             seen.add(value)
             yield value
-
-
-@dataclass
-class RateLimiter:
-    """Simple rate limiter based on sleep intervals.
-
-    Parameters
-    ----------
-    rps:
-        Maximum allowed requests per second.  When set to ``0`` the limiter is
-        effectively disabled.
-    last_call:
-        Timestamp of the last recorded call in seconds as returned by
-        :func:`time.monotonic`.
-    """
-
-    rps: float
-    last_call: float = 0.0
-
-    def wait(self) -> None:
-        """Sleep as necessary to honour the configured rate limit.
-
-        Returns
-        -------
-        None
-        """
-
-        if self.rps <= 0:
-            return
-        interval = 1.0 / self.rps
-        now = time.monotonic()
-        delta = now - self.last_call
-        if delta < interval:
-            time.sleep(interval - delta)
-        self.last_call = time.monotonic()
 
 
 @dataclass
@@ -276,6 +290,8 @@ def _request_with_retry(
     rate_limiter: RateLimiter,
     max_attempts: int,
     backoff: float,
+    penalty_seconds: float | None = None,
+    session: requests.Session | None = None,
     **kwargs: Any,
 ) -> requests.Response:
     """Perform an HTTP request with retry and rate limiting.
@@ -298,8 +314,15 @@ def _request_with_retry(
         The maximum number of retry attempts.
     backoff:
         The backoff factor for exponential backoff between retries.
+    penalty_seconds:
+        Optional cooldown enforced when UniProt responds with a retryable
+        status code without specifying an explicit wait duration.
+        ``None`` falls back to ``backoff`` with a minimum of one second.
+    session:
+        Optional HTTP session. When omitted a module level session with a
+        descriptive ``User-Agent`` header is reused across calls.
     **kwargs:
-        Additional keyword arguments to pass to `requests.request`.
+        Additional keyword arguments to pass to :meth:`requests.Session.request`.
 
     Returns
     -------
@@ -307,18 +330,74 @@ def _request_with_retry(
         The HTTP response object.
     """
 
+    wait_strategy = RetryAfterWaitStrategy(wait_exponential(multiplier=backoff))
+    http_session = session or _SESSION
+
+    def _log_retry(retry_state: RetryCallState) -> None:
+        if retry_state.outcome is None:
+            return
+        sleep_seconds = 0.0
+        if (
+            retry_state.next_action is not None
+            and retry_state.next_action.sleep is not None
+        ):
+            sleep_seconds = float(retry_state.next_action.sleep)
+        exception = retry_state.outcome.exception()
+        reason = "unknown"
+        if isinstance(exception, requests.HTTPError) and exception.response is not None:
+            status_code = exception.response.status_code
+            reason = f"HTTP {status_code}"
+            if status_code in {408, 429} and sleep_seconds > 0:
+                rate_limiter.apply_penalty(sleep_seconds)
+        elif exception is not None:
+            reason = repr(exception)
+        next_attempt = retry_state.attempt_number + 1
+        LOGGER.warning(
+            "Retrying %s %s (attempt %d/%d) after %.2f seconds due to %s",
+            method.upper(),
+            url,
+            next_attempt,
+            max_attempts,
+            sleep_seconds,
+            reason,
+        )
+
     @retry(
         reraise=True,
         retry=retry_if_exception_type(requests.RequestException),
         stop=stop_after_attempt(max_attempts),
-        wait=wait_exponential(multiplier=backoff),
+        wait=wait_strategy,
+        before_sleep=_log_retry,
     )
     def _do_request() -> requests.Response:
         # Honour the rate limit before each network call, including retries.
         rate_limiter.wait()
-        resp = requests.request(method, url, timeout=timeout, **kwargs)
-        if resp.status_code >= 500:
-            # Trigger retry by raising for 5xx responses
+        resp = http_session.request(method, url, timeout=timeout, **kwargs)
+        if resp.status_code in DEFAULT_STATUS_FORCELIST:
+            retry_after = retry_after_from_response(resp)
+            if retry_after is not None and retry_after > 0:
+                LOGGER.warning(
+                    "Transient HTTP %s for %s %s; server requested %.2f seconds pause",
+                    resp.status_code,
+                    method.upper(),
+                    url,
+                    retry_after,
+                )
+                rate_limiter.apply_penalty(retry_after)
+            else:
+                fallback_penalty = (
+                    penalty_seconds
+                    if penalty_seconds is not None and penalty_seconds > 0
+                    else (backoff if backoff > 0 else 1.0)
+                )
+                LOGGER.warning(
+                    "Transient HTTP %s for %s %s; retrying with backoff and applying %.2f s penalty",
+                    resp.status_code,
+                    method.upper(),
+                    url,
+                    fallback_penalty,
+                )
+                rate_limiter.apply_penalty(fallback_penalty)
             resp.raise_for_status()
         return resp
 
@@ -371,6 +450,7 @@ def _start_job(
         rate_limiter=rate_limiter,
         max_attempts=retry_cfg.max_attempts,
         backoff=retry_cfg.backoff_sec,
+        penalty_seconds=retry_cfg.penalty_sec,
         data=payload,
     )
     try:
@@ -414,6 +494,7 @@ def _poll_job(
             rate_limiter=rate_limiter,
             max_attempts=retry_cfg.max_attempts,
             backoff=retry_cfg.backoff_sec,
+            penalty_seconds=retry_cfg.penalty_sec,
             allow_redirects=False,
         )
         if resp.status_code == 303:
@@ -476,6 +557,7 @@ def _fetch_results(
             rate_limiter=rate_limiter,
             max_attempts=retry_cfg.max_attempts,
             backoff=retry_cfg.backoff_sec,
+            penalty_seconds=retry_cfg.penalty_sec,
         )
         try:
             payload = resp.json()
@@ -615,20 +697,25 @@ def map_chembl_to_uniprot(
         If the input CSV does not contain the required ChEMBL identifier column.
     """
 
-    cfg: Config = load_and_validate_config(
-        config_path, schema_path, section=config_section
+    config_path = Path(config_path)
+    schema_path_obj: Path | None = (
+        Path(schema_path) if schema_path is not None else None
     )
 
-    # Allow overriding the configuration with function arguments
-    log_level = log_level or cfg.logging.level
-    resolved_format = log_format or cfg.logging.format
-    sep = sep or cfg.io.csv.separator
-    encoding_in = encoding or cfg.io.input.encoding
-    encoding_out = encoding or cfg.io.output.encoding
+    cfg: Config = load_and_validate_config(
+        config_path, schema_path_obj, section=config_section
+    )
+    runtime_options: ResolvedRuntimeOptions = resolve_runtime_options(
+        cfg,
+        cli_log_level=log_level,
+        cli_log_format=log_format,
+        cli_sep=sep,
+        cli_encoding=encoding,
+    )
 
     configure_logging(
-        log_level,
-        log_format=cast(Literal["human", "json"], resolved_format),
+        runtime_options.log_level,
+        log_format=runtime_options.log_format,
     )
     logging.getLogger("urllib3").setLevel(logging.INFO)  # Reduce HTTP verbosity
 
@@ -637,11 +724,15 @@ def map_chembl_to_uniprot(
         output_csv_path = input_csv_path.with_name(
             input_csv_path.stem + "_with_uniprot.csv"
         )
-    output_csv_path = Path(output_csv_path)
+    output_csv_path = ensure_output_dir(Path(output_csv_path))
+    meta_path, errors_path, quality_base = resolve_cli_sidecar_paths(output_csv_path)
 
     chembl_col = cfg.columns.chembl_id
     out_col = cfg.columns.uniprot_out
     delimiter = cfg.io.csv.multivalue_delimiter
+    separator = runtime_options.separator
+    encoding_in = runtime_options.input_encoding
+    encoding_out = runtime_options.output_encoding
 
     # Compute SHA256 of input file for logging purposes
     hasher = hashlib.sha256()
@@ -659,12 +750,29 @@ def map_chembl_to_uniprot(
     rate_limiter = RateLimiter(cfg.uniprot.rate_limit.rps)
 
     mapping: Dict[str, List[str]] = {}
- 
+
     failed_identifiers: List[str] = []
-    for batch in _chunked(unique_ids, batch_size):
-        batch_result = _map_batch(batch, cfg.uniprot, rate_limiter, timeout, retry_cfg)
-        mapping.update(batch_result.mapping)
-        failed_identifiers.extend(batch_result.failed_ids)
+    unique_count = 0
+    try:
+        id_iter = _stream_unique_ids(
+            input_csv_path, chembl_col, sep=separator, encoding=encoding_in
+        )
+        for batch in _chunked(id_iter, batch_size):
+            unique_count += len(batch)
+            batch_result = _map_batch(
+                batch, cfg.uniprot, rate_limiter, timeout, retry_cfg
+            )
+            for key, value in batch_result.mapping.items():
+                if not key:
+                    continue
+                normalised_key = str(key).strip()
+                if not normalised_key:
+                    continue
+                mapping[normalised_key] = value
+            failed_identifiers.extend(batch_result.failed_ids)
+    except KeyError as exc:
+        msg = f"Missing required column '{chembl_col}' in input CSV"
+        raise ValueError(msg) from exc
 
     if failed_identifiers:
         LOGGER.warning(
@@ -672,29 +780,8 @@ def map_chembl_to_uniprot(
             len(failed_identifiers),
             failed_identifiers,
         )
-    unique_count = 0
-    try:
-        id_iter = _stream_unique_ids(
-            input_csv_path, chembl_col, sep=sep, encoding=encoding_in
-        )
-        for batch in _chunked(id_iter, batch_size):
-            unique_count += len(batch)
-            batch_mapping = _map_batch(
-                batch, cfg.uniprot, rate_limiter, timeout, retry_cfg
-            )
-            for key, value in batch_mapping.items():
-                if not key:
-                    continue
-                normalised_key = str(key).strip()
-                if not normalised_key:
-                    continue
-                mapping[normalised_key] = value
-    except KeyError as exc:
-        msg = f"Missing required column '{chembl_col}' in input CSV"
-        raise ValueError(msg) from exc
 
     LOGGER.info("Processing %d unique ChEMBL IDs", unique_count)
-
 
     mapped = sum(1 for v in mapping.values() if v)
     no_match = unique_count - mapped
@@ -711,7 +798,7 @@ def map_chembl_to_uniprot(
         input_csv_path.open("r", encoding=encoding_in, newline="") as src,
         output_csv_path.open("w", encoding=encoding_out, newline="") as dst,
     ):
-        reader = csv.DictReader(src, delimiter=sep)
+        reader = csv.DictReader(src, delimiter=separator)
         if reader.fieldnames is None or chembl_col not in reader.fieldnames:
             msg = f"Missing required column '{chembl_col}' in input CSV"
             raise ValueError(msg)
@@ -720,9 +807,10 @@ def map_chembl_to_uniprot(
         if out_col not in fieldnames:
             fieldnames.append(out_col)
 
-        writer = csv.DictWriter(dst, fieldnames=fieldnames, delimiter=sep)
+        writer = csv.DictWriter(dst, fieldnames=fieldnames, delimiter=separator)
         writer.writeheader()
 
+        row_count = 0
         for row in reader:
             raw_value = row.get(chembl_col)
             if raw_value is None:
@@ -735,8 +823,62 @@ def map_chembl_to_uniprot(
                     ids = mapping.get(stripped)
                     row[out_col] = delimiter.join(ids) if ids else ""
             writer.writerow(row)
+            row_count += 1
+
+    column_count = len(fieldnames)
+
+    unique_failed_identifiers = list(dict.fromkeys(failed_identifiers))
+    if unique_failed_identifiers:
+        ensure_output_dir(errors_path)
+        errors_payload = {
+            "failed_identifiers": unique_failed_identifiers,
+            "count": len(unique_failed_identifiers),
+        }
+        with errors_path.open("w", encoding="utf-8") as handle:
+            json.dump(errors_payload, handle, ensure_ascii=False, indent=2)
+    elif errors_path.exists():
+        errors_path.unlink()
+
+    runtime_config = asdict(runtime_options)
+    runtime_config["config_path"] = str(config_path)
+    if schema_path_obj is not None:
+        runtime_config["schema_path"] = str(schema_path_obj)
+    if config_section is not None:
+        runtime_config["config_section"] = config_section
+
+    command_arguments: list[str] = [
+        f"input_csv_path={str(input_csv_path)!r}",
+        f"output_csv_path={str(output_csv_path)!r}",
+        f"config_path={str(config_path)!r}",
+    ]
+    if schema_path_obj is not None:
+        command_arguments.append(f"schema_path={str(schema_path_obj)!r}")
+    if config_section is not None:
+        command_arguments.append(f"config_section={config_section!r}")
+    if log_level is not None:
+        command_arguments.append(f"log_level={log_level!r}")
+    if log_format is not None:
+        command_arguments.append(f"log_format={log_format!r}")
+    if sep is not None:
+        command_arguments.append(f"sep={sep!r}")
+    if encoding is not None:
+        command_arguments.append(f"encoding={encoding!r}")
+
+    command = "map_chembl_to_uniprot(" + ", ".join(command_arguments) + ")"
+
+    write_meta_yaml(
+        output_csv_path,
+        command=command,
+        config=runtime_config,
+        row_count=row_count,
+        column_count=column_count,
+        meta_path=meta_path,
+    )
 
     analyze_table_quality(
-        output_csv_path, table_name=str(Path(output_csv_path).with_suffix(""))
+        output_csv_path,
+        table_name=str(quality_base),
+        separator=separator,
+        encoding=encoding_out,
     )
     return output_csv_path

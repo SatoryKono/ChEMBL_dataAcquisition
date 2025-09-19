@@ -180,7 +180,7 @@ def test_check_determinism_script(tmp_path: Path) -> None:
         check=True,
     )
 
-    meta_path = output_csv.with_suffix(".csv.meta.yaml")
+    meta_path = output_csv.with_name(f"{output_csv.name}.meta.yaml")
     metadata = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
     determinism = metadata["determinism"]
     assert determinism["matches_previous"] is True

@@ -49,7 +49,15 @@ class RetryCfg:
 
 
 def session_with_retry(api: ApiCfg, retry: RetryCfg) -> Session:
-    """Create a :class:`requests.Session` with basic headers."""
+    """Creates a requests.Session with basic headers and retry logic.
+
+    Args:
+        api: The API configuration.
+        retry: The retry configuration.
+
+    Returns:
+        A requests.Session object.
+    """
 
     session = requests.Session()
     session.headers.update({"User-Agent": api.user_agent})
@@ -57,14 +65,19 @@ def session_with_retry(api: ApiCfg, retry: RetryCfg) -> Session:
 
 
 class RateLimiter:
-    """Very small token bucket rate limiter."""
+    """A simple token bucket rate limiter.
+
+    Args:
+        rps: The number of requests per second to allow.
+    """
 
     def __init__(self, rps: float) -> None:
+        """Initializes the RateLimiter."""
         self.rps = rps
         self.last_call = 0.0
 
     def acquire(self) -> None:
-        """Sleep if necessary to enforce the configured rate limit."""
+        """Blocks until a request can be made without exceeding the rate limit."""
         if self.rps <= 0:
             return
         interval = 1.0 / self.rps
@@ -76,13 +89,20 @@ class RateLimiter:
 
 
 def get_limiter(_name: str, rps: float) -> RateLimiter:
-    """Return a :class:`RateLimiter` for ``rps`` requests per second."""
+    """Returns a RateLimiter for the specified requests per second.
 
+    Args:
+        _name: The name of the limiter (currently unused).
+        rps: The number of requests per second.
+
+    Returns:
+        A RateLimiter instance.
+    """
     return RateLimiter(rps)
 
 
 def sleep(seconds: float) -> None:
-    """Sleep helper to facilitate jittered backoff."""
+    """A sleep helper to facilitate jittered backoff."""
 
     time.sleep(seconds)
 
@@ -97,7 +117,12 @@ _session_lock = threading.Lock()
 
 
 def init_session(api: ApiCfg, retry: RetryCfg) -> None:
-    """Initialise the shared HTTP session."""
+    """Initializes the shared HTTP session.
+
+    Args:
+        api: The API configuration.
+        retry: The retry configuration.
+    """
 
     global _session
     with _session_lock:
@@ -146,28 +171,19 @@ def _validate_columns(df: pd.DataFrame, expected: Iterable[str]) -> None:
 
 
 def load_targets(path: str | Path, *, encoding: str = "utf-8") -> pd.DataFrame:
-    """Load the ``_IUPHAR_target.csv`` file.
+    """Loads the `_IUPHAR_target.csv` file.
 
-    The ``target_id`` and ``family_id`` columns in the official files are
-    zero-padded strings. Reading them as numeric values would drop the
-    padding and break lookups.  To avoid this, all columns are read as
-    strings and missing values are replaced with empty strings.  The
-    original data uses the column name ``swissprot`` for UniProt accession
-    numbers; this is normalised to ``uniprot_id`` for consistency with the
-    rest of the library.
+    The `target_id` and `family_id` columns in the official files are
+    zero-padded strings. To avoid losing the padding, all columns are read as
+    strings, and missing values are replaced with empty strings. The `swissprot`
+    column is renamed to `uniprot_id` for consistency.
 
-    Parameters
-    ----------
-    path:
-        Path to the target CSV file.
-    encoding:
-        File encoding. Defaults to UTF-8.
+    Args:
+        path: The path to the target CSV file.
+        encoding: The file encoding.
 
-    Returns
-    -------
-    pandas.DataFrame
-        Loaded target data with string identifiers.
-
+    Returns:
+        A pandas DataFrame containing the loaded target data.
     """
     df = pd.read_csv(path, encoding=encoding, dtype=str).fillna("")
     # Normalise legacy column names to the expected lowercase form
@@ -186,24 +202,18 @@ def load_targets(path: str | Path, *, encoding: str = "utf-8") -> pd.DataFrame:
 
 
 def load_families(path: str | Path, *, encoding: str = "utf-8") -> pd.DataFrame:
-    """Load the ``_IUPHAR_family.csv`` file.
+    """Loads the `_IUPHAR_family.csv` file.
 
-    Similar to :func:`load_targets`, family identifiers are stored as
-    zero-padded strings.  The file is therefore read with ``dtype=str`` and
-    missing values are normalised to empty strings to retain formatting.
+    Similar to `load_targets`, family identifiers are stored as zero-padded
+    strings. The file is therefore read with `dtype=str`, and missing values
+    are normalized to empty strings to retain formatting.
 
-    Parameters
-    ----------
-    path:
-        Path to the family CSV file.
-    encoding:
-        File encoding. Defaults to UTF-8.
+    Args:
+        path: The path to the family CSV file.
+        encoding: The file encoding.
 
-    Returns
-    -------
-    pandas.DataFrame
-        Loaded family data with string identifiers.
-
+    Returns:
+        A pandas DataFrame containing the loaded family data.
     """
     df = pd.read_csv(path, encoding=encoding, dtype=str).fillna("")
     _validate_columns(df, EXPECTED_FAMILY_COLUMNS)
@@ -255,7 +265,12 @@ def _query_gene_symbol(
 
 @dataclass
 class IUPHARData:
-    """Container for IUPHAR target and family data."""
+    """A container for IUPHAR target and family data.
+
+    Attributes:
+        target_df: A DataFrame containing target data.
+        family_df: A DataFrame containing family data.
+    """
 
     target_df: pd.DataFrame
     family_df: pd.DataFrame
@@ -268,7 +283,16 @@ class IUPHARData:
         *,
         encoding: str = "utf-8",
     ) -> IUPHARData:
-        """Load CSV files and return an :class:`IUPHARData` instance."""
+        """Loads CSV files and returns an IUPHARData instance.
+
+        Args:
+            target_path: The path to the target CSV file.
+            family_path: The path to the family CSV file.
+            encoding: The file encoding.
+
+        Returns:
+            An IUPHARData instance.
+        """
         target_df = load_targets(target_path, encoding=encoding)
         family_df = load_families(family_path, encoding=encoding)
         return cls(target_df=target_df, family_df=family_df)
@@ -794,16 +818,17 @@ class ClassificationRecord:
 
 
 class IUPHARClassifier:
-    """Classify targets using IUPHAR mappings and heuristics."""
+    """Classifies targets using IUPHAR mappings and heuristics.
+
+    Args:
+        data: An IUPHARData object providing lookup tables and helper methods.
+    """
 
     def __init__(self, data: IUPHARData):
-        """Create a classifier bound to ``data``.
+        """Initializes the IUPHARClassifier.
 
-        Parameters
-        ----------
-        data:
-            Accessor providing lookup tables and helper methods.
-
+        Args:
+            data: An IUPHARData object providing lookup tables and helper methods.
         """
         self.data = data
 

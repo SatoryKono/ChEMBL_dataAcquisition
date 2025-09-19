@@ -5,7 +5,11 @@ from pathlib import Path
 import re
 
 import pandas as pd
+import pytest
 import requests_mock
+import yaml
+
+from library.orthologs import Ortholog
 
 from uniprot_normalize import (
     extract_isoforms,
@@ -54,17 +58,57 @@ def test_output_columns_include_sequence() -> None:
     assert cols.index("sequence") == 17
 
 
-def test_cli_writes_output(tmp_path: Path) -> None:
+def test_cli_writes_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from importlib.machinery import SourceFileLoader
 
     module = SourceFileLoader("get_uniprot_target_data", str(SCRIPT_PATH)).load_module()
 
+    class DummyEnsemblClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            """Create a lightweight placeholder for the Ensembl client."""
+
+        def get_orthologs(
+            self, _gene_id: str, _target_species: list[str]
+        ) -> list[Ortholog]:
+            """Return no orthologs so the OMA fallback is exercised."""
+
+            return []
+
+    class DummyOmaClient:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            """Provide deterministic OMA responses for the test harness."""
+
+        def get_orthologs_by_uniprot(self, _acc: str) -> list[Ortholog]:
+            """Return a minimal ortholog payload."""
+
+            return [
+                Ortholog(
+                    target_species="mus_musculus",
+                    target_gene_symbol="GeneX",
+                    target_ensembl_gene_id="ENSMUSG0000001",
+                    target_uniprot_id="Q9XYZ1",
+                    homology_type="ortholog_one2one",
+                    perc_id=55.0,
+                    perc_pos=60.0,
+                    dn=0.1,
+                    ds=0.2,
+                    is_high_confidence=True,
+                    source_db="OMA",
+                )
+            ]
+
+    monkeypatch.setattr(
+        "library.orthologs.EnsemblHomologyClient", DummyEnsemblClient
+    )
+    monkeypatch.setattr("library.orthologs.OmaClient", DummyOmaClient)
+
     inp = tmp_path / "inp.csv"
     inp.write_text("uniprot_id\nP12345\np12345\nP00000\n")
-    out = tmp_path / "out.csv"
+    out = tmp_path / "nested" / "out.csv"
 
     sample = _load_sample()
-    iso_out = tmp_path / "iso.csv"
     with requests_mock.Mocker() as m:
         m.get(
             "https://rest.uniprot.org/uniprotkb/P12345.json",
@@ -87,10 +131,26 @@ def test_cli_writes_output(tmp_path: Path) -> None:
                 str(inp),
                 "--output",
                 str(out),
-                "--isoforms-output",
-                str(iso_out),
+                "--with-orthologs",
             ]
         )
+    iso_out = out.with_name(f"{out.stem}_isoforms.csv")
+    orth_out = out.with_name(f"{out.stem}_orthologs.csv")
+    meta_path = out.with_name(f"{out.name}.meta.yaml")
+    iso_meta_path = iso_out.with_name(f"{iso_out.name}.meta.yaml")
+    orth_meta_path = orth_out.with_name(f"{orth_out.name}.meta.yaml")
+    iso_quality_path = iso_out.with_name(f"{iso_out.stem}_quality_report_table.csv")
+    orth_quality_path = orth_out.with_name(
+        f"{orth_out.stem}_quality_report_table.csv"
+    )
+    assert out.exists()
+    assert iso_out.exists()
+    assert orth_out.exists()
+    assert meta_path.exists()
+    assert iso_meta_path.exists()
+    assert orth_meta_path.exists()
+    assert iso_quality_path.exists()
+    assert orth_quality_path.exists()
     df = (
         pd.read_csv(out, dtype=str)
         .fillna("")
@@ -98,8 +158,11 @@ def test_cli_writes_output(tmp_path: Path) -> None:
         .reset_index(drop=True)
     )
     cols = output_columns(False)
-    assert list(df.columns) == cols
+    expected_cols = [*cols, "orthologs_json", "orthologs_count"]
+    assert list(df.columns) == expected_cols
     assert list(df["uniprot_id"]) == ["P00000", "P12345"]
+    assert list(df["orthologs_count"]) == ["0", "1"]
+    assert "Q9XYZ1" in df.iloc[1]["orthologs_json"]
     iso_df = pd.read_csv(iso_out, dtype=str).fillna("")
     assert list(iso_df.columns) == [
         "parent_uniprot_id",
@@ -109,3 +172,32 @@ def test_cli_writes_output(tmp_path: Path) -> None:
         "is_canonical",
     ]
     assert len(iso_df) == 2
+    orth_df = pd.read_csv(orth_out, dtype=str).fillna("")
+    assert list(orth_df.columns) == [
+        "source_uniprot_id",
+        "source_ensembl_gene_id",
+        "source_species",
+        "target_species",
+        "target_gene_symbol",
+        "target_ensembl_gene_id",
+        "target_uniprot_id",
+        "homology_type",
+        "perc_id",
+        "perc_pos",
+        "dn",
+        "ds",
+        "is_high_confidence",
+        "source_db",
+    ]
+    assert len(orth_df) == 1
+    metadata = yaml.safe_load(meta_path.read_text(encoding="utf-8"))
+    assert metadata["rows"] == 2
+    assert metadata["columns"] == len(expected_cols)
+    assert metadata["config"]["input"] == str(inp)
+    iso_metadata = yaml.safe_load(iso_meta_path.read_text(encoding="utf-8"))
+    assert iso_metadata["rows"] == len(iso_df)
+    assert iso_metadata["columns"] == len(iso_df.columns)
+    orth_metadata = yaml.safe_load(orth_meta_path.read_text(encoding="utf-8"))
+    assert orth_metadata["rows"] == len(orth_df)
+    assert orth_metadata["columns"] == len(orth_df.columns)
+    assert orth_metadata["config"]["with_orthologs"] is True

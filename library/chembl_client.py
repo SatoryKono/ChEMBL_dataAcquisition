@@ -41,17 +41,92 @@ def _is_not_found_error(exception: requests.HTTPError) -> bool:
     return bool(re.search(r"\b404\b", message))
 
 
+def _coerce_bool(value: Any) -> bool | None:
+    """Return a boolean representation of ``value`` when possible.
+
+    Args:
+        value: The input value which may already be a boolean, a string
+            representation, or a numeric flag.
+
+    Returns:
+        A boolean value when the input can be interpreted as such, otherwise
+        ``None``.
+    """
+
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return bool(int(value))
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if not text or text in {"null", "none"}:
+            return None
+        if text in {"true", "t", "1", "yes", "y"}:
+            return True
+        if text in {"false", "f", "0", "no", "n"}:
+            return False
+    return None
+
+
+def _ensure_data_validity_warning(payload: Dict[str, Any]) -> None:
+    """Populate ``data_validity_warning`` in ``payload`` when absent.
+
+    The ChEMBL activity endpoint omits the ``data_validity_warning`` flag, even
+    when a descriptive warning is provided.  This helper infers a boolean flag
+    from the existing fields so downstream consumers can rely on the presence
+    of the column.
+
+    Args:
+        payload: A JSON dictionary representing an activity record. The
+            dictionary is updated in-place.
+    """
+
+    warning = _coerce_bool(payload.get("data_validity_warning"))
+    if warning is None:
+        warning = _coerce_bool(payload.get("data_validity_flag"))
+
+    if warning is not None:
+        payload["data_validity_warning"] = warning
+        return
+
+    comment = payload.get("data_validity_comment")
+    description = payload.get("data_validity_description")
+
+    if isinstance(comment, str) and comment.strip():
+        payload["data_validity_warning"] = True
+        return
+    if isinstance(description, str) and description.strip():
+        payload["data_validity_warning"] = True
+        return
+
+    payload["data_validity_warning"] = None
+
+
 @dataclass
 class ApiCfg:
-    """Минимальная конфигурация для ChEMBL API."""
+    """Minimal configuration for the ChEMBL API."""
 
     chembl_base: str = "https://www.ebi.ac.uk/chembl/api/data"
+    timeout_connect: float = 5.0
     timeout_read: float = 30.0
+    user_agent: str = "ChEMBLDataAcquisition/1.0"
 
 
 @dataclass
 class ChemblClient:
-    """Клиент для получения данных из ChEMBL API."""
+    """A client for retrieving data from the ChEMBL API.
+
+    Attributes:
+        base_url: The base URL for the ChEMBL API.
+        timeout: The timeout for HTTP requests in seconds.
+        max_retries: The maximum number of retries for failed requests.
+        rps: The number of requests per second to limit to.
+        user_agent: The User-Agent header to use for requests.
+        cache_config: Optional configuration for caching HTTP requests.
+        http_client: Optional pre-configured HttpClient instance.
+    """
 
     base_url: str = "https://www.ebi.ac.uk/chembl/api/data"
     timeout: float = 30.0
@@ -62,6 +137,7 @@ class ChemblClient:
     http_client: HttpClient | None = None
 
     def __post_init__(self) -> None:
+        """Initializes the HTTP client."""
         self._http = self.http_client or HttpClient(
             timeout=self.timeout,
             max_retries=self.max_retries,
@@ -72,6 +148,16 @@ class ChemblClient:
     def _fetch_resource(
         self, resource: str, identifier: str, *, id_field: str
     ) -> Dict[str, Any] | None:
+        """Fetches a resource from the ChEMBL API.
+
+        Args:
+            resource: The type of resource to fetch (e.g., 'assay', 'activity').
+            identifier: The ChEMBL ID of the resource.
+            id_field: The name of the ID field in the response JSON.
+
+        Returns:
+            A dictionary containing the resource data, or None if not found.
+        """
         url = f"{self.base_url.rstrip('/')}/{resource}/{identifier}.json"
         headers = {
             "Accept": "application/json",
@@ -83,13 +169,13 @@ class ChemblClient:
         except requests.HTTPError as exc:
             if _is_not_found_error(exc):
                 LOGGER.warning(
-                    "%s %s не найден (404)", resource.capitalize(), identifier
+                    "%s %s not found (404)", resource.capitalize(), identifier
                 )
                 return None
-            LOGGER.exception("Не удалось получить %s %s", resource, identifier)
+            LOGGER.exception("Failed to fetch %s %s", resource, identifier)
             raise
         except requests.RequestException:
-            LOGGER.exception("Сетевая ошибка при получении %s %s", resource, identifier)
+            LOGGER.exception("Network error while fetching %s %s", resource, identifier)
             raise
 
         payload: Dict[str, Any] = response.json()
@@ -97,20 +183,41 @@ class ChemblClient:
         return payload
 
     def fetch_assay(self, assay_id: str) -> Dict[str, Any] | None:
-        """Вернуть JSON для ``assay_id``."""
+        """Fetches the JSON data for a given assay_id.
 
+        Args:
+            assay_id: The ChEMBL ID of the assay.
+
+        Returns:
+            A dictionary containing the assay data, or None if not found.
+        """
         return self._fetch_resource("assay", assay_id, id_field="assay_chembl_id")
 
     def fetch_activity(self, activity_id: str) -> Dict[str, Any] | None:
-        """Вернуть JSON для ``activity_id``."""
+        """Fetches the JSON data for a given activity_id.
 
-        return self._fetch_resource(
+        Args:
+            activity_id: The ChEMBL ID of the activity.
+
+        Returns:
+            A dictionary containing the activity data, or None if not found.
+        """
+        payload = self._fetch_resource(
             "activity", activity_id, id_field="activity_chembl_id"
         )
+        if payload is not None:
+            _ensure_data_validity_warning(payload)
+        return payload
 
     def fetch_molecule(self, molecule_id: str) -> Dict[str, Any] | None:
-        """Вернуть JSON для ``molecule_id``."""
+        """Fetches the JSON data for a given molecule_id.
 
+        Args:
+            molecule_id: The ChEMBL ID of the molecule.
+
+        Returns:
+            A dictionary containing the molecule data, or None if not found.
+        """
         return self._fetch_resource(
             "molecule", molecule_id, id_field="molecule_chembl_id"
         )
@@ -120,6 +227,15 @@ class ChemblClient:
         identifiers: Iterable[str],
         fetcher: Callable[[str], Dict[str, Any] | None],
     ) -> List[Dict[str, Any]]:
+        """Fetches multiple resources from the ChEMBL API.
+
+        Args:
+            identifiers: An iterable of ChEMBL IDs.
+            fetcher: The function to use for fetching each resource.
+
+        Returns:
+            A list of dictionaries, where each dictionary contains the data for a resource.
+        """
         records: List[Dict[str, Any]] = []
         for identifier in identifiers:
             payload = fetcher(identifier)
@@ -128,28 +244,100 @@ class ChemblClient:
         return records
 
     def fetch_many(self, assay_ids: Iterable[str]) -> List[Dict[str, Any]]:
-        """Получить несколько payloads для анализов."""
+        """Fetches multiple assay payloads.
 
+        Args:
+            assay_ids: An iterable of assay ChEMBL IDs.
+
+        Returns:
+            A list of dictionaries, where each dictionary contains the data for an assay.
+        """
         return self._fetch_many(assay_ids, self.fetch_assay)
 
     def fetch_many_activities(
         self, activity_ids: Iterable[str]
     ) -> List[Dict[str, Any]]:
-        """Получить несколько payloads для активностей."""
+        """Fetches multiple activity payloads.
 
+        Args:
+            activity_ids: An iterable of activity ChEMBL IDs.
+
+        Returns:
+            A list of dictionaries, where each dictionary contains the data for an activity.
+        """
         return self._fetch_many(activity_ids, self.fetch_activity)
 
     def fetch_many_molecules(self, molecule_ids: Iterable[str]) -> List[Dict[str, Any]]:
-        """Получить несколько payloads для молекул."""
+        """Fetches multiple molecule payloads.
 
+        Args:
+            molecule_ids: An iterable of molecule ChEMBL IDs.
+
+        Returns:
+            A list of dictionaries, where each dictionary contains the data for a molecule.
+        """
         return self._fetch_many(molecule_ids, self.fetch_molecule)
 
     def request_json(self, url: str, *, cfg: ApiCfg, timeout: float) -> Dict[str, Any]:
-        """Вернуть JSON payload для ``url`` используя http."""
+        """Return the JSON payload for ``url`` using the HTTP client.
 
-        resp = self._http.request("get", url, timeout=(timeout, timeout))
-        resp.raise_for_status()
-        return resp.json()
+        Args:
+            url: The URL to request.
+            cfg: The API configuration.
+            timeout: The read timeout for the request in seconds.
+
+        Returns:
+            A dictionary containing the JSON payload. When the resource is not
+            found (HTTP 404) an empty dictionary is returned after emitting a
+            warning.
+
+        Raises:
+            ValueError: If the response cannot be decoded as JSON.
+            requests.HTTPError: If the response indicates an HTTP error other
+                than 404.
+            requests.RequestException: If a network error occurs while making
+                the request.
+        """
+
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": cfg.user_agent or self.user_agent,
+        }
+        timeout_connect = getattr(cfg, "timeout_connect", timeout)
+        request_timeout = (timeout_connect, timeout)
+
+        try:
+            resp = self._http.request(
+                "get", url, timeout=request_timeout, headers=headers
+            )
+        except requests.RequestException:
+            LOGGER.exception("Network error while fetching %s", url)
+            raise
+
+        if resp.status_code == 404:
+            LOGGER.warning("ChEMBL returned 404 for %s", url)
+            return {}
+
+        try:
+            resp.raise_for_status()
+        except requests.HTTPError:
+            LOGGER.exception("HTTP error while fetching %s", url)
+            raise
+
+        content_type = resp.headers.get("Content-Type")
+        if content_type and "json" not in content_type.lower():
+            LOGGER.warning(
+                "Unexpected Content-Type %r while fetching %s", content_type, url
+            )
+            raise ValueError(
+                "Expected JSON response from ChEMBL but received" f" {content_type!r}"
+            )
+
+        try:
+            return resp.json()
+        except ValueError as exc:
+            LOGGER.warning("Failed to decode JSON payload from %s: %s", url, exc)
+            raise
 
 
 def _chunked(seq: Sequence[str], size: int) -> Iterable[List[str]]:
@@ -185,7 +373,18 @@ def get_documents(
     chunk_size: int = 5,
     timeout: float | None = None,
 ) -> pd.DataFrame:
-    """Получить записи документов для ``ids`` из ChEMBL API."""
+    """Retrieves document records for the given IDs from the ChEMBL API.
+
+    Args:
+        ids: An iterable of document ChEMBL IDs.
+        cfg: The API configuration.
+        client: The ChEMBL client.
+        chunk_size: The number of IDs to include in each API request.
+        timeout: The timeout for the request in seconds.
+
+    Returns:
+        A pandas DataFrame containing the document records.
+    """
 
     valid = [i for i in ids if i not in {"", "#N/A"}]
     unique_ids = list(dict.fromkeys(valid))

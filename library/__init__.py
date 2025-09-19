@@ -25,4 +25,5 @@ __all__ = [
     "metadata",
     "io",
     "document_pipeline",
+    "dependency_tools",
 ]

@@ -12,12 +12,13 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Sequence, cast
 
 import pandas as pd
 
 from library.cli_common import (
     ensure_output_dir,
+    resolve_cli_sidecar_paths,
     serialise_dataframe,
     write_cli_metadata,
 )
@@ -41,7 +42,14 @@ def _default_output_name(input_path: str) -> str:
 
 
 def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
-    """Parse command line arguments for the activity pipeline CLI."""
+    """Parses command-line arguments for the activity pipeline CLI.
+
+    Args:
+        args: A sequence of command-line arguments. If None, `sys.argv` is used.
+
+    Returns:
+        An `argparse.Namespace` object containing the parsed arguments.
+    """
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -56,7 +64,10 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         "--column", default="activity_chembl_id", help="Column containing activity IDs"
     )
     parser.add_argument(
-        "--chunk-size", type=int, default=20, help="Number of IDs fetched per batch"
+        "--chunk-size",
+        type=int,
+        default=20,
+        help="Number of IDs fetched per batch (must be positive)",
     )
     parser.add_argument(
         "--timeout", type=float, default=30.0, help="HTTP timeout in seconds"
@@ -114,19 +125,31 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Read and validate the input file without fetching or writing output",
     )
-    return parser.parse_args(args)
+    parsed_args = parser.parse_args(args)
+    if parsed_args.chunk_size <= 0:
+        parser.error("--chunk-size must be a positive integer")
+    return parsed_args
 
 
 def _limited_ids(
     path: Path, column: str, cfg: CsvConfig, limit: int | None
 ) -> Iterable[str]:
-    return read_ids(path, column, cfg, limit=limit)
+    return cast(Iterable[str], read_ids(path, column, cfg, limit=limit))
 
 
 def run_pipeline(
     args: argparse.Namespace, *, command_parts: Sequence[str] | None = None
 ) -> int:
-    """Execute the activity acquisition pipeline with ``args``."""
+    """Executes the activity acquisition pipeline with the given arguments.
+
+    Args:
+        args: An `argparse.Namespace` object containing the pipeline arguments.
+        command_parts: A sequence of command-line arguments used to invoke the
+            pipeline. If None, `sys.argv` is used.
+
+    Returns:
+        An exit code, 0 for success and 1 for failure.
+    """
 
     if args.limit is not None and args.limit <= 0:
         raise ValueError("--limit must be a positive integer")
@@ -138,12 +161,11 @@ def run_pipeline(
     output_path = (
         Path(args.output) if args.output else Path(_default_output_name(args.input))
     )
-    errors_path = (
-        Path(args.errors_output)
-        if args.errors_output
-        else output_path.with_suffix(f"{output_path.suffix}.errors.json")
+    meta_path, errors_path, quality_base = resolve_cli_sidecar_paths(
+        output_path,
+        meta_output=args.meta_output,
+        errors_output=args.errors_output,
     )
-    meta_path = Path(args.meta_output) if args.meta_output else None
 
     csv_cfg = CsvConfig(
         sep=args.sep, encoding=args.encoding, list_format=args.list_format
@@ -194,7 +216,7 @@ def run_pipeline(
     if sort_columns:
         validated = validated.sort_values(sort_columns).reset_index(drop=True)
 
-    serialised = serialise_dataframe(validated, args.list_format)
+    serialised = serialise_dataframe(validated, args.list_format, inplace=True)
     ensure_output_dir(output_path)
     serialised.to_csv(output_path, index=False, sep=args.sep, encoding=args.encoding)
 
@@ -207,14 +229,21 @@ def run_pipeline(
         meta_path=meta_path,
     )
 
-    analyze_table_quality(serialised, table_name=str(output_path.with_suffix("")))
+    analyze_table_quality(serialised, table_name=str(quality_base))
 
     LOGGER.info("Activity table written to %s", output_path)
     return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point used by the CLI and tests."""
+    """The entry point used by the CLI and tests.
+
+    Args:
+        argv: A sequence of command-line arguments. If None, `sys.argv` is used.
+
+    Returns:
+        An exit code, 0 for success and 1 for failure.
+    """
 
     args = parse_args(argv)
     configure_logging(args.log_level, log_format=args.log_format)

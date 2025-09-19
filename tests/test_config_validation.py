@@ -22,3 +22,4 @@ def test_bundled_config_matches_schema() -> None:
     assert config.uniprot.polling.interval_sec == 2
     assert config.uniprot.retry.max_attempts == 5
     assert config.uniprot.retry.backoff_sec == 1
+    assert config.uniprot.retry.penalty_sec == 1

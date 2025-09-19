@@ -71,7 +71,8 @@
           "required": ["max_attempts", "backoff_sec"],
           "properties": {
             "max_attempts": { "type": "integer", "minimum": 0 },
-            "backoff_sec": { "type": "number", "minimum": 0 }
+            "backoff_sec": { "type": "number", "minimum": 0 },
+            "penalty_sec": { "type": "number", "minimum": 0 }
           }
         }
       }

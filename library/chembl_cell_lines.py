@@ -64,9 +64,15 @@ class CellLineConfig:
 
 
 class CellLineClient:
-    """High level client for fetching ChEMBL cell line records."""
+    """A high-level client for fetching ChEMBL cell line records.
+
+    Args:
+        config: An optional CellLineConfig object. If not provided, a default
+            configuration will be used.
+    """
 
     def __init__(self, config: CellLineConfig | None = None) -> None:
+        """Initializes the CellLineClient."""
         self.config = config or CellLineConfig()
         self._http = HttpClient(
             timeout=self.config.timeout_sec,

@@ -58,18 +58,15 @@ def get_assays(
     *,
     chunk_size: int = 20,
 ) -> pd.DataFrame:
-    """Fetch assay metadata for ``assay_ids``.
+    """Fetches assay metadata for a given list of assay ChEMBL IDs.
 
-    Parameters
-    ----------
-    client:
-        Instance of :class:`ChemblClient` responsible for network requests.
-    assay_ids:
-        Iterable of assay identifiers to fetch from the ChEMBL API.
-    chunk_size:
-        Number of identifiers to process in a single batch.  This controls the
-        log granularity and can be tuned for improved determinism when dealing
-        with flaky network conditions.
+    Args:
+        client: An instance of the ChemblClient.
+        assay_ids: An iterable of assay ChEMBL IDs.
+        chunk_size: The number of IDs to process in a single batch.
+
+    Returns:
+        A pandas DataFrame containing the assay metadata.
     """
 
     return _fetch_dataframe(
@@ -87,18 +84,15 @@ def get_activities(
     *,
     chunk_size: int = 20,
 ) -> pd.DataFrame:
-    """Fetch activity metadata for ``activity_ids``.
+    """Fetches activity metadata for a given list of activity ChEMBL IDs.
 
-    Parameters
-    ----------
-    client:
-        Instance of :class:`ChemblClient` responsible for network requests.
-    activity_ids:
-        Iterable of activity identifiers to fetch from the ChEMBL API.
-    chunk_size:
-        Number of identifiers to process in a single batch.  This controls the
-        log granularity and can be tuned for improved determinism when dealing
-        with flaky network conditions.
+    Args:
+        client: An instance of the ChemblClient.
+        activity_ids: An iterable of activity ChEMBL IDs.
+        chunk_size: The number of IDs to process in a single batch.
+
+    Returns:
+        A pandas DataFrame containing the activity metadata.
     """
 
     return _fetch_dataframe(
@@ -116,18 +110,15 @@ def get_testitems(
     *,
     chunk_size: int = 20,
 ) -> pd.DataFrame:
-    """Fetch molecule metadata for ``molecule_ids``.
+    """Fetches molecule metadata for a given list of molecule ChEMBL IDs.
 
-    Parameters
-    ----------
-    client:
-        Instance of :class:`ChemblClient` responsible for network requests.
-    molecule_ids:
-        Iterable of molecule identifiers to fetch from the ChEMBL API.
-    chunk_size:
-        Number of identifiers to process in a single batch.  Adjusting the
-        chunk size can improve determinism when operating under flaky network
-        conditions.
+    Args:
+        client: An instance of the ChemblClient.
+        molecule_ids: An iterable of molecule ChEMBL IDs.
+        chunk_size: The number of IDs to process in a single batch.
+
+    Returns:
+        A pandas DataFrame containing the molecule metadata.
     """
 
     return _fetch_dataframe(
