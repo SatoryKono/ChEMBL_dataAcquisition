@@ -138,6 +138,22 @@ def test_parse_args_inherits_env_ortholog_default(
     assert args.with_orthologs is True
 
 
+ 
+def test_apply_env_overrides_parses_species_sequence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """List-like environment overrides should be decoded using YAML parsing."""
+
+    module: Any = importlib.import_module("scripts.pipeline_targets_main")
+    monkeypatch.setenv(
+        "CHEMBL_DA__ORTHOLOGS__TARGET_SPECIES", '["Mouse","Rat"]'
+    )
+    data: dict[str, Any] = {"orthologs": {"target_species": ["human"]}}
+
+    module._apply_env_overrides(data, section="pipeline")
+
+    assert data["orthologs"]["target_species"] == ["Mouse", "Rat"]
+ 
 def test_parse_args_reports_yaml_errors(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -164,6 +180,7 @@ def test_parse_args_reports_yaml_errors(
     stderr = capsys.readouterr().err
     assert "Invalid configuration file" in stderr
     assert "Traceback" not in stderr
+ 
 
 
 def test_pipeline_targets_cli_writes_outputs(
