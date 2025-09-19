@@ -46,6 +46,7 @@ from library.logging_utils import configure_logging
 
 LOGGER = logging.getLogger("pubmed_main")
 DEFAULT_LOG_FORMAT = "human"
+DEFAULT_COMMAND = "all"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "io": {"sep": ",", "encoding": "utf-8"},
@@ -939,7 +940,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override the Semantic Scholar timeout",
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command")
+    parser.set_defaults(
+        command=DEFAULT_COMMAND,
+        batch_size=None,
+        sleep=None,
+        workers=None,
+        openalex_rps=None,
+        crossref_rps=None,
+        chunk_size=None,
+        timeout=None,
+        semantic_scholar_rps=None,
+        semantic_scholar_chunk_size=None,
+        semantic_scholar_timeout=None,
+    )
 
     pubmed_parser = subparsers.add_parser(
         "pubmed",
