@@ -33,6 +33,7 @@ jobs:
         run: pytest
 
       - name: Smoke test pinned installation
+        if: ${{ always() }}
         run: |
           python -m venv /tmp/install-smoke
           source /tmp/install-smoke/bin/activate

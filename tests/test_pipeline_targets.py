@@ -319,6 +319,104 @@ def test_pipeline_batches_uniprot_requests(monkeypatch):
     assert uni.isoform_calls == []
 
 
+
+def test_run_pipeline_consumes_identifiers_lazily(monkeypatch):
+    """Ensure pipeline iteration over identifiers is performed lazily."""
+
+    state: dict[str, Any] = {
+        "fetch_in_progress": False,
+        "emitted": [],
+        "consumed": [],
+    }
+
+    class SpyIds:
+        def __init__(self, values: Iterable[str]) -> None:
+            self._iterator = iter(values)
+
+        def __iter__(self) -> "SpyIds":
+            return self
+
+        def __next__(self) -> str:
+            try:
+                value = next(self._iterator)
+            except StopIteration:
+                raise
+            if not state["fetch_in_progress"]:
+                raise AssertionError("Identifiers consumed eagerly")
+            state["emitted"].append(value)
+            return value
+
+    target_to_uniprot = {
+        "CHEMBL1": "P11111",
+        "CHEMBL2": "P22222",
+    }
+
+    def chembl_fetch(ids_iter: Iterable[str], cfg: Any | None = None) -> pd.DataFrame:
+        state["fetch_in_progress"] = True
+        try:
+            cleaned = list(ids_iter)
+        finally:
+            state["fetch_in_progress"] = False
+        state["consumed"] = cleaned
+        rows: list[dict[str, Any]] = []
+        for index, chembl_id in enumerate(cleaned, start=1):
+            accession = target_to_uniprot[chembl_id]
+            rows.append(
+                {
+                    "target_chembl_id": chembl_id,
+                    "pref_name": f"Target {chembl_id[-1]}",
+                    "target_type": "SINGLE PROTEIN",
+                    "organism": "Homo sapiens",
+                    "target_components": json.dumps(
+                        [
+                            {
+                                "component_id": index,
+                                "accession": accession,
+                                "component_type": "protein",
+                                "component_description": "desc",
+                            }
+                        ],
+                        sort_keys=True,
+                    ),
+                    "protein_classifications": json.dumps([], sort_keys=True),
+                    "cross_references": json.dumps([], sort_keys=True),
+                }
+            )
+        return pd.DataFrame(rows)
+
+    records = {
+        "P11111": make_uniprot(
+            "P11111",
+            "Homo sapiens",
+            9606,
+            ["Eukaryota", "Chordata", "Mammalia", "Primates", "Hominidae"],
+        ),
+        "P22222": make_uniprot(
+            "P22222",
+            "Homo sapiens",
+            9606,
+            ["Eukaryota", "Chordata", "Mammalia", "Primates", "Hominidae"],
+        ),
+    }
+
+    spy_ids = SpyIds(["CHEMBL1", "CHEMBL1", "CHEMBL2"])
+    uni = DummyUniProt(records)
+
+    df = run_pipeline(
+        spy_ids,
+        PipelineConfig(include_isoforms=True),
+        chembl_fetcher=chembl_fetch,
+        uniprot_client=uni,
+    )
+
+    assert state["emitted"] == ["CHEMBL1", "CHEMBL1", "CHEMBL2"]
+    assert state["consumed"] == ["CHEMBL1", "CHEMBL2"]
+    assert not df.empty
+    assert sorted(df["target_chembl_id"].unique()) == ["CHEMBL1", "CHEMBL2"]
+    assert uni.batch_calls == [["P11111"], ["P22222"]]
+    assert state["fetch_in_progress"] is False
+
+
 def test_pipeline_selects_human_uniprot(monkeypatch):
     def chembl_fetch(ids, cfg=None):
         return make_chembl_df(["Q11111", "Q22222"])
