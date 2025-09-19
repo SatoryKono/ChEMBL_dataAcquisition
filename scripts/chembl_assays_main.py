@@ -21,10 +21,10 @@ from library.assay_postprocessing import postprocess_assays
 from library.assay_validation import AssaysSchema, validate_assays
 from library.chembl_client import ChemblClient
 from library.chembl_library import get_assays
-from library.cli_common import resolve_cli_sidecar_paths
+from library.cli_common import resolve_cli_sidecar_paths, serialise_dataframe
 from library.data_profiling import analyze_table_quality
 from library.io import read_ids
-from library.io_utils import CsvConfig, serialise_cell
+from library.io_utils import CsvConfig
 from library.metadata import write_meta_yaml
 from library.normalize_assays import normalize_assays
 from library.logging_utils import configure_logging
@@ -37,15 +37,6 @@ def _default_output_name(input_path: str) -> str:
     stem = Path(input_path).stem or "output"
     date_suffix = datetime.now().strftime("%Y%m%d")
     return f"output_{stem}_{date_suffix}.csv"
-
-
-def _serialise_complex_columns(df: pd.DataFrame, list_format: str) -> pd.DataFrame:
-    result = df.copy()
-    for column in result.columns:
-        result[column] = result[column].map(
-            lambda value: serialise_cell(value, list_format)
-        )
-    return result
 
 
 def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
@@ -71,7 +62,10 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         "--column", default="assay_chembl_id", help="Column containing assay IDs"
     )
     parser.add_argument(
-        "--chunk-size", type=int, default=20, help="Number of IDs fetched per batch"
+        "--chunk-size",
+        type=int,
+        default=20,
+        help="Number of IDs fetched per batch (must be positive)",
     )
     parser.add_argument(
         "--timeout", type=float, default=30.0, help="HTTP timeout in seconds"
@@ -110,7 +104,10 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--meta-output", default=None, help="Optional metadata YAML path"
     )
-    return parser.parse_args(args)
+    parsed_args = parser.parse_args(args)
+    if parsed_args.chunk_size <= 0:
+        parser.error("--chunk-size must be a positive integer")
+    return parsed_args
 
 
 def _prepare_configuration(namespace: argparse.Namespace) -> dict[str, object]:
@@ -193,7 +190,7 @@ def run_pipeline(
     if sort_columns:
         validated = validated.sort_values(sort_columns).reset_index(drop=True)
 
-    serialised = _serialise_complex_columns(validated, args.list_format)
+    serialised = serialise_dataframe(validated, args.list_format, inplace=True)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     serialised.to_csv(output_path, index=False, sep=args.sep, encoding=args.encoding)
 

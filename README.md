@@ -325,6 +325,9 @@ python scripts/chembl_activities_main.py \
     --log-format json
 ```
 
+The `--chunk-size` option must be a positive integer; zero or negative values
+are rejected during argument parsing.
+
 Validation errors are persisted to `<output_filename>.errors.json`, where
 `<output_filename>` includes the complete original name (for example,
 `dataset.tar.gz.errors.json`). Dataset metadata is written to
@@ -378,6 +381,9 @@ python scripts/chembl_activities_main.py \
     --chunk-size 5 \
     --log-level INFO
 ```
+
+As above, ensure that `--chunk-size` is set to a positive integer before
+running the command.
 
 Add the first command to the CI smoke test job to guard against regressions in
 argument parsing and input handling without depending on external services.

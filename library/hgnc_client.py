@@ -15,7 +15,12 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, List
+
+ 
+from types import TracebackType
+from typing import Any,Dict, List
+import logging
+
 
 import pandas as pd
 import requests
@@ -178,6 +183,26 @@ class HGNCClient:
             rps=cfg.rate_limit.rps,
             cache_config=cfg.cache,
         )
+
+    def close(self) -> None:
+        """Release HTTP resources associated with the client."""
+
+        self.http.close()
+
+    def __enter__(self) -> "HGNCClient":
+        """Enter the managed context, returning ``self``."""
+
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Ensure resources are released when leaving a context manager block."""
+
+        self.close()
 
     def _request(self, url: str) -> requests.Response:
         """Perform a GET request with retry and rate limiting.
@@ -345,11 +370,16 @@ def map_uniprot_to_hgnc(
     raw_ids: List[str] = [str(v) for v in df[column]]
     unique_ids = list(dict.fromkeys(filter(None, raw_ids)))
 
-    client = HGNCClient(cfg)
-    max_workers = int(cfg.rate_limit.rps) or 1
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        results = executor.map(client.fetch, unique_ids)
-        mapping: Dict[str, HGNCRecord] = dict(zip(unique_ids, results))
+    max_workers = max(1, int(cfg.rate_limit.rps))
+    with HGNCClient(cfg) as client:
+        if not unique_ids:
+            mapping: Dict[str, HGNCRecord] = {}
+        elif max_workers == 1 or len(unique_ids) == 1:
+            mapping = {uid: client.fetch(uid) for uid in unique_ids}
+        else:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                results = executor.map(client.fetch, unique_ids)
+                mapping = dict(zip(unique_ids, results))
 
     rows = [
         asdict(mapping.get(uid, HGNCRecord(uid, "", "", "", ""))) for uid in raw_ids

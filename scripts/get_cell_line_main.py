@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -22,12 +23,20 @@ from library.chembl_cell_lines import (  # noqa: E402
     CellLineConfig,
     CellLineError,
 )
+from library.cli_common import (  # noqa: E402
+    resolve_cli_sidecar_paths,
+    write_cli_metadata,
+)
 from library.logging_utils import configure_logging  # noqa: E402
+
+LOGGER = logging.getLogger(__name__)
 
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_SEP = ","
 DEFAULT_ENCODING = "utf-8"
 DEFAULT_COLUMN = "cell_chembl_id"
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _iter_unique(values: Iterable[str]) -> Iterable[str]:
@@ -50,6 +59,56 @@ def _load_ids_from_csv(path: Path, column: str, sep: str, encoding: str) -> list
         raise ValueError(f"Missing column '{column}' in {path}")
     series = df[column].dropna()
     return [str(item).strip() for item in series if str(item).strip()]
+
+
+def _run(args: argparse.Namespace) -> None:
+    """Fetch requested cell line metadata and persist it to disk."""
+
+    if not args.sep:
+        raise ValueError("--sep must be a non-empty delimiter")
+    if not args.encoding:
+        raise ValueError("--encoding must be provided")
+    if not args.column or not str(args.column).strip():
+        raise ValueError("--column must name a non-empty column")
+
+    ids = list(args.cell_line_ids)
+    if args.input:
+        input_path = Path(args.input).expanduser()
+        if not input_path.exists() or not input_path.is_file():
+            raise FileNotFoundError(f"Input file {input_path.resolve()} does not exist")
+        ids.extend(
+            _load_ids_from_csv(
+                input_path.resolve(), args.column, args.sep, args.encoding
+            )
+        )
+
+    ids = list(_iter_unique(i for i in ids if i))
+    if not ids:
+        raise ValueError("No cell line identifiers provided")
+
+    output_path = (
+        Path(
+            args.output
+            if args.output
+            else f"output_input_{datetime.utcnow():%Y%m%d}.json"
+        )
+        .expanduser()
+        .resolve()
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    client = CellLineClient(
+        CellLineConfig(
+            base_url=args.base_url,
+        )
+    )
+    with output_path.open("w", encoding=args.encoding) as handle:
+        for identifier in ids:
+            record = client.fetch_cell_line(identifier)
+            handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True))
+            handle.write("\n")
+
+    print(output_path)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -85,6 +144,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="Path to write the JSON lines output",
     )
     parser.add_argument(
+        "--errors-output",
+        default=None,
+        help="Optional path for the JSON error report",
+    )
+    parser.add_argument(
+        "--meta-output",
+        default=None,
+        help="Optional path for the generated .meta.yaml file",
+    )
+    parser.add_argument(
         "--log-level",
         default=DEFAULT_LOG_LEVEL,
         help="Logging level",
@@ -108,6 +177,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     configure_logging(args.log_level)
 
+ 
     ids = list(args.cell_line_ids)
     if args.input:
         input_path = Path(args.input)
@@ -119,27 +189,68 @@ def main(argv: Sequence[str] | None = None) -> None:
     if not ids:
         raise ValueError("No cell line identifiers provided")
 
+    command_parts = [sys.argv[0], *(argv or sys.argv[1:])]
+
     output_path = Path(
         args.output if args.output else f"output_input_{datetime.utcnow():%Y%m%d}.json"
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    meta_path, errors_path, _ = resolve_cli_sidecar_paths(
+        output_path,
+        meta_output=args.meta_output,
+        errors_output=args.errors_output,
+    )
+    errors_path.parent.mkdir(parents=True, exist_ok=True)
 
     client = CellLineClient(
         CellLineConfig(
             base_url=args.base_url,
         )
     )
+    records_written = 0
+    field_names: set[str] = set()
+    errors: list[dict[str, str]] = []
     with output_path.open("w", encoding=args.encoding) as handle:
         for identifier in ids:
             try:
                 record = client.fetch_cell_line(identifier)
             except (CellLineError, ValueError) as exc:
-                raise SystemExit(str(exc)) from exc
+                error_message = str(exc)
+                LOGGER.warning(
+                    "Failed to fetch cell line %s: %s", identifier, error_message
+                )
+                errors.append({"cell_line_id": identifier, "error": error_message})
+                continue
             handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True))
             handle.write("\n")
+            records_written += 1
+            if isinstance(record, dict):
+                field_names.update(str(key) for key in record)
+
+    with errors_path.open("w", encoding="utf-8") as error_handle:
+        json.dump(errors, error_handle, ensure_ascii=False, indent=2, sort_keys=True)
+
+    write_cli_metadata(
+        output_path,
+        row_count=records_written,
+        column_count=len(field_names),
+        namespace=args,
+        command_parts=command_parts,
+        meta_path=meta_path,
+    )
 
     print(output_path)
-
+ 
+    try:
+        _run(args)
+    except (FileNotFoundError, ValueError, CellLineError) as exc:
+        LOGGER.error("%s", exc)
+        raise SystemExit(1) from exc
+    except Exception as exc:  # pragma: no cover - defensive guard
+        LOGGER.exception("Unexpected error while downloading cell line metadata")
+        raise SystemExit(1) from exc
+ 
 
 if __name__ == "__main__":  # pragma: no cover
     main()

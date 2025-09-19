@@ -55,7 +55,6 @@ from library.uniprot_enrich.enrich import (
     _collect_ec_numbers,
 )
 from library.logging_utils import configure_logging
-
 from library.cli_common import (
     analyze_table_quality,
     ensure_output_dir,
@@ -74,6 +73,9 @@ from library.pipeline_targets import (
 )
 
 from library.iuphar import ClassificationRecord, IUPHARClassifier, IUPHARData
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 # Columns produced by :func:`add_iuphar_classification`.
@@ -1150,12 +1152,27 @@ def build_clients(
     return uni, hgnc, gtop, ens_client, oma_client, target_species, enrich_factory
 
 
-def main() -> None:
-    """The main entry point for the unified target data pipeline."""
+def _run_pipeline(args: argparse.Namespace) -> None:
+    """Execute the unified target data pipeline for the provided CLI arguments."""
 
-    args = parse_args()
-    configure_logging(args.log_level, log_format=args.log_format)
-    pipeline_cfg = load_pipeline_config(args.config)
+    if not args.sep:
+        raise ValueError("--sep must be a non-empty delimiter")
+    if not args.encoding:
+        raise ValueError("--encoding must be provided")
+
+    config_path = Path(args.config).expanduser()
+    if not config_path.exists() or not config_path.is_file():
+        raise FileNotFoundError(
+            f"Configuration file {config_path.resolve()} does not exist"
+        )
+    config_path = config_path.resolve()
+
+    input_path = Path(args.input).expanduser()
+    if not input_path.exists() or not input_path.is_file():
+        raise FileNotFoundError(f"Input file {input_path.resolve()} does not exist")
+    input_path = input_path.resolve()
+
+    pipeline_cfg = load_pipeline_config(str(config_path))
     if args.timeout_sec is not None:
         pipeline_cfg.timeout_sec = args.timeout_sec
     if args.retries is not None:
@@ -1182,8 +1199,7 @@ def main() -> None:
     pipeline_cfg.include_isoforms = pipeline_cfg.include_isoforms or args.with_isoforms
     use_isoforms = pipeline_cfg.include_isoforms
 
-    # Load optional ChEMBL column configuration and ensure required fields
-    data = _load_yaml_mapping(args.config)
+    data = _load_yaml_mapping(str(config_path))
     use_orthologs = bool(args.with_orthologs)
     global_cache = CacheConfig.from_dict(
         _optional_mapping(data, "http_cache", context="http_cache")
@@ -1228,11 +1244,6 @@ def main() -> None:
         cache=chembl_cache or global_cache,
     )
 
-    # Merge additional column requirements from other data sources so that the
-    # final output includes every requested field. This allows individual
-    # sections in the YAML configuration (``uniprot``, ``gtop``, ``hgnc``) to
-    # declare their own column lists without having to manually duplicate them
-    # under ``pipeline.columns``.
     for section in ("uniprot", "gtop", "hgnc"):
         section_cfg = _ensure_mapping(data.get(section), context=section)
         for col in _ensure_str_sequence(
@@ -1250,19 +1261,17 @@ def main() -> None:
         target_species,
         enrich_client_factory,
     ) = build_clients(
-        args.config,
+        str(config_path),
         pipeline_cfg,
         with_orthologs=use_orthologs,
         default_cache=global_cache,
     )
 
-    df = pd.read_csv(args.input, sep=args.sep, encoding=args.encoding)
+    df = pd.read_csv(input_path, sep=args.sep, encoding=args.encoding)
     if args.id_column not in df.columns:
         raise ValueError(f"Missing required column '{args.id_column}'")
     _, unique_ids = _prepare_identifier_series(df[args.id_column])
     ids: List[str] = list(unique_ids)
-
-    # Fetch comprehensive ChEMBL data once and reuse it in the pipeline
 
     chembl_df: pd.DataFrame = fetch_targets(ids, chembl_cfg, batch_size=args.batch_size)
 
@@ -1271,8 +1280,6 @@ def main() -> None:
     ) -> pd.DataFrame:  # pragma: no cover - simple wrapper
         return chembl_df
 
-    # Run the pipeline with a progress bar to provide user feedback on long
-    # operations. The progress bar advances once per processed target.
     with tqdm(total=len(ids), desc="targets") as pbar:
         out_df = run_pipeline(
             ids,
@@ -1301,10 +1308,9 @@ def main() -> None:
     if use_isoforms:
         out_df = add_isoform_fields(out_df, cached_fetch)
 
-    # Append optional IUPHAR classification data when both CSV files are provided.
     if args.iuphar_target and args.iuphar_family:
-        target_csv = Path(args.iuphar_target)
-        family_csv = Path(args.iuphar_family)
+        target_csv = Path(args.iuphar_target).expanduser().resolve()
+        family_csv = Path(args.iuphar_family).expanduser().resolve()
         if not target_csv.exists():
             msg = f"IUPHAR target file not found: {target_csv}"
             raise FileNotFoundError(msg)
@@ -1321,7 +1327,6 @@ def main() -> None:
         out_df,
         lambda accs: uni_client.fetch_entries_json(accs, batch_size=args.batch_size),
     )
-    # Keep classification columns grouped together at the end for clarity.
     cols = [c for c in out_df.columns if c not in IUPHAR_CLASS_COLUMNS]
     out_df = out_df[cols + IUPHAR_CLASS_COLUMNS]
 
@@ -1359,6 +1364,21 @@ def main() -> None:
         command_parts=tuple(sys.argv),
         meta_path=meta_path,
     )
+
+
+def main() -> None:
+    """The main entry point for the unified target data pipeline."""
+
+    args = parse_args()
+    configure_logging(args.log_level, log_format=args.log_format)
+    try:
+        _run_pipeline(args)
+    except (FileNotFoundError, ValueError) as exc:
+        LOGGER.error("%s", exc)
+        raise SystemExit(1) from exc
+    except Exception as exc:  # pragma: no cover - defensive guard
+        LOGGER.exception("Unexpected error while running the target pipeline")
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":
