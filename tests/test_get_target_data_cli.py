@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 import pandas as pd
@@ -46,8 +46,8 @@ def test_get_target_data_cli_writes_csv_and_meta(
         ]
     )
 
-    def fake_fetch(ids: list[str], _cfg: object) -> pd.DataFrame:
-        assert ids == ["CHEMBL123", "CHEMBL999"]
+    def fake_fetch(ids: Iterable[str], _cfg: object) -> pd.DataFrame:
+        assert list(ids) == ["CHEMBL123", "CHEMBL999"]
         return sample
 
     monkeypatch.setattr("scripts.get_target_data_main.fetch_targets", fake_fetch)
@@ -128,15 +128,16 @@ def test_get_target_data_cli_streams_in_batches(
 
     calls: list[list[str]] = []
 
-    def fake_fetch(ids: list[str], _cfg: object) -> pd.DataFrame:
-        calls.append(list(ids))
+    def fake_fetch(ids: Iterable[str], _cfg: object) -> pd.DataFrame:
+        batch_ids = list(ids)
+        calls.append(batch_ids)
         rows = [
             {
                 "target_chembl_id": chembl_id,
                 "pref_name": f"Target {chembl_id[-3:]}",
                 "cross_references": [{"source": "UniProt", "xref_id": f"P{index:05d}"}],
             }
-            for index, chembl_id in enumerate(ids, start=1)
+            for index, chembl_id in enumerate(batch_ids, start=1)
         ]
         return pd.DataFrame(rows)
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import sys
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -159,18 +160,21 @@ def test_pipeline_targets_cli_writes_outputs(
         cfg = module.PipelineConfig()
         return cfg
 
-    def fake_fetch_targets(ids: list[str], _: Any, batch_size: int) -> pd.DataFrame:
+    def fake_fetch_targets(ids: Iterable[str], _: Any, batch_size: int) -> pd.DataFrame:
+        id_list = [identifier for identifier in ids if identifier]
         return pd.DataFrame(
             {
-                "target_chembl_id": ids,
-                "pref_name": [f"pref_{identifier}" for identifier in ids],
+                "target_chembl_id": id_list,
+                "pref_name": [f"pref_{identifier}" for identifier in id_list],
             }
         )
 
-    def fake_run_pipeline(ids: list[str], *_args: Any, **kwargs: Any) -> pd.DataFrame:
+    def fake_run_pipeline(ids: Iterable[str], *_args: Any, **kwargs: Any) -> pd.DataFrame:
+        chembl_df = kwargs["chembl_fetcher"](ids, kwargs["chembl_config"])
+        id_list = chembl_df["target_chembl_id"].tolist()
         progress_callback = kwargs.get("progress_callback")
         if callable(progress_callback):
-            for _ in ids:
+            for _ in id_list:
                 progress_callback(1)
         data = pd.DataFrame(
             {
@@ -303,17 +307,20 @@ def test_pipeline_targets_cli_filters_invalid_ids(
 
     captured: dict[str, Any] = {}
 
-    def fake_fetch_targets(ids: list[str], cfg: Any, batch_size: int) -> pd.DataFrame:
-        captured["ids"] = list(ids)
-        return pd.DataFrame({"target_chembl_id": ids})
+    def fake_fetch_targets(ids: Iterable[str], cfg: Any, batch_size: int) -> pd.DataFrame:
+        id_list = [identifier for identifier in ids if identifier]
+        captured["ids"] = id_list
+        return pd.DataFrame({"target_chembl_id": id_list})
 
-    def fake_run_pipeline(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
+    def fake_run_pipeline(ids: Iterable[str], *_args: Any, **kwargs: Any) -> pd.DataFrame:
+        chembl_df = kwargs["chembl_fetcher"](ids, kwargs["chembl_config"])
+        id_list = chembl_df["target_chembl_id"].tolist()
         return pd.DataFrame(
             {
-                "target_chembl_id": ids,
-                "uniprot_id_primary": [f"P{i}" for i in range(len(ids))],
-                "gene_symbol": [f"GENE{i}" for i in range(len(ids))],
-                "hgnc_id": [f"HGNC:{i}" for i in range(len(ids))],
+                "target_chembl_id": id_list,
+                "uniprot_id_primary": [f"P{i}" for i in range(len(id_list))],
+                "gene_symbol": [f"GENE{i}" for i in range(len(id_list))],
+                "hgnc_id": [f"HGNC:{i}" for i in range(len(id_list))],
             }
         )
 
@@ -480,19 +487,22 @@ def test_pipeline_targets_cli_uses_configured_list_format(
 
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
 
-    def fake_fetch_targets(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
-        return pd.DataFrame({"target_chembl_id": ids})
+    def fake_fetch_targets(ids: Iterable[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
+        id_list = [identifier for identifier in ids if identifier]
+        return pd.DataFrame({"target_chembl_id": id_list})
 
     monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
 
-    def fake_run_pipeline(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
+    def fake_run_pipeline(ids: Iterable[str], *_args: Any, **kwargs: Any) -> pd.DataFrame:
+        chembl_df = kwargs["chembl_fetcher"](ids, kwargs["chembl_config"])
+        id_list = chembl_df["target_chembl_id"].tolist()
         data: dict[str, Any] = {
-            "target_chembl_id": ids,
-            "uniprot_id_primary": ["P001" for _ in ids],
-            "gene_symbol": ["GENE" for _ in ids],
+            "target_chembl_id": id_list,
+            "uniprot_id_primary": ["P001" for _ in id_list],
+            "gene_symbol": ["GENE" for _ in id_list],
         }
         for column in module.IUPHAR_CLASS_COLUMNS:
-            data[column] = [""] * len(ids)
+            data[column] = [""] * len(id_list)
         return pd.DataFrame(data)
 
     monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
@@ -576,25 +586,28 @@ orthologs:
 
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
 
-    def fake_fetch_targets(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
-        return pd.DataFrame({"target_chembl_id": ids})
+    def fake_fetch_targets(ids: Iterable[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
+        id_list = [identifier for identifier in ids if identifier]
+        return pd.DataFrame({"target_chembl_id": id_list})
 
     monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
 
     def fake_run_pipeline(
-        ids: list[str], pipeline_cfg: Any, *_args: Any, **_kwargs: Any
+        ids: Iterable[str], pipeline_cfg: Any, *_args: Any, **kwargs: Any
     ) -> pd.DataFrame:
+        chembl_df = kwargs["chembl_fetcher"](ids, kwargs["chembl_config"])
+        id_list = chembl_df["target_chembl_id"].tolist()
         captured["list_format"] = pipeline_cfg.list_format
         captured["species_priority"] = list(pipeline_cfg.species_priority)
         captured["approved_only"] = pipeline_cfg.iuphar.approved_only
         captured["primary_target_only"] = pipeline_cfg.iuphar.primary_target_only
         data: dict[str, Any] = {
-            "target_chembl_id": ids,
-            "uniprot_id_primary": ["P001" for _ in ids],
-            "gene_symbol": ["GENE" for _ in ids],
+            "target_chembl_id": id_list,
+            "uniprot_id_primary": ["P001" for _ in id_list],
+            "gene_symbol": ["GENE" for _ in id_list],
         }
         for column in module.IUPHAR_CLASS_COLUMNS:
-            data[column] = [""] * len(ids)
+            data[column] = [""] * len(id_list)
         return pd.DataFrame(data)
 
     monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
@@ -681,25 +694,28 @@ orthologs:
 
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
 
-    def fake_fetch_targets(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
-        return pd.DataFrame({"target_chembl_id": ids})
+    def fake_fetch_targets(ids: Iterable[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
+        id_list = [identifier for identifier in ids if identifier]
+        return pd.DataFrame({"target_chembl_id": id_list})
 
     monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
 
     def fake_run_pipeline(
-        ids: list[str], pipeline_cfg: Any, *_args: Any, **_kwargs: Any
+        ids: Iterable[str], pipeline_cfg: Any, *_args: Any, **kwargs: Any
     ) -> pd.DataFrame:
+        chembl_df = kwargs["chembl_fetcher"](ids, kwargs["chembl_config"])
+        id_list = chembl_df["target_chembl_id"].tolist()
         captured["list_format"] = pipeline_cfg.list_format
         captured["species_priority"] = list(pipeline_cfg.species_priority)
         captured["approved_only"] = pipeline_cfg.iuphar.approved_only
         captured["primary_target_only"] = pipeline_cfg.iuphar.primary_target_only
         data: dict[str, Any] = {
-            "target_chembl_id": ids,
-            "uniprot_id_primary": ["P001" for _ in ids],
-            "gene_symbol": ["GENE" for _ in ids],
+            "target_chembl_id": id_list,
+            "uniprot_id_primary": ["P001" for _ in id_list],
+            "gene_symbol": ["GENE" for _ in id_list],
         }
         for column in module.IUPHAR_CLASS_COLUMNS:
-            data[column] = [""] * len(ids)
+            data[column] = [""] * len(id_list)
         return pd.DataFrame(data)
 
     monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
@@ -801,19 +817,22 @@ def test_pipeline_targets_cli_network_overrides(
 
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
 
-    def fake_fetch_targets(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
-        return pd.DataFrame({"target_chembl_id": ids})
+    def fake_fetch_targets(ids: Iterable[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
+        id_list = [identifier for identifier in ids if identifier]
+        return pd.DataFrame({"target_chembl_id": id_list})
 
     monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
 
-    def fake_run_pipeline(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
+    def fake_run_pipeline(ids: Iterable[str], *_args: Any, **kwargs: Any) -> pd.DataFrame:
+        chembl_df = kwargs["chembl_fetcher"](ids, kwargs["chembl_config"])
+        id_list = chembl_df["target_chembl_id"].tolist()
         data: dict[str, Any] = {
-            "target_chembl_id": ids,
-            "uniprot_id_primary": ["P001" for _ in ids],
-            "gene_symbol": ["GENE" for _ in ids],
+            "target_chembl_id": id_list,
+            "uniprot_id_primary": ["P001" for _ in id_list],
+            "gene_symbol": ["GENE" for _ in id_list],
         }
         for column in module.IUPHAR_CLASS_COLUMNS:
-            data[column] = [""] * len(ids)
+            data[column] = [""] * len(id_list)
         return pd.DataFrame(data)
 
     monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
@@ -902,20 +921,23 @@ uniprot_enrich: null
 
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
 
-    def fake_fetch_targets(ids: list[str], cfg: Any, batch_size: int) -> pd.DataFrame:
+    def fake_fetch_targets(ids: Iterable[str], cfg: Any, batch_size: int) -> pd.DataFrame:
+        id_list = [identifier for identifier in ids if identifier]
         captured["chembl_columns"] = list(cfg.columns)
-        return pd.DataFrame({"target_chembl_id": ids})
+        return pd.DataFrame({"target_chembl_id": id_list})
 
     monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
 
-    def fake_run_pipeline(ids: list[str], *_args: Any, **_kwargs: Any) -> pd.DataFrame:
+    def fake_run_pipeline(ids: Iterable[str], *_args: Any, **kwargs: Any) -> pd.DataFrame:
+        chembl_df = kwargs["chembl_fetcher"](ids, kwargs["chembl_config"])
+        id_list = chembl_df["target_chembl_id"].tolist()
         data: dict[str, Any] = {
-            "target_chembl_id": ids,
-            "uniprot_id_primary": ["P001" for _ in ids],
-            "gene_symbol": ["GENE" for _ in ids],
+            "target_chembl_id": id_list,
+            "uniprot_id_primary": ["P001" for _ in id_list],
+            "gene_symbol": ["GENE" for _ in id_list],
         }
         for column in module.IUPHAR_CLASS_COLUMNS:
-            data[column] = [""] * len(ids)
+            data[column] = [""] * len(id_list)
         return pd.DataFrame(data)
 
     monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
@@ -1009,31 +1031,34 @@ def test_run_pipeline_streams_identifiers_without_dataframe(
 
     monkeypatch.setattr(module, "build_clients", fake_build_clients)
 
-    def fake_fetch_targets(ids: list[str], _cfg: Any, batch_size: int) -> pd.DataFrame:
-        captured["fetch_targets_ids"] = list(ids)
+    def fake_fetch_targets(ids: Iterable[str], _cfg: Any, batch_size: int) -> pd.DataFrame:
+        id_list = [identifier for identifier in ids if identifier]
+        captured["fetch_targets_ids"] = id_list
         captured["fetch_targets_batch"] = batch_size
         return pd.DataFrame(
             {
-                "target_chembl_id": ids,
-                "pref_name": [f"pref_{identifier}" for identifier in ids],
+                "target_chembl_id": id_list,
+                "pref_name": [f"pref_{identifier}" for identifier in id_list],
             }
         )
 
     monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
 
-    def fake_run_pipeline(ids: list[str], *_args: Any, **kwargs: Any) -> pd.DataFrame:
-        captured["run_ids"] = list(ids)
+    def fake_run_pipeline(ids: Iterable[str], *_args: Any, **kwargs: Any) -> pd.DataFrame:
+        chembl_df = kwargs["chembl_fetcher"](ids, kwargs["chembl_config"])
+        id_list = chembl_df["target_chembl_id"].tolist()
+        captured["run_ids"] = id_list
         progress_callback = kwargs.get("progress_callback")
         if callable(progress_callback):
-            for _ in ids:
+            for _ in id_list:
                 progress_callback(1)
         data: dict[str, Any] = {
-            "target_chembl_id": list(ids),
-            "uniprot_id_primary": [f"P{i:05d}" for i, _ in enumerate(ids, start=1)],
-            "gene_symbol": [f"GENE{i}" for i, _ in enumerate(ids, start=1)],
+            "target_chembl_id": id_list,
+            "uniprot_id_primary": [f"P{i:05d}" for i, _ in enumerate(id_list, start=1)],
+            "gene_symbol": [f"GENE{i}" for i, _ in enumerate(id_list, start=1)],
         }
         for column in module.IUPHAR_CLASS_COLUMNS:
-            data[column] = [""] * len(ids)
+            data[column] = [""] * len(id_list)
         return pd.DataFrame(data)
 
     monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
@@ -1157,6 +1182,130 @@ def test_run_pipeline_streams_identifiers_without_dataframe(
         module._run_pipeline(args)
 
     assert str(excinfo.value) == "Missing required column 'target_chembl_id'"
+
+
+def test_pipeline_targets_cli_streams_generator_without_materialising(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ensure the CLI passes a generator through to the fetch layer unchanged."""
+
+    module: Any = importlib.import_module("scripts.pipeline_targets_main")
+
+    total_ids = 512
+    identifiers = [f"CHEMBL{i:05d}" for i in range(total_ids)]
+
+    input_csv = tmp_path / "input.csv"
+    input_csv.write_text(
+        "target_chembl_id\n" + "\n".join(identifiers) + "\n",
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("{}\n", encoding="utf-8")
+
+    captured: dict[str, Any] = {}
+
+    def fake_read_ids(
+        path: Path,
+        column: str,
+        cfg: Any,
+        *,
+        limit: int | None = None,
+        normalise: Any = None,
+    ) -> Iterator[str]:
+        captured["read_path"] = path
+        captured["read_column"] = column
+        captured["read_limit"] = limit
+        captured["read_normalise"] = normalise
+        yield from identifiers
+
+    monkeypatch.setattr(module, "read_ids", fake_read_ids)
+
+    def fake_fetch_targets(ids_iter: Iterable[str], cfg: Any, batch_size: int) -> pd.DataFrame:
+        captured["fetch_is_iterator"] = isinstance(ids_iter, Iterator)
+        captured["fetch_is_materialised"] = isinstance(ids_iter, (list, tuple))
+        captured["fetch_batch_size"] = batch_size
+        values = list(ids_iter)
+        captured["fetch_count"] = len(values)
+        return pd.DataFrame(
+            {
+                "target_chembl_id": values,
+                "pref_name": [f"pref_{identifier}" for identifier in values],
+            }
+        )
+
+    monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
+
+    def fake_run_pipeline(ids_iter: Iterable[str], *_args: Any, **kwargs: Any) -> pd.DataFrame:
+        assert not isinstance(ids_iter, list)
+        assert isinstance(ids_iter, Iterable)
+        chembl_df = kwargs["chembl_fetcher"](ids_iter, kwargs["chembl_config"])
+        values = chembl_df["target_chembl_id"].tolist()
+        progress = kwargs.get("progress_callback")
+        if callable(progress):
+            for _ in values:
+                progress(1)
+        frame = pd.DataFrame(
+            {
+                "target_chembl_id": values,
+                "uniprot_id_primary": [f"P{i:05d}" for i, _ in enumerate(values, start=1)],
+                "gene_symbol": [f"GENE{i}" for i, _ in enumerate(values, start=1)],
+            }
+        )
+        for column in module.IUPHAR_CLASS_COLUMNS:
+            frame[column] = ""
+        return frame
+
+    monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
+    monkeypatch.setattr(module, "add_uniprot_fields", _identity_frame)
+    monkeypatch.setattr(module, "merge_chembl_fields", _identity_frame)
+    monkeypatch.setattr(module, "add_activity_fields", _identity_frame)
+    monkeypatch.setattr(module, "add_isoform_fields", _identity_frame)
+    monkeypatch.setattr(module, "add_protein_classification", _identity_frame)
+
+    class DummyUniClient:
+        def fetch_entry_json(self, accession: str) -> dict[str, Any]:
+            return {"id": accession}
+
+        def fetch_entries_json(
+            self, accessions: list[str], batch_size: int = 0
+        ) -> dict[str, dict[str, Any]]:
+            _ = batch_size
+            return {acc: {"id": acc} for acc in accessions}
+
+    def fake_build_clients(*_args: Any, **_kwargs: Any) -> tuple[Any, ...]:
+        return (
+            DummyUniClient(),
+            object(),
+            object(),
+            None,
+            None,
+            [],
+            lambda *a, **k: _dummy_enrich_client(),
+        )
+
+    monkeypatch.setattr(module, "build_clients", fake_build_clients)
+    monkeypatch.setattr(module, "analyze_table_quality", _noop_analyze_table_quality)
+    monkeypatch.setattr(module, "write_cli_metadata", _fake_write_metadata)
+
+    args = module.parse_args(
+        [
+            "--config",
+            str(config_path),
+            "--input",
+            str(input_csv),
+            "--output",
+            str(tmp_path / "output.csv"),
+            "--encoding",
+            "utf-8",
+        ]
+    )
+
+    module._run_pipeline(args)
+
+    assert captured["fetch_is_iterator"] is True
+    assert captured["fetch_is_materialised"] is False
+    assert captured["fetch_count"] == total_ids
+    assert captured["fetch_batch_size"] == args.batch_size
 
 
 def test_pipeline_targets_cli_rejects_invalid_list_format(
