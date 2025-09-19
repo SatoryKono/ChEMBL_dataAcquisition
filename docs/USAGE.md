@@ -24,6 +24,12 @@ identifier with nested fields serialised deterministically via
 ``--list-format``. A companion ``.meta.yaml`` file captures the CLI invocation,
 row/column counts, and output checksum.
 
+Network and API failures are surfaced as ``requests`` exceptions. The downloader
+raises :class:`requests.HTTPError` for non-success HTTP statuses (for example,
+``404`` or ``500`` responses) and propagates other
+:class:`requests.RequestException` instances so that automation can fail fast
+instead of silently producing partial outputs.
+
 ## dump_gtop_target.py
 
 Resolve identifiers against the IUPHAR/BPS Guide to PHARMACOLOGY and download
