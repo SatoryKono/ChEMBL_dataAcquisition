@@ -26,7 +26,9 @@ ChemblClient = importlib.import_module("library.chembl_client").ChemblClient
 get_activities = importlib.import_module("library.chembl_library").get_activities
 read_ids = importlib.import_module("library.io").read_ids
 CsvConfig = importlib.import_module("library.io_utils").CsvConfig
-chembl_activities_main = importlib.import_module("scripts.chembl_activities_main").main
+chembl_activities_module = importlib.import_module("scripts.chembl_activities_main")
+chembl_activities_main = chembl_activities_module.main
+chembl_activities_parse_args = chembl_activities_module.parse_args
 
 
 def test_read_ids_limit(tmp_path: Path) -> None:
@@ -67,6 +69,13 @@ def test_get_activities_batches_requests() -> None:
     df = get_activities(DummyClient(), ["CHEMBL1", "CHEMBL2", "CHEMBL3"], chunk_size=2)
     assert list(df["activity_chembl_id"]) == ["CHEMBL1", "CHEMBL2", "CHEMBL3"]
     assert calls == [["CHEMBL1", "CHEMBL2"], ["CHEMBL3"]]
+
+
+@pytest.mark.parametrize("chunk_size", [0, -5])
+def test_parse_args_rejects_non_positive_chunk_sizes(chunk_size: int) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        chembl_activities_parse_args(["--chunk-size", str(chunk_size)])
+    assert excinfo.value.code == 2
 
 
 def test_normalize_activities() -> None:
