@@ -2,18 +2,21 @@ from __future__ import annotations
 
 import csv
 import json
-from pathlib import Path
 import sys
+from collections.abc import Iterator
+from pathlib import Path
 
 import pandas as pd
 import pytest
 import yaml
 
+from library import io as library_io  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.get_target_data_main import main  # noqa: E402
+import scripts.get_target_data_main as get_target_data_main  # noqa: E402
 
 
 def test_get_target_data_cli_writes_csv_and_meta(
@@ -49,6 +52,17 @@ def test_get_target_data_cli_writes_csv_and_meta(
 
     monkeypatch.setattr("scripts.get_target_data_main.fetch_targets", fake_fetch)
 
+    call_count = 0
+
+    def counting_read_ids(
+        path: Path, column: str, cfg: object, **kwargs: object
+    ) -> Iterator[str]:
+        nonlocal call_count
+        call_count += 1
+        return library_io.read_ids(path, column, cfg, **kwargs)
+
+    monkeypatch.setattr(get_target_data_main, "read_ids", counting_read_ids)
+
     quality_calls: list[tuple[object, str, str, str]] = []
 
     def fake_quality(
@@ -61,7 +75,7 @@ def test_get_target_data_cli_writes_csv_and_meta(
         "scripts.get_target_data_main.analyze_table_quality", fake_quality
     )
 
-    main(
+    get_target_data_main.main(
         [
             "--input",
             str(input_csv),
@@ -77,6 +91,8 @@ def test_get_target_data_cli_writes_csv_and_meta(
             "json",
         ]
     )
+
+    assert call_count == 1
 
     with output_csv.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -128,9 +144,9 @@ def test_get_target_data_cli_streams_in_batches(
     monkeypatch.setattr("scripts.get_target_data_main.STREAM_BATCH_SIZE", 2)
 
     def fake_quality(
-        table: object, *, table_name: str, separator: str, encoding: str
+        table: Path, *, table_name: str, separator: str, encoding: str
     ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        assert Path(table) == output_csv
+        assert table == output_csv
         assert table_name == str(output_csv.with_suffix(""))
         assert separator == ","
         assert encoding == "utf-8"
@@ -140,7 +156,7 @@ def test_get_target_data_cli_streams_in_batches(
         "scripts.get_target_data_main.analyze_table_quality", fake_quality
     )
 
-    main(
+    get_target_data_main.main(
         [
             "--input",
             str(input_csv),

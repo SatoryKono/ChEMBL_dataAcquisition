@@ -152,6 +152,10 @@ The repository is organized as follows:
 
 The pipeline is primarily driven by the scripts in the `scripts/` directory. Each script provides a command-line interface for a specific task.
 
+### Memory considerations
+
+`scripts/get_target_data_main.py` streams the identifier column directly from disk using `library.io.read_ids`. The generator is consumed once by the batching helper, which means the CLI never materialises the full list of target identifiers in memory. Only a single chunk of identifiers—200 rows by default via `STREAM_BATCH_SIZE`—and the current response DataFrame are resident at any given time. Workflows that need to iterate over the identifiers repeatedly must reopen the input file or explicitly cache the values to avoid exhausting memory on large datasets.
+
 ## Output Artefacts and Determinism
 
 Every CLI produces a primary CSV file together with deterministic companion
