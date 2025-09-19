@@ -936,6 +936,222 @@ uniprot_enrich: null
     assert "target_chembl_id" in captured["chembl_columns"]
 
 
+def test_run_pipeline_streams_identifiers_without_dataframe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ensure `_run_pipeline` streams identifiers and keeps friendly errors."""
+
+    module: Any = importlib.import_module("scripts.pipeline_targets_main")
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("{}\n", encoding="utf-8")
+
+    input_path = tmp_path / "input.csv"
+    input_path.write_text(
+        "\n".join(
+            [
+                "target_chembl_id",
+                "  CHEMBL2 ",
+                "CHEMBL1",
+                "cheMBL1",
+                "nan",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    output_path = tmp_path / "out.csv"
+
+    monkeypatch.setattr(module, "_load_yaml_mapping", lambda *_a, **_k: {})
+
+    def fail_read_csv(*_args: Any, **_kwargs: Any) -> pd.DataFrame:
+        raise AssertionError("pd.read_csv should not be called for streaming IDs")
+
+    monkeypatch.setattr(module.pd, "read_csv", fail_read_csv)
+
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        module, "load_pipeline_config", lambda *_a, **_k: module.PipelineConfig()
+    )
+
+    class DummyUniClient:
+        def fetch_entry_json(self, accession: str) -> dict[str, Any]:
+            return {"id": accession}
+
+        def fetch_entries_json(
+            self, accessions: list[str], batch_size: int = 0
+        ) -> dict[str, dict[str, Any]]:
+            _ = batch_size
+            return {acc: {"id": acc} for acc in accessions}
+
+    class DummyEnrichClient:
+        def fetch_all(self, accessions: list[str]) -> dict[str, dict[str, str]]:
+            return {acc: {} for acc in accessions}
+
+    def fake_build_clients(*_args: Any, **_kwargs: Any) -> tuple[Any, ...]:
+        captured["build_clients_called"] = True
+
+        def _factory(*f_args: Any, **f_kwargs: Any) -> DummyEnrichClient:
+            captured["enrich_factory_args"] = f_args
+            captured["enrich_factory_kwargs"] = f_kwargs
+            return DummyEnrichClient()
+
+        return (DummyUniClient(), object(), object(), None, None, [], _factory)
+
+    monkeypatch.setattr(module, "build_clients", fake_build_clients)
+
+    def fake_fetch_targets(ids: list[str], _cfg: Any, batch_size: int) -> pd.DataFrame:
+        captured["fetch_targets_ids"] = list(ids)
+        captured["fetch_targets_batch"] = batch_size
+        return pd.DataFrame(
+            {
+                "target_chembl_id": ids,
+                "pref_name": [f"pref_{identifier}" for identifier in ids],
+            }
+        )
+
+    monkeypatch.setattr(module, "fetch_targets", fake_fetch_targets)
+
+    def fake_run_pipeline(ids: list[str], *_args: Any, **kwargs: Any) -> pd.DataFrame:
+        captured["run_ids"] = list(ids)
+        progress_callback = kwargs.get("progress_callback")
+        if callable(progress_callback):
+            for _ in ids:
+                progress_callback(1)
+        data: dict[str, Any] = {
+            "target_chembl_id": list(ids),
+            "uniprot_id_primary": [f"P{i:05d}" for i, _ in enumerate(ids, start=1)],
+            "gene_symbol": [f"GENE{i}" for i, _ in enumerate(ids, start=1)],
+        }
+        for column in module.IUPHAR_CLASS_COLUMNS:
+            data[column] = [""] * len(ids)
+        return pd.DataFrame(data)
+
+    monkeypatch.setattr(module, "run_pipeline", fake_run_pipeline)
+    monkeypatch.setattr(module, "add_uniprot_fields", _identity_frame)
+    monkeypatch.setattr(module, "merge_chembl_fields", _identity_frame)
+    monkeypatch.setattr(module, "add_activity_fields", _identity_frame)
+    monkeypatch.setattr(module, "add_isoform_fields", _identity_frame)
+    monkeypatch.setattr(module, "add_protein_classification", _identity_frame)
+
+    def fake_ensure_output_dir(path: Path) -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    monkeypatch.setattr(module, "ensure_output_dir", fake_ensure_output_dir)
+
+    def fake_serialise_dataframe(
+        df: pd.DataFrame, list_format: str, *, inplace: bool = False
+    ) -> pd.DataFrame:
+        captured["serialise_list_format"] = list_format
+        captured["serialise_inplace"] = inplace
+        return df
+
+    monkeypatch.setattr(module, "serialise_dataframe", fake_serialise_dataframe)
+
+    def fake_resolve_cli_sidecar_paths(
+        path: Path, *, meta_output: str | None = None
+    ) -> tuple[Path, None, Path]:
+        captured["sidecar_meta_output"] = meta_output
+        meta_path = Path(meta_output) if meta_output else path.with_suffix(".meta.yaml")
+        quality_base = path.with_suffix(".quality")
+        return meta_path, None, quality_base
+
+    monkeypatch.setattr(
+        module, "resolve_cli_sidecar_paths", fake_resolve_cli_sidecar_paths
+    )
+
+    def fake_analyze_table_quality(
+        df: pd.DataFrame, *, table_name: str | None = None
+    ) -> None:
+        captured["quality"] = {"shape": df.shape, "table_name": table_name}
+
+    monkeypatch.setattr(module, "analyze_table_quality", fake_analyze_table_quality)
+
+    def fake_write_cli_metadata(*args: Any, **kwargs: Any) -> Path:
+        captured["metadata_args"] = args
+        captured["metadata_kwargs"] = kwargs
+        meta_path = kwargs.get("meta_path") or Path(args[0]).with_suffix(".meta.yaml")
+        captured["metadata_path"] = meta_path
+        return meta_path
+
+    monkeypatch.setattr(module, "write_cli_metadata", fake_write_cli_metadata)
+
+    original_read_ids = module.read_ids
+
+    def capturing_read_ids(
+        path: Path,
+        column: str,
+        cfg: Any,
+        *,
+        limit: int | None = None,
+        normalise: Any = None,
+    ) -> Any:
+        captured["read_ids_path"] = path
+        captured["read_ids_column"] = column
+        captured["read_ids_cfg"] = cfg
+        captured["read_ids_limit"] = limit
+        captured["read_ids_normalise"] = normalise
+        return original_read_ids(
+            path,
+            column,
+            cfg,
+            limit=limit,
+            normalise=normalise,
+        )
+
+    monkeypatch.setattr(module, "read_ids", capturing_read_ids)
+
+    args = module.parse_args(
+        [
+            "--config",
+            str(config_path),
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--encoding",
+            "utf-8",
+        ]
+    )
+
+    expected_ids = module._prepare_identifier_series(
+        pd.Series(["  CHEMBL2 ", "CHEMBL1", "cheMBL1", "nan", None, ""])
+    )[1]
+
+    module._run_pipeline(args)
+
+    assert captured["read_ids_path"] == input_path
+    assert captured["read_ids_column"] == args.id_column
+    assert isinstance(captured["read_ids_cfg"], module.CsvConfig)
+    assert captured["read_ids_cfg"].sep == args.sep
+    assert captured["read_ids_cfg"].encoding == args.encoding
+    assert captured["read_ids_limit"] is None
+    assert captured["read_ids_normalise"] is module._normalise_identifier_series
+    assert captured["run_ids"] == expected_ids
+    assert captured["fetch_targets_ids"] == expected_ids
+    assert captured["fetch_targets_batch"] == args.batch_size
+    assert output_path.exists()
+    assert captured["serialise_list_format"] == module.PipelineConfig().list_format
+    assert captured["quality"]["shape"][0] == len(expected_ids)
+    assert captured["metadata_kwargs"]["row_count"] == len(expected_ids)
+
+    missing_output = tmp_path / "missing.csv"
+    args.output = str(missing_output)
+
+    def missing_column_read_ids(*_a: Any, **_k: Any) -> Any:
+        raise KeyError("Missing required column 'target_chembl_id'")
+
+    monkeypatch.setattr(module, "read_ids", missing_column_read_ids)
+
+    with pytest.raises(ValueError) as excinfo:
+        module._run_pipeline(args)
+
+    assert str(excinfo.value) == "Missing required column 'target_chembl_id'"
+
+
 def test_pipeline_targets_cli_rejects_invalid_list_format(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
