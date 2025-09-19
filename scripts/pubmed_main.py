@@ -917,7 +917,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="global_chunk_size",
         type=int,
         default=None,
-        help="Override the chunk size for ChEMBL document downloads",
+        help="Override the chunk size for ChEMBL document downloads (must be positive)",
     )
     parser.add_argument(
         "--timeout",
@@ -931,7 +931,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="global_semantic_scholar_chunk_size",
         type=int,
         default=None,
-        help="Override the Semantic Scholar chunk size",
+        help="Override the Semantic Scholar chunk size (must be positive)",
     )
     parser.add_argument(
         "--semantic-scholar-timeout",
@@ -966,7 +966,12 @@ def build_parser() -> argparse.ArgumentParser:
     pubmed_parser.add_argument("--openalex-rps", type=float, default=None)
     pubmed_parser.add_argument("--crossref-rps", type=float, default=None)
     pubmed_parser.add_argument("--semantic-scholar-rps", type=float, default=None)
-    pubmed_parser.add_argument("--semantic-scholar-chunk-size", type=int, default=None)
+    pubmed_parser.add_argument(
+        "--semantic-scholar-chunk-size",
+        type=int,
+        default=None,
+        help="Override the Semantic Scholar chunk size (must be positive)",
+    )
     pubmed_parser.add_argument("--semantic-scholar-timeout", type=float, default=None)
 
     openalex_parser = subparsers.add_parser(
@@ -990,7 +995,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Download ChEMBL document metadata",
         parents=[common_parser],
     )
-    chembl_parser.add_argument("--chunk-size", type=int, default=None)
+    chembl_parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=None,
+        help="Override the chunk size for ChEMBL document downloads (must be positive)",
+    )
     chembl_parser.add_argument("--timeout", type=float, default=None)
 
     scholar_parser = subparsers.add_parser(
@@ -998,7 +1008,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fetch Semantic Scholar metadata",
         parents=[common_parser],
     )
-    scholar_parser.add_argument("--semantic-scholar-chunk-size", type=int, default=None)
+    scholar_parser.add_argument(
+        "--semantic-scholar-chunk-size",
+        type=int,
+        default=None,
+        help="Override the Semantic Scholar chunk size (must be positive)",
+    )
     scholar_parser.add_argument("--semantic-scholar-rps", type=float, default=None)
     scholar_parser.add_argument("--semantic-scholar-timeout", type=float, default=None)
 
@@ -1012,13 +1027,66 @@ def build_parser() -> argparse.ArgumentParser:
     all_parser.add_argument("--workers", type=int, default=None)
     all_parser.add_argument("--openalex-rps", type=float, default=None)
     all_parser.add_argument("--crossref-rps", type=float, default=None)
-    all_parser.add_argument("--chunk-size", type=int, default=None)
+    all_parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=None,
+        help="Override the chunk size for ChEMBL document downloads (must be positive)",
+    )
     all_parser.add_argument("--timeout", type=float, default=None)
     all_parser.add_argument("--semantic-scholar-rps", type=float, default=None)
-    all_parser.add_argument("--semantic-scholar-chunk-size", type=int, default=None)
+    all_parser.add_argument(
+        "--semantic-scholar-chunk-size",
+        type=int,
+        default=None,
+        help="Override the Semantic Scholar chunk size (must be positive)",
+    )
     all_parser.add_argument("--semantic-scholar-timeout", type=float, default=None)
 
     return parser
+
+
+def _ensure_positive_chunk_size(
+    parser: argparse.ArgumentParser,
+    namespace: argparse.Namespace,
+    attribute: str,
+    option_string: str,
+) -> None:
+    """Validate that ``attribute`` on ``namespace`` is a positive integer."""
+
+    value = getattr(namespace, attribute, None)
+    if value is not None and value <= 0:
+        parser.error(f"{option_string} must be a positive integer")
+
+
+def _validate_chunk_size_options(
+    parser: argparse.ArgumentParser, namespace: argparse.Namespace
+) -> None:
+    """Validate all chunk-size related CLI options."""
+
+    _ensure_positive_chunk_size(parser, namespace, "global_chunk_size", "--chunk-size")
+    _ensure_positive_chunk_size(parser, namespace, "chunk_size", "--chunk-size")
+    _ensure_positive_chunk_size(
+        parser,
+        namespace,
+        "global_semantic_scholar_chunk_size",
+        "--semantic-scholar-chunk-size",
+    )
+    _ensure_positive_chunk_size(
+        parser,
+        namespace,
+        "semantic_scholar_chunk_size",
+        "--semantic-scholar-chunk-size",
+    )
+
+
+def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
+    """Parse command-line arguments and validate chunk-size options."""
+
+    parser = build_parser()
+    parsed_args = parser.parse_args(args)
+    _validate_chunk_size_options(parser, parsed_args)
+    return parsed_args
 
 
 def _cli_option(args: argparse.Namespace, *names: str) -> Any | None:
@@ -1125,8 +1193,7 @@ def run_semantic_scholar_command(
 
 def main() -> None:
     """The main entry point for the script."""
-    parser = build_parser()
-    args = parser.parse_args()
+    args = parse_args()
     configure_logging(args.log_level, log_format=args.log_format)
     config = load_config(args.config)
     apply_cli_overrides(args, config)

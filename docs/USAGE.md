@@ -103,3 +103,6 @@ python scripts/chembl_activities_main.py \
     --chunk-size 5 \
     --log-level INFO
 ```
+
+Always provide a strictly positive integer to `--chunk-size`; the CLI rejects
+zero or negative values during parsing to avoid invalid batching parameters.

@@ -24,7 +24,9 @@ get_assays = importlib.import_module("library.chembl_library").get_assays
 read_ids = importlib.import_module("library.io").read_ids
 CsvConfig = importlib.import_module("library.io_utils").CsvConfig
 write_meta_yaml = importlib.import_module("library.metadata").write_meta_yaml
-chembl_assays_main = importlib.import_module("scripts.chembl_assays_main").main
+chembl_assays_module = importlib.import_module("scripts.chembl_assays_main")
+chembl_assays_main = chembl_assays_module.main
+chembl_assays_parse_args = chembl_assays_module.parse_args
 
 
 def test_read_ids_streams_unique(tmp_path: Path) -> None:
@@ -64,6 +66,13 @@ def test_get_assays_batches_requests() -> None:
     df = get_assays(DummyClient(), ["CHEMBL1", "CHEMBL2", "CHEMBL3"], chunk_size=2)
     assert list(df["assay_chembl_id"]) == ["CHEMBL1", "CHEMBL2", "CHEMBL3"]
     assert calls == [["CHEMBL1", "CHEMBL2"], ["CHEMBL3"]]
+
+
+@pytest.mark.parametrize("chunk_size", [0, -3])
+def test_assay_cli_rejects_non_positive_chunk_sizes(chunk_size: int) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        chembl_assays_parse_args(["--chunk-size", str(chunk_size)])
+    assert excinfo.value.code == 2
 
 
 def test_postprocess_and_normalize() -> None:

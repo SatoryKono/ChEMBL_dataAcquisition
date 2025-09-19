@@ -128,7 +128,10 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         "--column", default="molecule_chembl_id", help="Column containing molecule IDs"
     )
     parser.add_argument(
-        "--chunk-size", type=int, default=20, help="Number of IDs fetched per batch"
+        "--chunk-size",
+        type=int,
+        default=20,
+        help="Number of IDs fetched per batch (must be positive)",
     )
     parser.add_argument(
         "--timeout", type=float, default=30.0, help="HTTP timeout in seconds"
@@ -231,7 +234,10 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Read and validate the input file without fetching or writing output",
     )
-    return parser.parse_args(args)
+    parsed_args = parser.parse_args(args)
+    if parsed_args.chunk_size <= 0:
+        parser.error("--chunk-size must be a positive integer")
+    return parsed_args
 
 
 def _limited_ids(

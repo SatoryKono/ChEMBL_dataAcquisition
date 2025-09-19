@@ -328,8 +328,7 @@ def test_run_all_merges_chembl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 def test_global_cli_overrides_before_command() -> None:
     """Global CLI flags provided before the command should update the config."""
 
-    parser = pm.build_parser()
-    args = parser.parse_args(["--batch-size", "25", "all"])
+    args = pm.parse_args(["--batch-size", "25", "all"])
     config = deepcopy(pm.DEFAULT_CONFIG)
 
     pm.apply_cli_overrides(args, config)
@@ -340,8 +339,7 @@ def test_global_cli_overrides_before_command() -> None:
 def test_chembl_global_cli_overrides() -> None:
     """Global ChEMBL flags should work regardless of argument order."""
 
-    parser = pm.build_parser()
-    args = parser.parse_args(["--chunk-size", "8", "chembl"])
+    args = pm.parse_args(["--chunk-size", "8", "chembl"])
     config = deepcopy(pm.DEFAULT_CONFIG)
 
     pm.apply_cli_overrides(args, config)
@@ -349,11 +347,42 @@ def test_chembl_global_cli_overrides() -> None:
     assert config["chembl"]["chunk_size"] == 8
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--chunk-size", "0", "chembl"],
+        ["--chunk-size", "-1", "chembl"],
+        ["chembl", "--chunk-size", "0"],
+        ["chembl", "--chunk-size", "-5"],
+    ],
+)
+def test_pubmed_cli_rejects_non_positive_chunk_sizes(argv: Sequence[str]) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        pm.parse_args(list(argv))
+    assert excinfo.value.code == 2
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--semantic-scholar-chunk-size", "0", "scholar"],
+        ["--semantic-scholar-chunk-size", "-2", "pubmed"],
+        ["scholar", "--semantic-scholar-chunk-size", "0"],
+        ["all", "--semantic-scholar-chunk-size", "-3"],
+    ],
+)
+def test_pubmed_cli_rejects_non_positive_semantic_chunk_sizes(
+    argv: Sequence[str],
+) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        pm.parse_args(list(argv))
+    assert excinfo.value.code == 2
+
+
 def test_output_argument_after_command() -> None:
     """The shared --output flag should be accepted after the command name."""
 
-    parser = pm.build_parser()
-    args = parser.parse_args(["all", "--output", "results.csv"])
+    args = pm.parse_args(["all", "--output", "results.csv"])
 
     assert args.command == "all"
     assert args.output == "results.csv"
@@ -362,8 +391,7 @@ def test_output_argument_after_command() -> None:
 def test_default_command_when_omitted() -> None:
     """Omitting the command should fall back to the default 'all' command."""
 
-    parser = pm.build_parser()
-    args = parser.parse_args(["--input", "input.csv"])
+    args = pm.parse_args(["--input", "input.csv"])
 
     assert args.command == pm.DEFAULT_COMMAND
     assert args.workers is None
@@ -421,8 +449,7 @@ def test_run_semantic_scholar_command(
 def test_semantic_scholar_cli_overrides() -> None:
     """Semantic Scholar CLI options should override config values."""
 
-    parser = pm.build_parser()
-    args = parser.parse_args(
+    args = pm.parse_args(
         [
             "--semantic-scholar-rps",
             "0.5",
