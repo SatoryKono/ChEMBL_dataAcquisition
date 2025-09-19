@@ -69,6 +69,12 @@ fall out of sync.
     ```
     Omit ``.[dev]`` if you only need the runtime dependencies.
 
+3.  For local development use an editable install so that CLI entry points and
+    imports reflect live code changes:
+    ```bash
+    pip install -e .
+    ```
+
 3.  Install the pre-commit hooks to ensure consistent formatting, linting, type
     checking, and tests before each commit:
     ```bash
@@ -130,7 +136,44 @@ The repository is organized as follows:
 
 ## Usage
 
-The pipeline is primarily driven by the scripts in the `scripts/` directory. Each script provides a command-line interface for a specific task.
+The pipeline is primarily driven by the console entry points that become
+available after installation. Each command wraps one of the modules in the
+`scripts/` directory and accepts the unified CLI options described below.
+
+### Command-line entry points
+
+The following commands are installed via `pip` and map to the corresponding
+modules:
+
+| Command | Python module | Purpose |
+| ------- | ------------- | ------- |
+| `chembl-activities` | `scripts.chembl_activities_main:main` | Download and normalise ChEMBL activities |
+| `chembl-assays` | `scripts.chembl_assays_main:main` | Fetch and harmonise ChEMBL assays |
+| `chembl-testitems` | `scripts.chembl_testitems_main:main` | Acquire and validate ChEMBL test items |
+| `chembl-tissue` | `scripts.chembl_tissue_main:main` | Retrieve ChEMBL tissue metadata |
+| `chembl2uniprot` | `scripts.chembl2uniprot_main:main` | Map ChEMBL identifiers to UniProt accessions |
+| `check-determinism` | `scripts.check_determinism:main` | Verify reproducibility of generated outputs |
+| `data-profiling` | `scripts.data_profiling_main:main` | Produce column-level data quality metrics |
+| `dump-gtop-target` | `scripts.dump_gtop_target:main` | Export GtoPdb target metadata |
+| `get-cell-line` | `scripts.get_cell_line_main:main` | Download metadata for selected ChEMBL cell lines |
+| `get-hgnc-by-uniprot` | `scripts.get_hgnc_by_uniprot:main` | Map UniProt accessions to HGNC entries |
+| `get-target-data` | `scripts.get_target_data_main:main` | Collect target records from ChEMBL |
+| `get-uniprot-target-data` | `scripts.get_uniprot_target_data:main` | Fetch UniProt annotations for target IDs |
+| `iuphar` | `scripts.iuphar_main:main` | Download IUPHAR reference data |
+| `pipeline-targets` | `scripts.pipeline_targets_main:main` | Run the unified multi-source pipeline |
+| `protein-classify` | `scripts.protein_classify_main:main` | Assign hierarchical protein classes |
+| `pubmed` | `scripts.pubmed_main:main` | Harvest literature evidence from PubMed |
+| `uniprot-enrich` | `scripts.uniprot_enrich_main:main` | Enrich datasets with UniProt annotations |
+| `update-constraints` | `scripts.update_constraints_main:main` | Regenerate the pinned constraints file |
+
+Each command exposes a standardised CLI that honours the shared options
+(`--input`, `--output`, `--log-level`, `--sep`, `--encoding`, `--column`,
+`--dictionary`) alongside command-specific parameters. Use the `--help` flag to
+inspect the accepted arguments, for example:
+
+```bash
+chembl-activities --help
+```
 
 ### Configuration
 

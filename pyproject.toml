@@ -34,8 +34,32 @@ dev = [
     "hypothesis",
 ]
 
+[project.scripts]
+chembl-activities = "scripts.chembl_activities_main:main"
+chembl-assays = "scripts.chembl_assays_main:main"
+chembl-testitems = "scripts.chembl_testitems_main:main"
+chembl-tissue = "scripts.chembl_tissue_main:main"
+chembl2uniprot = "scripts.chembl2uniprot_main:main"
+check-determinism = "scripts.check_determinism:main"
+data-profiling = "scripts.data_profiling_main:main"
+dump-gtop-target = "scripts.dump_gtop_target:main"
+get-cell-line = "scripts.get_cell_line_main:main"
+get-hgnc-by-uniprot = "scripts.get_hgnc_by_uniprot:main"
+get-target-data = "scripts.get_target_data_main:main"
+get-uniprot-target-data = "scripts.get_uniprot_target_data:main"
+iuphar = "scripts.iuphar_main:main"
+pipeline-targets = "scripts.pipeline_targets_main:main"
+protein-classify = "scripts.protein_classify_main:main"
+pubmed = "scripts.pubmed_main:main"
+uniprot-enrich = "scripts.uniprot_enrich_main:main"
+update-constraints = "scripts.update_constraints_main:main"
+
 [tool.setuptools.packages.find]
-where = ["library"]
+where = ["."]
+include = ["library*", "scripts*"]
+
+[tool.setuptools.package-data]
+library = ["py.typed"]
 
 [tool.black]
 line-length = 88
