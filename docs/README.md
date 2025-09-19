@@ -107,6 +107,15 @@ map_chembl_to_uniprot(
 )
 ```
 
+Running the CLI also produces a family of sidecar artefacts next to the main
+CSV. Metadata is written to ``<output>.meta.yaml`` (for example,
+``output.csv.meta.yaml``) and records the effective runtime configuration along
+with row and column counts. Any identifiers rejected by the UniProt mapping
+service are persisted to ``<output>.errors.json``. The file is removed when no
+failures are detected. Data quality and correlation reports are generated using
+the same base filename as other CLIs in this repository, enabling consistent
+downstream automation.
+
 
 ## UniProt dump
 

@@ -19,7 +19,7 @@ Algorithm Notes
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from urllib.parse import urljoin
@@ -67,9 +67,19 @@ except ImportError:  # pragma: no cover - fallback when executed as a package
     )
 
 try:
+    from cli_common import ensure_output_dir, resolve_cli_sidecar_paths
+except ModuleNotFoundError:  # pragma: no cover
+    from ..cli_common import ensure_output_dir, resolve_cli_sidecar_paths
+
+try:
     from data_profiling import analyze_table_quality
 except ModuleNotFoundError:  # pragma: no cover
     from ..data_profiling import analyze_table_quality
+
+try:
+    from metadata import write_meta_yaml
+except ModuleNotFoundError:  # pragma: no cover
+    from ..metadata import write_meta_yaml
 
 LOGGER = logging.getLogger(__name__)
 
@@ -687,8 +697,13 @@ def map_chembl_to_uniprot(
         If the input CSV does not contain the required ChEMBL identifier column.
     """
 
+    config_path = Path(config_path)
+    schema_path_obj: Path | None = (
+        Path(schema_path) if schema_path is not None else None
+    )
+
     cfg: Config = load_and_validate_config(
-        config_path, schema_path, section=config_section
+        config_path, schema_path_obj, section=config_section
     )
     runtime_options: ResolvedRuntimeOptions = resolve_runtime_options(
         cfg,
@@ -709,7 +724,8 @@ def map_chembl_to_uniprot(
         output_csv_path = input_csv_path.with_name(
             input_csv_path.stem + "_with_uniprot.csv"
         )
-    output_csv_path = Path(output_csv_path)
+    output_csv_path = ensure_output_dir(Path(output_csv_path))
+    meta_path, errors_path, quality_base = resolve_cli_sidecar_paths(output_csv_path)
 
     chembl_col = cfg.columns.chembl_id
     out_col = cfg.columns.uniprot_out
@@ -794,6 +810,7 @@ def map_chembl_to_uniprot(
         writer = csv.DictWriter(dst, fieldnames=fieldnames, delimiter=separator)
         writer.writeheader()
 
+        row_count = 0
         for row in reader:
             raw_value = row.get(chembl_col)
             if raw_value is None:
@@ -806,8 +823,62 @@ def map_chembl_to_uniprot(
                     ids = mapping.get(stripped)
                     row[out_col] = delimiter.join(ids) if ids else ""
             writer.writerow(row)
+            row_count += 1
+
+    column_count = len(fieldnames)
+
+    unique_failed_identifiers = list(dict.fromkeys(failed_identifiers))
+    if unique_failed_identifiers:
+        ensure_output_dir(errors_path)
+        errors_payload = {
+            "failed_identifiers": unique_failed_identifiers,
+            "count": len(unique_failed_identifiers),
+        }
+        with errors_path.open("w", encoding="utf-8") as handle:
+            json.dump(errors_payload, handle, ensure_ascii=False, indent=2)
+    elif errors_path.exists():
+        errors_path.unlink()
+
+    runtime_config = asdict(runtime_options)
+    runtime_config["config_path"] = str(config_path)
+    if schema_path_obj is not None:
+        runtime_config["schema_path"] = str(schema_path_obj)
+    if config_section is not None:
+        runtime_config["config_section"] = config_section
+
+    command_arguments: list[str] = [
+        f"input_csv_path={str(input_csv_path)!r}",
+        f"output_csv_path={str(output_csv_path)!r}",
+        f"config_path={str(config_path)!r}",
+    ]
+    if schema_path_obj is not None:
+        command_arguments.append(f"schema_path={str(schema_path_obj)!r}")
+    if config_section is not None:
+        command_arguments.append(f"config_section={config_section!r}")
+    if log_level is not None:
+        command_arguments.append(f"log_level={log_level!r}")
+    if log_format is not None:
+        command_arguments.append(f"log_format={log_format!r}")
+    if sep is not None:
+        command_arguments.append(f"sep={sep!r}")
+    if encoding is not None:
+        command_arguments.append(f"encoding={encoding!r}")
+
+    command = "map_chembl_to_uniprot(" + ", ".join(command_arguments) + ")"
+
+    write_meta_yaml(
+        output_csv_path,
+        command=command,
+        config=runtime_config,
+        row_count=row_count,
+        column_count=column_count,
+        meta_path=meta_path,
+    )
 
     analyze_table_quality(
-        output_csv_path, table_name=str(Path(output_csv_path).with_suffix(""))
+        output_csv_path,
+        table_name=str(quality_base),
+        separator=separator,
+        encoding=encoding_out,
     )
     return output_csv_path
