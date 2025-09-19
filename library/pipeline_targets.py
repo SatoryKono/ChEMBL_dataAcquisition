@@ -518,6 +518,7 @@ def run_pipeline(
     oma_client: OmaClient | None = None,
     target_species: Sequence[str] | None = None,
     progress_callback: Callable[[int], None] | None = None,
+    batch_size: int = 25,
 ) -> pd.DataFrame:
     """Orchestrates data acquisition for a sequence of ChEMBL target identifiers.
 
@@ -534,10 +535,19 @@ def run_pipeline(
         target_species: A list of species to consider when retrieving orthologs.
         progress_callback: An optional callback that receives the incremental count
             of processed records.
+        batch_size: Maximum number of UniProt accessions retrieved per batch
+            request when full UniProt entries are required.
 
     Returns:
         A pandas DataFrame containing the orchestrated data.
+
+    Raises:
+        ValueError: If ``batch_size`` is not a positive integer.
     """
+
+    if batch_size <= 0:
+        msg = "batch_size must be a positive integer"
+        raise ValueError(msg)
 
     chembl_cfg = chembl_config or TargetConfig(list_format=cfg.list_format)
     cleaned_ids = _clean_identifier_sequence(ids)
@@ -546,36 +556,78 @@ def run_pipeline(
     else:
         chembl_df = chembl_fetcher(cleaned_ids, chembl_cfg)
     records: List[Dict[str, Any]] = []
+    full_entry_cache: Dict[str, Dict[str, Any]] = {}
+    search_entry_cache: Dict[str, Dict[str, Any]] = {}
+    fasta_cache: Dict[str, List[str]] = {}
+    isoform_cache: Dict[str, List[Dict[str, Any]]] = {}
     for row in chembl_df.to_dict(orient="records"):
         chembl_id = row.get("target_chembl_id", "")
         comps = _load_serialised_list(row.get("target_components"), cfg.list_format)
         accessions = [c.get("accession") for c in comps if c.get("accession")]
         uniprot_entries: List[Dict[str, Any]] = []
         raw_entries: Dict[str, Dict[str, Any]] = {}
-        for acc in sorted(dict.fromkeys(accessions)):
-            if cfg.include_isoforms or ensembl_client or oma_client:
+        unique_accessions: List[str] = [
+            acc for acc in sorted(dict.fromkeys(accessions)) if acc
+        ]
+        need_full_entries = bool(cfg.include_isoforms or ensembl_client or oma_client)
+        if need_full_entries and unique_accessions:
+            missing_full = [
+                acc for acc in unique_accessions if acc not in full_entry_cache
+            ]
+            if missing_full:
+                batched = uniprot_client.fetch_entries_json(
+                    missing_full, batch_size=batch_size
+                )
+                for acc, entry in batched.items():
+                    full_entry_cache[acc] = entry
+            remaining_full = [
+                acc for acc in missing_full if acc not in full_entry_cache
+            ]
+            for acc in remaining_full:
                 raw = uniprot_client.fetch_entry_json(acc)
                 if raw:
-                    raw_entries[acc] = raw
-                    fasta_headers: List[str] = []
-                    isoforms: List[Dict[str, Any]] = []
-                    if cfg.include_isoforms:
-                        fasta_headers = uniprot_client.fetch_isoforms_fasta(acc)
-                        isoforms = extract_isoforms(raw, fasta_headers)
-                    uniprot_entries.append(
-                        normalize_entry(
-                            raw,
-                            include_sequence=cfg.include_sequence,
-                            isoforms=isoforms,
-                        )
-                    )
-            else:
-                raw = uniprot_client.fetch(acc)
-                if raw:
-                    raw_entries[acc] = raw
-                    uniprot_entries.append(
-                        normalize_entry(raw, include_sequence=cfg.include_sequence)
-                    )
+                    full_entry_cache[acc] = raw
+            raw_entries = {
+                acc: full_entry_cache[acc]
+                for acc in unique_accessions
+                if acc in full_entry_cache
+            }
+        for acc in unique_accessions:
+            raw = full_entry_cache.get(acc)
+            if raw is None:
+                raw = search_entry_cache.get(acc)
+                if raw is None:
+                    raw = uniprot_client.fetch(acc)
+                    if raw:
+                        search_entry_cache[acc] = raw
+            if not raw:
+                continue
+            isoforms: List[Dict[str, Any]] = []
+            if cfg.include_isoforms:
+                if acc not in isoform_cache:
+                    entry_json = full_entry_cache.get(acc)
+                    if entry_json is None:
+                        entry_json = uniprot_client.fetch_entry_json(acc)
+                        if entry_json:
+                            full_entry_cache[acc] = entry_json
+                            raw_entries[acc] = entry_json
+                    if entry_json:
+                        if acc not in fasta_cache:
+                            fasta_cache[acc] = uniprot_client.fetch_isoforms_fasta(acc)
+                        headers = fasta_cache.get(acc, [])
+                        isoform_cache[acc] = extract_isoforms(entry_json, headers)
+                    else:
+                        isoform_cache[acc] = []
+                isoforms = isoform_cache[acc]
+                if acc in full_entry_cache:
+                    raw = full_entry_cache[acc]
+            uniprot_entries.append(
+                normalize_entry(
+                    full_entry_cache.get(acc, raw),
+                    include_sequence=cfg.include_sequence,
+                    isoforms=isoforms,
+                )
+            )
         primary = _select_primary(uniprot_entries, cfg.species_priority)
         primary_id = primary.get("uniprot_id") if primary else ""
         all_ids = [e.get("uniprot_id") for e in uniprot_entries]
