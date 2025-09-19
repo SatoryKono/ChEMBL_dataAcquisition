@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import importlib
+import math
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -81,3 +84,148 @@ def test_missing_input_file_exits_with_error(monkeypatch: pytest.MonkeyPatch, ca
     assert excinfo.value.code == 1
     captured = capsys.readouterr()
     assert "Input file missing.csv does not exist" in captured.err
+
+
+def test_cli_uses_custom_batch_size(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """CLI should respect ``--batch-size`` overrides when batching accessions."""
+
+    module = importlib.import_module("scripts.get_uniprot_target_data")
+
+    custom_batch_size = 3
+    accessions = [f"P{index:05d}" for index in range(custom_batch_size * 2 + 1)]
+
+    input_csv = tmp_path / "input.csv"
+    input_csv.write_text(
+        "uniprot_id\n" + "\n".join(accessions) + "\n",
+        encoding="utf-8",
+    )
+    output_csv = tmp_path / "output.csv"
+
+    class DummyOutputConfig:
+        list_format = "json"
+        include_sequence = False
+        sep = ","
+        encoding = "utf-8"
+
+    class DummyUniProtConfig:
+        def __init__(self) -> None:
+            self.include_isoforms = False
+            self.use_fasta_stream_for_isoform_ids = False
+            self.cache = None
+            self.base_url = "https://example.uniprot"
+            self.timeout_sec = 1.0
+            self.retries = 0
+            self.rps = 10.0
+            self.batch_size = module.DEFAULT_BATCH_SIZE
+            self.fields: list[str] = []
+            self.columns: list[str] = []
+
+        def model_dump(self) -> dict[str, list[str]]:
+            return {"fields": self.fields, "columns": self.columns}
+
+    class DummyOrthologsConfig:
+        enabled = False
+
+    class DummyConfig:
+        def __init__(self) -> None:
+            self.http_cache = None
+            self.output = DummyOutputConfig()
+            self.uniprot = DummyUniProtConfig()
+            self.orthologs = DummyOrthologsConfig()
+
+    config = DummyConfig()
+
+    monkeypatch.setattr(module.yaml, "safe_load", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        module,
+        "load_uniprot_target_config",
+        lambda *_args, **_kwargs: config,
+    )
+    monkeypatch.setattr(
+        "library.logging_utils.configure_logging", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        "library.cli_common.ensure_output_dir", lambda path: Path(path)
+    )
+    monkeypatch.setattr(
+        "library.cli_common.serialise_dataframe",
+        lambda df, list_format, *, inplace=False: df,
+    )
+    monkeypatch.setattr(
+        "library.cli_common.write_cli_metadata", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        "library.cli_common.analyze_table_quality", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        "library.cli_common.resolve_cli_sidecar_paths",
+        lambda _path: (
+            tmp_path / "meta.yaml",
+            tmp_path / "errors.json",
+            tmp_path / "quality",
+        ),
+    )
+    monkeypatch.setattr(
+        "library.io_utils.write_rows", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        "library.uniprot_normalize.extract_ensembl_gene_ids",
+        lambda *_args, **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "library.uniprot_normalize.extract_isoforms", lambda *_args, **_kwargs: []
+    )
+    monkeypatch.setattr(
+        "library.uniprot_normalize.normalize_entry",
+        lambda data, include_seq, isoforms: {
+            "uniprot_id": data["primaryAccession"],
+        },
+    )
+    monkeypatch.setattr(
+        "library.uniprot_normalize.output_columns",
+        lambda *_args, **_kwargs: ["uniprot_id"],
+    )
+    monkeypatch.setattr(
+        "library.http_client.CacheConfig.from_dict", lambda *_args, **_kwargs: None
+    )
+
+    fetch_calls: list[tuple[tuple[str, ...], int]] = []
+
+    class RecordingClient:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def fetch_entries_json(
+            self, accessions: list[str], *, batch_size: int = 0
+        ) -> dict[str, dict[str, str]]:
+            fetch_calls.append((tuple(accessions), batch_size))
+            return {acc: {"primaryAccession": acc} for acc in accessions}
+
+        def fetch_isoforms_fasta(self, *_args: Any, **_kwargs: Any) -> list[str]:
+            raise AssertionError("Isoform fetching should be disabled in this test")
+
+        def fetch_entry_json(self, *_args: Any, **_kwargs: Any) -> dict[str, str]:
+            raise AssertionError("Single-entry fetches should not be used")
+
+    monkeypatch.setattr("library.uniprot_client.UniProtClient", RecordingClient)
+
+    module.main(
+        [
+            "--input",
+            str(input_csv),
+            "--output",
+            str(output_csv),
+            "--batch-size",
+            str(custom_batch_size),
+        ]
+    )
+
+    assert fetch_calls
+    expected_batches = math.ceil(len(accessions) / custom_batch_size)
+    assert len(fetch_calls) == expected_batches
+    for batch_accessions, call_batch_size in fetch_calls:
+        assert call_batch_size == custom_batch_size
+        assert len(batch_accessions) <= custom_batch_size
+    assert sum(len(batch) for batch, _size in fetch_calls) == len(accessions)

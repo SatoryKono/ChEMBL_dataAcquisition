@@ -46,7 +46,7 @@ DEFAULT_ENCODING = "utf-8"
 
 LOGGER = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[1]
-BATCH_SIZE = 100
+DEFAULT_BATCH_SIZE = 100
 
 
 def _ensure_mapping(value: Any, *, section: str) -> dict[str, Any]:
@@ -180,7 +180,18 @@ def main(argv: Sequence[str] | None = None) -> None:
         default="human",
         help="Logging output format (human or json)",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        help=(
+            "Number of UniProt accessions requested per batch. Defaults to the "
+            "value configured in config.yaml."
+        ),
+    )
     args = parser.parse_args(argv)
+
+    if args.batch_size is not None and args.batch_size <= 0:
+        parser.error("--batch-size must be a positive integer")
 
     configure_logging(args.log_level, log_format=args.log_format)
 
@@ -217,6 +228,12 @@ def main(argv: Sequence[str] | None = None) -> None:
         CacheConfig.from_dict(cfg.uniprot.cache.to_cache_dict())
         if cfg.uniprot.cache
         else None
+    )
+
+    batch_size = (
+        args.batch_size
+        if args.batch_size is not None
+        else cfg.uniprot.batch_size or DEFAULT_BATCH_SIZE
     )
     client = UniProtClient(
         base_url=cfg.uniprot.base_url,
@@ -350,8 +367,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         ]
 
     try:
-        for batch in _batched(accessions, BATCH_SIZE):
-            batch_entries = client.fetch_entries_json(batch, batch_size=BATCH_SIZE)
+        for batch in _batched(accessions, batch_size):
+            batch_entries = client.fetch_entries_json(batch, batch_size=batch_size)
             for acc in batch:
                 data = batch_entries.get(acc)
                 if data is None and "-" in acc:
