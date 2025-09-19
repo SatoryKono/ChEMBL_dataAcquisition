@@ -104,7 +104,8 @@ def test_serialise_dataframe_preserves_original() -> None:
 
     assert serialised is not df
     assert df.loc[0, "dict_col"] == {"x": 1}
-    assert json.loads(serialised.loc[0, "dict_col"]) == {"x": 1}
+    dict_cell = str(serialised.loc[0, "dict_col"])
+    assert json.loads(dict_cell) == {"x": 1}
     assert serialised.loc[0, "list_col"] == "1|2"
     assert serialised.loc[0, "str_col"] == "pipe\\|value"
 
@@ -287,6 +288,33 @@ def test_write_cli_metadata_records_error(tmp_path: Path) -> None:
     assert payload["error"] == message
     assert payload["sha256"] is None
     assert "determinism" not in payload
+
+
+def test_write_cli_metadata_records_warnings(tmp_path: Path) -> None:
+    """Warning messages should be preserved in the metadata sidecar."""
+
+    output_path = tmp_path / "results.csv"
+    ensure_output_dir(output_path)
+    output_path.write_text("col\nvalue\n", encoding="utf-8")
+
+    namespace = argparse.Namespace(
+        input=tmp_path / "input.csv",
+        output=str(output_path),
+        errors_output=None,
+        meta_output=None,
+    )
+
+    warning = "Ortholog enrichment requested but disabled"
+    meta_file = write_cli_metadata(
+        output_path,
+        row_count=1,
+        column_count=1,
+        namespace=namespace,
+        warnings=[warning],
+    )
+
+    payload = yaml.safe_load(meta_file.read_text(encoding="utf-8"))
+    assert payload["warnings"] == [warning]
 
 
 def test_resolve_cli_sidecar_paths_defaults(tmp_path: Path) -> None:
