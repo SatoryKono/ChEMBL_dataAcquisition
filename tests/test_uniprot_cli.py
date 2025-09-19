@@ -5,7 +5,7 @@ import math
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import pandas as pd
 import pytest
@@ -17,88 +17,64 @@ SCRIPT = ROOT / "scripts" / "uniprot_enrich_main.py"
 DATA_FILE = Path(__file__).parent / "data" / "uniprot_sample.csv"
 
 
-def test_uniprot_cli(tmp_path: Path) -> None:
-    """CLI should enrich input and write to provided output path."""
+class DummyOutputConfig:
+    """Minimal output configuration used when stubbing UniProt CLI config."""
 
-    inp = tmp_path / "input.csv"
-    inp.write_text(DATA_FILE.read_text())
-    out = tmp_path / "out.csv"
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT),
-            "--input",
-            str(inp),
-            "--output",
-            str(out),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    assert result.stdout.strip() == str(out)
-    assert out.exists()
-    df = pd.read_csv(out, dtype=str).fillna("")
-    expected_cols = ["uniprot_id", "other"] + list(
-        enrich_uniprot.__globals__["OUTPUT_COLUMNS"]
-    )
-    assert list(df.columns) == expected_cols
+    list_format = "json"
+    include_sequence = False
+    sep = ","
+    encoding = "utf-8"
 
 
-def test_get_uniprot_target_data_batches_requests(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """`get_uniprot_target_data` should reuse batch responses from UniProt."""
+class DummyUniProtConfig:
+    """Minimal UniProt API configuration used for CLI tests."""
 
-    module = importlib.import_module("scripts.get_uniprot_target_data")
+    def __init__(self) -> None:
+        self.include_isoforms = False
+        self.use_fasta_stream_for_isoform_ids = True
+        self.cache = None
+        self.base_url = "https://example.uniprot"
+        self.timeout_sec = 1.0
+        self.retries = 0
+        self.rps = 10.0
+        self.fields: list[str] = []
+        self.columns: list[str] = []
 
-    accessions = [
-        f"P{index:05d}" for index in range(module.BATCH_SIZE * 2 + 5)
-    ]
-    input_path = tmp_path / "input.csv"
-    input_path.write_text(
-        "uniprot_id\n" + "\n".join(accessions) + "\n", encoding="utf-8"
-    )
-    output_path = tmp_path / "output.csv"
-    iso_output_path = tmp_path / "isoforms.csv"
+    def model_dump(self) -> dict[str, list[str]]:
+        """Return field/column metadata to satisfy client construction."""
 
-    class DummyOutputConfig:
-        list_format = "json"
-        include_sequence = False
-        sep = ","
-        encoding = "utf-8"
+        return {"fields": self.fields, "columns": self.columns}
 
-    class DummyUniProtConfig:
-        def __init__(self) -> None:
-            self.include_isoforms = False
-            self.use_fasta_stream_for_isoform_ids = True
-            self.cache = None
-            self.base_url = "https://example.uniprot"
-            self.timeout_sec = 1.0
-            self.retries = 0
-            self.rps = 10.0
-            self.fields: list[str] = []
-            self.columns: list[str] = []
 
-        def model_dump(self) -> dict[str, list[str]]:
-            return {"fields": self.fields, "columns": self.columns}
+class DummyOrthologsConfig:
+    """Ortholog configuration stub disabling enrichment by default."""
 
-    class DummyOrthologsConfig:
-        enabled = False
+    enabled = False
 
-    class DummyConfig:
-        def __init__(self) -> None:
-            self.http_cache = None
-            self.output = DummyOutputConfig()
-            self.uniprot = DummyUniProtConfig()
-            self.orthologs = DummyOrthologsConfig()
 
-    monkeypatch.setattr(module.yaml, "safe_load", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(
-        module,
-        "load_uniprot_target_config",
-        lambda *_args, **_kwargs: DummyConfig(),
-    )
+class DummyConfig:
+    """Container aggregating stubbed configuration sections for the CLI."""
+
+    def __init__(self) -> None:
+        self.http_cache = None
+        self.output = DummyOutputConfig()
+        self.uniprot = DummyUniProtConfig()
+        self.orthologs = DummyOrthologsConfig()
+
+
+def _monkeypatch_uniprot_cli(
+    module: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    accessions: Sequence[str],
+    *,
+    patch_yaml: bool,
+) -> tuple[list[str], list[Any]]:
+    """Replace side-effect heavy CLI dependencies with lightweight stubs."""
+
+    if patch_yaml:
+        monkeypatch.setattr(module.yaml, "safe_load", lambda *_args, **_kwargs: {})
+
     monkeypatch.setattr(
         "library.logging_utils.configure_logging", lambda *_args, **_kwargs: None
     )
@@ -117,7 +93,7 @@ def test_get_uniprot_target_data_batches_requests(
     )
     monkeypatch.setattr(
         "library.cli_common.resolve_cli_sidecar_paths",
-        lambda _path: (
+        lambda _path, **_kwargs: (
             tmp_path / "meta.yaml",
             tmp_path / "errors.json",
             tmp_path / "quality",
@@ -177,6 +153,63 @@ def test_get_uniprot_target_data_batches_requests(
 
     monkeypatch.setattr("library.uniprot_client.UniProtClient", RecordingClient)
 
+    return iso_calls, created_clients
+
+
+def test_uniprot_cli(tmp_path: Path) -> None:
+    """CLI should enrich input and write to provided output path."""
+
+    inp = tmp_path / "input.csv"
+    inp.write_text(DATA_FILE.read_text())
+    out = tmp_path / "out.csv"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--input",
+            str(inp),
+            "--output",
+            str(out),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.stdout.strip() == str(out)
+    assert out.exists()
+    df = pd.read_csv(out, dtype=str).fillna("")
+    expected_cols = ["uniprot_id", "other"] + list(
+        enrich_uniprot.__globals__["OUTPUT_COLUMNS"]
+    )
+    assert list(df.columns) == expected_cols
+
+
+def test_get_uniprot_target_data_batches_requests(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`get_uniprot_target_data` should reuse batch responses from UniProt."""
+
+    module = importlib.import_module("scripts.get_uniprot_target_data")
+
+    accessions = [
+        f"P{index:05d}" for index in range(module.BATCH_SIZE * 2 + 5)
+    ]
+    input_path = tmp_path / "input.csv"
+    input_path.write_text(
+        "uniprot_id\n" + "\n".join(accessions) + "\n", encoding="utf-8"
+    )
+    output_path = tmp_path / "output.csv"
+    iso_output_path = tmp_path / "isoforms.csv"
+
+    iso_calls, created_clients = _monkeypatch_uniprot_cli(
+        module, monkeypatch, tmp_path, accessions, patch_yaml=True
+    )
+    monkeypatch.setattr(
+        module,
+        "load_uniprot_target_config",
+        lambda *_args, **_kwargs: DummyConfig(),
+    )
+
     module.main(
         [
             "--input",
@@ -198,3 +231,68 @@ def test_get_uniprot_target_data_batches_requests(
         assert batch_size == module.BATCH_SIZE
         assert len(call_accessions) <= module.BATCH_SIZE
     assert iso_calls == accessions
+
+
+def test_get_uniprot_target_data_custom_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """CLI should accept explicit config paths and environment overrides."""
+
+    module = importlib.import_module("scripts.get_uniprot_target_data")
+
+    accessions = ["P12345"]
+    iso_calls, created_clients = _monkeypatch_uniprot_cli(
+        module, monkeypatch, tmp_path, accessions, patch_yaml=False
+    )
+
+    recorded_paths: list[Path] = []
+
+    def _recording_loader(path: Path) -> DummyConfig:
+        recorded_paths.append(Path(path))
+        return DummyConfig()
+
+    monkeypatch.setattr(module, "load_uniprot_target_config", _recording_loader)
+
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("uniprot_id\nP12345\n", encoding="utf-8")
+    output_path = tmp_path / "output.csv"
+    config_path = tmp_path / "custom.yaml"
+    config_path.write_text(
+        "output: {}\nuniprot: {}\northologs: {}\nhttp_cache: {}\n",
+        encoding="utf-8",
+    )
+
+    module.main(
+        [
+            "--input",
+            str(input_path),
+            "--output",
+            str(output_path),
+            "--config",
+            str(config_path),
+        ]
+    )
+
+    assert recorded_paths == [config_path.resolve()]
+    assert len(created_clients) == 1
+    assert iso_calls == []
+
+    recorded_paths.clear()
+
+    env_config = tmp_path / "env.yaml"
+    env_config.write_text(
+        "output: {}\nuniprot: {}\northologs: {}\nhttp_cache: {}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv(module.CONFIG_ENV_VAR, str(env_config))
+
+    module.main(
+        [
+            "--input",
+            str(input_path),
+            "--output",
+            str(tmp_path / "output_env.csv"),
+        ]
+    )
+
+    assert recorded_paths == [env_config.resolve()]
