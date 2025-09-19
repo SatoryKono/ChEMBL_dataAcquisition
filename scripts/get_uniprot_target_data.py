@@ -12,9 +12,9 @@ import logging
 import sys
 
  
-from itertools import chain
- 
-from collections.abc import Iterator, Mapping, Sequence
+from itertools import chain, islice
+
+from collections.abc import Iterable, Iterator, Mapping, Sequence
  
 
 from datetime import datetime
@@ -88,14 +88,19 @@ def _default_output(input_path: Path) -> Path:
     return input_path.with_name(DEFAULT_OUTPUT.format(date=date))
 
 
-def _batched(values: Sequence[str], size: int) -> Iterator[list[str]]:
+def _batched(values: Iterable[str], size: int) -> Iterator[list[str]]:
     """Yield ``values`` in contiguous lists of at most ``size`` items."""
 
     if size <= 0:
         msg = "Batch size must be a positive integer"
         raise ValueError(msg)
-    for start in range(0, len(values), size):
-        yield list(values[start : start + size])
+
+    iterator = iter(values)
+    while True:
+        batch = list(islice(iterator, size))
+        if not batch:
+            break
+        yield batch
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -478,7 +483,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     serialised_df = serialise_dataframe(
         output_df, list_format=csv_cfg.list_format, inplace=True
     )
-    write_rows(output_path, rows, cols, csv_cfg)
+    serialised_df.to_csv(
+        output_path,
+        index=False,
+        sep=csv_cfg.sep,
+        encoding=csv_cfg.encoding,
+    )
     if include_iso:
         iso_cols = [
             "parent_uniprot_id",

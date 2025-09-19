@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from pandas.testing import assert_frame_equal
 import pytest
 import yaml  # type: ignore[import-untyped]
 
@@ -256,6 +257,12 @@ def test_pipeline_targets_cli_writes_outputs(
     assert metadata["rows"] == 3
     assert metadata["columns"] == len(result_df.columns)
     assert metadata["config"]["input"] == str(input_csv)
+    normalised_result = result_df.fillna("")
+    assert_frame_equal(
+        captured["table"].reset_index(drop=True),
+        normalised_result,
+        check_dtype=False,
+    )
 
     expected_hash = hashlib.sha256(output_path.read_bytes()).hexdigest()
     assert metadata["sha256"] == expected_hash

@@ -170,6 +170,13 @@ output name (for example ``targets_dump.tar.gz``).  Basic data quality metrics
 are calculated via ``library.data_profiling.analyze_table_quality`` which saves
 reports using the same base filename.
 
+The main table is always derived from the :func:`library.cli_common.serialise_dataframe`
+result and written with :meth:`pandas.DataFrame.to_csv`. Metadata generation and
+quality analysis therefore inspect the same payload that ultimately lands on
+disk. Secondary exports such as ortholog or isoform tables continue to use
+:func:`library.io_utils.write_rows` until they are migrated to the DataFrame
+pipeline.
+
 
 ### Including orthologs
 

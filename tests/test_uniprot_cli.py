@@ -123,7 +123,9 @@ def test_get_uniprot_target_data_batches_requests(
             tmp_path / "quality",
         ),
     )
-    monkeypatch.setattr("library.io.read_ids", lambda *_args, **_kwargs: accessions)
+    monkeypatch.setattr(
+        "library.io.read_ids", lambda *_args, **_kwargs: iter(accessions)
+    )
     monkeypatch.setattr("library.io_utils.write_rows", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         "library.uniprot_normalize.extract_ensembl_gene_ids",

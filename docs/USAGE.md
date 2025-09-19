@@ -21,9 +21,12 @@ python scripts/get_target_data_main.py \
 The input file must contain a column with ChEMBL target identifiers. Duplicate
 and empty values are ignored. The resulting CSV contains one row per unique
 identifier with nested fields serialised deterministically via
-``--list-format``. A companion ``<output_filename>.meta.yaml`` file captures the
-CLI invocation, row/column counts, and output checksum.  The suffix is appended
-to the entire output filename to support multi-extension artefacts such as
+``--list-format``. The CLI persists the :func:`library.cli_common.serialise_dataframe`
+result directly through :meth:`pandas.DataFrame.to_csv`, which means metadata
+and quality analysis routines observe the exact payload stored on disk. A
+companion ``<output_filename>.meta.yaml`` file captures the CLI invocation,
+row/column counts, and output checksum.  The suffix is appended to the entire
+output filename to support multi-extension artefacts such as
 ``.tar.gz``.
 
 Network and API failures are surfaced as ``requests`` exceptions. The downloader

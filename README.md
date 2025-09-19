@@ -161,7 +161,11 @@ example isoform or ortholog exports) receive their own diagnostics. For an
 output named `targets.csv` the following files are created in the same
 directory:
 
-*   `targets.csv`: The canonical dataset written by :func:`library.io_utils.write_rows`.
+*   `targets.csv`: The canonical dataset produced from a serialised DataFrame
+    via :meth:`pandas.DataFrame.to_csv`. Secondary lookup tables such as
+    isoform or ortholog exports continue to rely on
+    :func:`library.io_utils.write_rows` until they are migrated to the
+    DataFrame-based path.
 *   `targets.csv.meta.yaml`: Metadata produced by
     :func:`library.cli_common.write_cli_metadata` capturing the command line,
     resolved configuration, row/column counts, and SHA-256 checksum.
