@@ -16,6 +16,86 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from pydantic import ValidationError
+
+from library.config.pipeline_targets import PipelineClientsConfig
+from library.pipeline_targets import PipelineConfig
+import scripts.pipeline_targets_main as pipeline_main
+
+
+def _make_valid_clients_config() -> dict[str, Any]:
+    """Return a configuration mapping accepted by ``PipelineClientsConfig``."""
+
+    return {
+        "http_cache": {"enabled": True, "path": ".cache/http", "ttl_sec": 120},
+        "uniprot": {
+            "base_url": "https://rest.uniprot.org/uniprotkb",
+            "network": {"timeout_sec": 12.5, "max_retries": 4},
+            "rate_limit": {"rps": 2.5},
+            "columns": ["uniprot_id_primary"],
+        },
+        "hgnc": {
+            "columns": ["hgnc_id"],
+            "hgnc": {"base_url": "https://rest.genenames.org"},
+            "network": {"timeout_sec": 8.0, "max_retries": 2},
+            "rate_limit": {"rps": 1.0},
+            "output": {"sep": ",", "encoding": "utf-8"},
+        },
+        "gtop": {
+            "base_url": "https://www.guidetopharmacology.org/services",
+            "network": {"timeout_sec": 6.0, "max_retries": 2, "backoff_sec": 1.2},
+            "rate_limit": {"rps": 1.5},
+            "columns": ["gtop_target_id"],
+        },
+        "orthologs": {
+            "enabled": True,
+            "target_species": ["human", "mouse"],
+            "network": {"timeout_sec": 7.0, "max_retries": 1, "backoff_sec": 0.5},
+            "rate_limit": {"rps": 0.7},
+        },
+    }
+
+
+def test_pipeline_clients_config_validates_sections() -> None:
+    """Ensure the Pydantic models normalise HTTP settings correctly."""
+
+    data = _make_valid_clients_config()
+    cfg = PipelineClientsConfig.model_validate(data)
+    pipeline_cfg = PipelineConfig()
+    uni_settings = pipeline_main._resolve_section_settings(
+        "uniprot",
+        cfg.uniprot,
+        pipeline_cfg=pipeline_cfg,
+        global_cache=None,
+    )
+    assert uni_settings.timeout_sec == pytest.approx(12.5)
+    assert uni_settings.max_retries == 4
+    assert uni_settings.rps == pytest.approx(2.5)
+    assert uni_settings.cache is None
+
+    assert cfg.orthologs is not None
+    assert cfg.orthologs.target_species == ["human", "mouse"]
+    cache_cfg = cfg.http_cache.to_cache_config()
+    assert cache_cfg is not None and cache_cfg.enabled is True
+
+
+def test_pipeline_clients_config_requires_uniprot_base_url() -> None:
+    """Missing mandatory keys should raise a validation error."""
+
+    data = _make_valid_clients_config()
+    data["uniprot"].pop("base_url")
+    with pytest.raises(ValidationError):
+        PipelineClientsConfig.model_validate(data)
+
+
+def test_pipeline_clients_config_rejects_invalid_species() -> None:
+    """Non-string species definitions are rejected."""
+
+    data = _make_valid_clients_config()
+    data["orthologs"]["target_species"] = ["human", 123]
+    with pytest.raises(ValidationError):
+        PipelineClientsConfig.model_validate(data)
+
 
 def test_pipeline_targets_cli_writes_outputs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

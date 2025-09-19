@@ -124,6 +124,23 @@ class UniProtSection(CacheAwareSection):
     rps: float = Field(default=3.0, gt=0)
     columns: list[str] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _merge_network_settings(cls, data: Any) -> Any:
+        """Merge nested ``network``/``rate_limit`` subsections when provided."""
+
+        if isinstance(data, Mapping):
+            payload = dict(data)
+            network = payload.pop("network", None)
+            if isinstance(network, Mapping):
+                payload.setdefault("timeout_sec", network.get("timeout_sec"))
+                payload.setdefault("retries", network.get("max_retries"))
+            rate_limit = payload.pop("rate_limit", None)
+            if isinstance(rate_limit, Mapping):
+                payload.setdefault("rps", rate_limit.get("rps"))
+            return payload
+        return data
+
     @field_validator("base_url")
     @classmethod
     def _validate_base_url(cls, value: str) -> str:
@@ -176,6 +193,24 @@ class OrthologsConfig(CacheAwareSection):
     timeout_sec: float = Field(default=30.0, gt=0)
     retries: int = Field(default=3, ge=0)
     backoff_base_sec: float = Field(default=1.0, ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _merge_network_settings(cls, data: Any) -> Any:
+        """Support nested ``network`` and ``rate_limit`` subsections."""
+
+        if isinstance(data, Mapping):
+            payload = dict(data)
+            network = payload.pop("network", None)
+            if isinstance(network, Mapping):
+                payload.setdefault("timeout_sec", network.get("timeout_sec"))
+                payload.setdefault("retries", network.get("max_retries"))
+                payload.setdefault("backoff_base_sec", network.get("backoff_sec"))
+            rate_limit = payload.pop("rate_limit", None)
+            if isinstance(rate_limit, Mapping):
+                payload.setdefault("rate_limit_rps", rate_limit.get("rps"))
+            return payload
+        return data
 
     @field_validator("primary_source")
     @classmethod
