@@ -9,29 +9,30 @@ description = "Map ChEMBL IDs to UniProt IDs"
 authors = [{name = "AutoGen", email = "noreply@example.com"}]
 requires-python = ">=3.12"
 dependencies = [
-    "PyYAML",
-    "jsonschema",
-    "pandas",
-    "pydantic>=2.0",
-    "requests",
-    "requests-cache",
-    "tenacity",
-    "tqdm",
+    "jsonschema>=4.25.1",
+    "packaging>=25.0",
+    "pandas>=2.3.2",
+    "pydantic>=2.11.9",
+    "pyyaml>=6.0.2",
+    "requests>=2.32.5",
+    "requests-cache>=1.2.1",
+    "tenacity>=9.1.2",
+    "tqdm>=4.67.1",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "requests-mock",
-    "black",
-    "ruff",
-    "mypy",
-    "pydantic>=2.0",
-    "pandas-stubs",
-    "types-PyYAML",
-    "types-jsonschema",
-    "types-requests",
-    "hypothesis",
+    "black>=25.1.0,<26",
+    "hypothesis>=6.138.17,<7",
+    "mypy>=1.18.1,<2",
+    "pandas-stubs>=2.3.2.250827,<2.4",
+    "pytest>=8.4.2,<9",
+    "requests-mock>=1.12.1,<2",
+    "ruff>=0.13.0,<0.14",
+    "types-jsonschema>=4.25.1.20250822,<4.26",
+    "types-pytz>=2025.2.0.20250809,<2025.3",
+    "types-pyyaml>=6.0.12.20250915,<6.1",
+    "types-requests>=2.32.4.20250913,<2.33",
 ]
 
 [tool.setuptools.packages.find]
