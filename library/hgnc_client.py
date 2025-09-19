@@ -11,12 +11,16 @@ Algorithm Notes
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, asdict
-from pathlib import Path
-from types import TracebackType
-from typing import Dict, List
 import logging
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+ 
+from types import TracebackType
+from typing import Any,Dict, List
+import logging
+
 
 import pandas as pd
 import requests
@@ -31,6 +35,11 @@ try:  # pragma: no cover - support package and script imports
     from .http_client import CacheConfig, HttpClient
 except ImportError:  # pragma: no cover
     from http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
+
+try:  # pragma: no cover - support package and script imports
+    from .chembl2uniprot.config import _apply_env_overrides
+except ImportError:  # pragma: no cover
+    from chembl2uniprot.config import _apply_env_overrides  # type: ignore[no-redef]
 
 LOGGER = logging.getLogger(__name__)
 
@@ -106,12 +115,23 @@ def load_config(path: str | Path, *, section: str | None = None) -> Config:
     """
 
     with Path(path).open("r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh) or {}
+        loaded = yaml.safe_load(fh) or {}
+    if not isinstance(loaded, dict):
+        msg = f"Root of {path} must be a mapping"
+        raise TypeError(msg)
+    data: Dict[str, Any]
     if section:
         try:
-            data = data[section]
+            section_payload = loaded[section]
         except KeyError as exc:  # pragma: no cover - defensive
             raise KeyError(f"Section '{section}' not found in {path}") from exc
+        if not isinstance(section_payload, dict):
+            msg = f"Section '{section}' in {path} must be a mapping"
+            raise TypeError(msg)
+        data = dict(section_payload)
+    else:
+        data = dict(loaded)
+    _apply_env_overrides(data, section=section)
     return Config(
         hgnc=HGNCServiceConfig(**data["hgnc"]),
         network=NetworkConfig(**data["network"]),
