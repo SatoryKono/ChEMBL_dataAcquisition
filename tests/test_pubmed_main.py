@@ -360,6 +360,16 @@ def test_output_argument_after_command() -> None:
     assert args.output == "results.csv"
 
 
+def test_default_command_when_omitted() -> None:
+    """Omitting the command should fall back to the default 'all' command."""
+
+    parser = pm.build_parser()
+    args = parser.parse_args(["--input", "input.csv"])
+
+    assert args.command == pm.DEFAULT_COMMAND
+    assert args.workers is None
+
+
 def test_run_semantic_scholar_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
