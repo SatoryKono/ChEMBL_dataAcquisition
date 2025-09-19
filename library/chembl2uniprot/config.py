@@ -4,7 +4,10 @@ The :func:`load_and_validate_config` function reads a YAML configuration file,
 validates it against a JSON schema located next to the config file and builds a
 :class:`Config` object with strong type checks. Environment variables prefixed
 with ``CHEMBL_DA__`` or the legacy ``CHEMBL_`` override values from the YAML
-file (e.g. ``CHEMBL_DA__CHEMBL2UNIPROT__BATCH__SIZE=5``).
+file (e.g. ``CHEMBL_DA__CHEMBL2UNIPROT__BATCH__SIZE=5``). Overrides are applied
+before schema validation, ensuring invalid environment-provided values are
+rejected. The resulting precedence is ``YAML < environment variables <
+resolve_runtime_options`` (CLI), keeping every layer type-checked.
 """
 
 from __future__ import annotations
@@ -296,6 +299,20 @@ def _read_json(path: Path) -> Dict[str, Any]:
     return cast(Dict[str, Any], data)
 
 
+def _coerce_env_value(raw_value: str) -> Any:
+    """Attempt to parse ``raw_value`` into a structured Python object."""
+
+    if raw_value == "":
+        return ""
+    try:
+        coerced = yaml.safe_load(raw_value)
+    except yaml.YAMLError:  # pragma: no cover - extremely rare parsing issue
+        return raw_value
+    if coerced is None and raw_value.strip() not in {"null", "~"}:
+        return raw_value
+    return coerced
+
+
 def _apply_env_overrides(
     data: Dict[str, Any], *, section: str | None = None
 ) -> Dict[str, Any]:
@@ -352,7 +369,7 @@ def _apply_env_overrides(
             ref = ref.setdefault(part, {})
         if not valid_path or not isinstance(ref, dict):
             continue
-        ref[path[-1]] = value
+        ref[path[-1]] = _coerce_env_value(value)
     return data
 
 
@@ -401,6 +418,8 @@ def load_and_validate_config(
             config_dict = config_dict[section]
         except KeyError as exc:  # pragma: no cover - defensive programming
             raise KeyError(f"Section '{section}' not found in {config_path}") from exc
+
+    _apply_env_overrides(config_dict, section=section)
     columns_dict = _normalise_column_aliases(config_dict.get("columns", {}))
     config_dict["columns"] = columns_dict
 
@@ -430,7 +449,6 @@ def load_and_validate_config(
             messages.append(f"{path}: {err.message}")
         raise ValueError("Configuration validation error(s): " + "; ".join(messages))
 
-    _apply_env_overrides(config_dict, section=section)
     LOGGER.debug("Loaded configuration from %s", config_path)
     try:
         return Config(**config_dict)
