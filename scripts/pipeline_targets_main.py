@@ -1006,6 +1006,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         config_data = _load_yaml_mapping(preliminary.config)
     except FileNotFoundError:
         config_data = {}
+    except (yaml.YAMLError, TypeError) as exc:
+        message = f"Invalid configuration file '{preliminary.config}': {exc}"
+        config_parser.error(message)
     _apply_env_overrides(config_data, section="pipeline")
     orthologs_cfg = _ensure_mapping(config_data.get("orthologs"), context="orthologs")
     orthologs_default = _ensure_bool(
