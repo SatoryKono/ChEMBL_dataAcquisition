@@ -7,7 +7,7 @@ import logging
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml  # type: ignore[import-untyped]
 
@@ -106,6 +106,9 @@ def write_meta_yaml(
     row_count: int,
     column_count: int,
     meta_path: Path | None = None,
+    status: Literal["success", "error"] = "success",
+    error: str | None = None,
+    include_hash: bool = True,
 ) -> Path:
     """Writes dataset metadata to a YAML file next to the output file.
 
@@ -120,6 +123,17 @@ def write_meta_yaml(
 
     Returns:
         The path to the written metadata file.
+
+    Other Parameters
+    ----------------
+    status:
+        Execution outcome recorded in the metadata. Defaults to ``"success"``
+        and should be set to ``"error"`` when the CLI aborts prematurely.
+    error:
+        Optional descriptive message associated with an error outcome.
+    include_hash:
+        When :data:`True`, compute and persist the SHA-256 digest alongside a
+        determinism record. Disable when the output file was not produced.
     """
 
     default_meta_path = output_path.with_name(f"{output_path.name}.meta.yaml")
@@ -132,14 +146,21 @@ def write_meta_yaml(
         "command": command,
         "config": dict(config),
         "output": str(output_path),
-        "sha256": _file_sha256(output_path),
         "rows": row_count,
         "columns": column_count,
+        "status": status,
     }
 
-    metadata["determinism"] = _determinism_record(
-        current_sha=metadata["sha256"], previous_metadata=previous_metadata
-    )
+    if error:
+        metadata["error"] = error
+
+    if include_hash:
+        metadata["sha256"] = _file_sha256(output_path)
+        metadata["determinism"] = _determinism_record(
+            current_sha=metadata["sha256"], previous_metadata=previous_metadata
+        )
+    else:
+        metadata["sha256"] = None
 
     with target.open("w", encoding="utf-8") as handle:
         yaml.safe_dump(metadata, handle, allow_unicode=True, sort_keys=False)

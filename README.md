@@ -219,6 +219,8 @@ The `scripts/` directory contains several other scripts for performing specific 
 *   `get_cell_line_main.py`: Download metadata for specific ChEMBL cell lines and
     serialise the records as JSON lines.
 *   `get_uniprot_target_data.py`: Retrieve and normalize detailed information about UniProt targets.
+    The input CSV must expose a `uniprot_id` column unless `--column` is used to
+    point at an alternative header.
 *   `get_hgnc_by_uniprot.py`: Map UniProt accessions to HGNC identifiers.
 *   `dump_gtop_target.py`: Download comprehensive GtoPdb target information.
 *   `protein_classify_main.py`: Classify proteins based on UniProt data.

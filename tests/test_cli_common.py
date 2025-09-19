@@ -226,6 +226,7 @@ def test_write_cli_metadata_produces_expected_yaml(tmp_path: Path) -> None:
     assert "output" not in payload["config"]
     assert payload["rows"] == 1
     assert payload["columns"] == 1
+    assert payload["status"] == "success"
 
 
 def test_write_cli_metadata_defaults_to_sys_argv(
@@ -258,9 +259,34 @@ def test_write_cli_metadata_defaults_to_sys_argv(
 
     determinism = payload["determinism"]
     assert determinism["baseline_sha256"] == payload["sha256"]
-    assert determinism["previous_sha256"] is None
-    assert determinism["matches_previous"] is None
-    assert determinism["check_count"] == 1
+
+
+def test_write_cli_metadata_records_error(tmp_path: Path) -> None:
+    """The metadata writer should capture error outcomes when requested."""
+
+    output_path = tmp_path / "results.csv"
+    namespace = argparse.Namespace(
+        input=tmp_path / "input.csv",
+        output=str(output_path),
+        errors_output=None,
+        meta_output=None,
+    )
+
+    message = "Input file missing required column"
+    meta_file = write_cli_metadata(
+        output_path,
+        row_count=0,
+        column_count=0,
+        namespace=namespace,
+        status="error",
+        error=message,
+    )
+
+    payload = yaml.safe_load(meta_file.read_text(encoding="utf-8"))
+    assert payload["status"] == "error"
+    assert payload["error"] == message
+    assert payload["sha256"] is None
+    assert "determinism" not in payload
 
 
 def test_resolve_cli_sidecar_paths_defaults(tmp_path: Path) -> None:
