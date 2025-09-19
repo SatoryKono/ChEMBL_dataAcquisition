@@ -78,6 +78,25 @@ class RateLimitConfig:
     rps: float
 
 
+class UniProtRequestError(RuntimeError):
+    """Raised when the UniProt client exhausts all retry attempts."""
+
+    def __init__(
+        self,
+        url: str,
+        *,
+        attempts: int,
+        cause: requests.RequestException,
+    ) -> None:
+        message = (
+            f"Failed to retrieve {url} after {attempts} attempts: {cause}"
+        )
+        super().__init__(message)
+        self.url = url
+        self.attempts = attempts
+        self.cause = cause
+
+
 @dataclass
 class UniProtClient:
     """A thin wrapper around the UniProtKB REST API.
@@ -131,7 +150,14 @@ class UniProtClient:
         Returns
         -------
         Optional[requests.Response]
-            The response object, or None if an error occurred.
+            The response object, or ``None`` when the endpoint returns a
+            non-success status such as ``404``.
+
+        Raises
+        ------
+        UniProtRequestError
+            If the client exhausts all retry attempts without receiving a
+            successful response.
         """
 
         session = self._get_session()
@@ -170,6 +196,8 @@ class UniProtClient:
                 reason,
             )
 
+        attempt_counter = 0
+
         @retry(
             reraise=True,
             retry=retry_if_exception_type(requests.RequestException),
@@ -178,6 +206,8 @@ class UniProtClient:
             before_sleep=_log_retry,
         )
         def _do_request() -> requests.Response:
+            nonlocal attempt_counter
+            attempt_counter += 1
             self._wait_rate_limit()
             LOGGER.debug("GET %s params=%s", url, params)
             resp = session.get(url, params=params, timeout=self.network.timeout_sec)
@@ -206,7 +236,8 @@ class UniProtClient:
             resp = _do_request()
         except requests.RequestException as exc:  # pragma: no cover - network failure
             LOGGER.warning("Request failed for %s: %s", url, exc)
-            return None
+            attempts = attempt_counter or 1
+            raise UniProtRequestError(url, attempts=attempts, cause=exc) from exc
         if resp.status_code == 404:
             return None
         if resp.status_code != 200:  # pragma: no cover - unexpected codes
