@@ -23,6 +23,7 @@ uniprot:
     max_retries: 3
   rate_limit:
     rps: 3
+  batch_size: 100
   columns:
     - uniprot_id_primary
     - uniprot_ids_all
