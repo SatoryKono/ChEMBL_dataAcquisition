@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -173,3 +175,51 @@ def test_fetch_all_uses_http_cache(tmp_path: Path) -> None:
         client.cache.clear()
         client.fetch_all(["P12345"])
         assert m.call_count == 2
+
+
+def test_fetch_all_uses_thread_local_http_clients(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    thread_to_client: dict[int, int] = {}
+    client_to_thread: dict[int, int] = {}
+
+    class DummyResponse:
+        def __init__(self, accession: str) -> None:
+            self.status_code = 200
+            self._accession = accession
+            self.headers: dict[str, str] = {}
+
+        def json(self) -> dict[str, str]:
+            return {"primaryAccession": self._accession}
+
+    def fake_request(self: HttpClient, method: str, url: str, **_: object) -> DummyResponse:
+        thread_id = threading.get_ident()
+        client_id = id(self)
+        bound_client = thread_to_client.setdefault(thread_id, client_id)
+        assert bound_client == client_id
+        bound_thread = client_to_thread.setdefault(client_id, thread_id)
+        assert bound_thread == thread_id
+        assert self.timeout == (0.5, 0.5)
+        assert self.max_retries == 2
+        assert self.rate_limiter.rps == 3.0
+        time.sleep(0.01)
+        accession = url.rsplit("/", 1)[-1].split("?")[0]
+        return DummyResponse(accession)
+
+    monkeypatch.setattr(
+        "library.uniprot_enrich.enrich.HttpClient.request", fake_request
+    )
+
+    client = UniProtClient(
+        max_workers=2,
+        request_timeout=0.5,
+        max_retries=2,
+        rate_limit_rps=3.0,
+    )
+    accessions = ["A0A000", "B0B000", "C0C000", "D0D000"]
+    results = client.fetch_all(accessions)
+
+    assert set(results) == set(accessions)
+    assert len(thread_to_client) >= 2
+    assert len(thread_to_client) == len(set(thread_to_client.values()))
+    assert len(client_to_thread) == len(thread_to_client)
