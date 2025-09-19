@@ -306,6 +306,34 @@ def _load_yaml_mapping(path: str) -> dict[str, Any]:
     return _ensure_mapping(data, context=f"{path} root", allow_none=False)
 
 
+def _coerce_env_value(raw_value: str) -> Any:
+    """Return a Python object parsed from ``raw_value`` when possible.
+
+    Parameters
+    ----------
+    raw_value:
+        Textual representation of an environment variable.
+
+    Returns
+    -------
+    Any
+        Structured Python object decoded from ``raw_value`` where feasible.
+        YAML parsing is used to honour native types such as booleans, numbers
+        and sequences. The original string is returned when parsing fails or
+        when ``raw_value`` represents an explicit empty string.
+    """
+
+    if raw_value == "":
+        return ""
+    try:
+        coerced = yaml.safe_load(raw_value)
+    except yaml.YAMLError:  # pragma: no cover - defensive conversion guard
+        return raw_value
+    if coerced is None and raw_value.strip() not in {"null", "~"}:
+        return raw_value
+    return coerced
+
+
 def _apply_env_overrides(
     data: dict[str, Any], *, section: str | None = None
 ) -> dict[str, Any]:
@@ -362,7 +390,7 @@ def _apply_env_overrides(
             ref = ref.setdefault(part, {})
         if not valid_path or not isinstance(ref, dict):
             continue
-        ref[path[-1]] = value
+        ref[path[-1]] = _coerce_env_value(value)
     return data
 
 
@@ -978,6 +1006,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         config_data = _load_yaml_mapping(preliminary.config)
     except FileNotFoundError:
         config_data = {}
+    except (yaml.YAMLError, TypeError) as exc:
+        message = f"Invalid configuration file '{preliminary.config}': {exc}"
+        config_parser.error(message)
+    _apply_env_overrides(config_data, section="pipeline")
     orthologs_cfg = _ensure_mapping(config_data.get("orthologs"), context="orthologs")
     orthologs_default = _ensure_bool(
         orthologs_cfg.get("enabled"), context="orthologs.enabled", default=False
@@ -1212,18 +1244,14 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         raise ValueError("--encoding must be provided")
 
     config_path = Path(args.config).expanduser()
+    pipeline_cfg = load_pipeline_config(str(config_path))
+    config_path = config_path.resolve()
     if not config_path.exists() or not config_path.is_file():
         raise FileNotFoundError(
             f"Configuration file {config_path.resolve()} does not exist"
         )
-    config_path = config_path.resolve()
 
     input_path = Path(args.input).expanduser()
-    if not input_path.exists() or not input_path.is_file():
-        raise FileNotFoundError(f"Input file {input_path.resolve()} does not exist")
-    input_path = input_path.resolve()
-
-    pipeline_cfg = load_pipeline_config(str(config_path))
     if args.timeout_sec is not None:
         pipeline_cfg.timeout_sec = args.timeout_sec
     if args.retries is not None:
@@ -1248,6 +1276,9 @@ def _run_pipeline(args: argparse.Namespace) -> None:
             args.primary_target_only.lower() == "true"
         )
     pipeline_cfg.include_isoforms = pipeline_cfg.include_isoforms or args.with_isoforms
+    if not input_path.exists() or not input_path.is_file():
+        raise FileNotFoundError(f"Input file {input_path.resolve()} does not exist")
+    input_path = input_path.resolve()
     use_isoforms = pipeline_cfg.include_isoforms
 
     data = _load_yaml_mapping(str(config_path))
@@ -1320,30 +1351,28 @@ def _run_pipeline(args: argparse.Namespace) -> None:
 
     csv_cfg = CsvConfig(sep=args.sep, encoding=args.encoding)
     try:
-        identifier_iter = (
-            identifier
-            for identifier in read_ids(
-                input_path,
-                args.id_column,
-                csv_cfg,
-                normalise=_normalise_identifier_series,
-            )
+        identifiers = read_ids(
+            input_path,
+            args.id_column,
+            csv_cfg,
+            normalise=_normalise_identifier_series,
         )
     except KeyError as exc:
         raise ValueError(exc.args[0]) from exc
-    ids: list[str] = [identifier for identifier in identifier_iter if identifier]
-
-    chembl_df: pd.DataFrame = fetch_targets(ids, chembl_cfg, batch_size=args.batch_size)
-
-    def _cached_chembl_fetch(
-        _: Sequence[str], __: TargetConfig
-    ) -> pd.DataFrame:  # pragma: no cover - simple wrapper
-        return chembl_df
 
     entry_cache: Dict[str, Any] = {}
-    with tqdm(total=len(ids), desc="targets") as pbar:
+    chembl_df_holder: dict[str, pd.DataFrame] = {}
+
+    def _cached_chembl_fetch(
+        raw_ids: Iterable[str], config: TargetConfig
+    ) -> pd.DataFrame:
+        df = fetch_targets(raw_ids, config, batch_size=args.batch_size)
+        chembl_df_holder["value"] = df
+        return df
+
+    with tqdm(desc="targets", unit="target") as pbar:
         out_df = run_pipeline(
-            ids,
+            identifiers,
             pipeline_cfg,
             chembl_fetcher=_cached_chembl_fetch,
             chembl_config=chembl_cfg,
@@ -1356,6 +1385,7 @@ def _run_pipeline(args: argparse.Namespace) -> None:
             progress_callback=pbar.update,
             entry_cache=entry_cache,
         )
+    chembl_df = chembl_df_holder.get("value", pd.DataFrame(columns=chembl_cfg.columns))
     enrich_client = enrich_client_factory(cache_config=enrich_cache)
     out_df = add_uniprot_fields(out_df, enrich_client.fetch_all)
     out_df = merge_chembl_fields(out_df, chembl_df)

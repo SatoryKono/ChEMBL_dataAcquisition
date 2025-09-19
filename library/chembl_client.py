@@ -123,6 +123,8 @@ class ChemblClient:
         timeout: The timeout for HTTP requests in seconds.
         max_retries: The maximum number of retries for failed requests.
         rps: The number of requests per second to limit to.
+        retry_penalty_seconds: Additional delay applied when a ``429`` response
+            lacks a ``Retry-After`` hint.
         user_agent: The User-Agent header to use for requests.
         cache_config: Optional configuration for caching HTTP requests.
         http_client: Optional pre-configured HttpClient instance.
@@ -132,6 +134,7 @@ class ChemblClient:
     timeout: float = 30.0
     max_retries: int = 3
     rps: float = 2.0
+    retry_penalty_seconds: float = 1.0
     user_agent: str = "ChEMBLDataAcquisition/1.0"
     cache_config: CacheConfig | None = None
     http_client: HttpClient | None = None
@@ -142,6 +145,7 @@ class ChemblClient:
             timeout=self.timeout,
             max_retries=self.max_retries,
             rps=self.rps,
+            retry_penalty_seconds=self.retry_penalty_seconds,
             cache_config=self.cache_config,
         )
 

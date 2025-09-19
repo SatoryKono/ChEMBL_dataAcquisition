@@ -5,7 +5,7 @@ import logging
 from math import isnan
 from datetime import UTC, datetime
 from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
-from typing import Any, Callable, Dict, List, Mapping, MutableMapping, Sequence
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, MutableMapping, Sequence
 
 import pandas as pd
 from typing import TYPE_CHECKING
@@ -458,18 +458,16 @@ def _normalise_identifier_value(value: Any) -> str:
     return text
 
 
-def _clean_identifier_sequence(values: Sequence[Any]) -> list[str]:
-    """Return unique, order-preserving identifiers from ``values``."""
+def _clean_identifier_sequence(values: Iterable[Any]) -> Iterator[str]:
+    """Yield unique, order-preserving identifiers from ``values`` lazily."""
 
-    cleaned: list[str] = []
     seen: set[str] = set()
     for raw in values:
         identifier = _normalise_identifier_value(raw)
         if not identifier or identifier in seen:
             continue
         seen.add(identifier)
-        cleaned.append(identifier)
-    return cleaned
+        yield identifier
 
 
 def _has_isoform_annotation(entry: Mapping[str, Any]) -> bool:
@@ -523,7 +521,7 @@ def _select_primary(
 
 
 def run_pipeline(
-    ids: Sequence[str],
+    ids: Iterable[str],
     cfg: PipelineConfig,
     *,
     chembl_fetcher=fetch_targets,
@@ -541,7 +539,7 @@ def run_pipeline(
     """Orchestrates data acquisition for a sequence of ChEMBL target identifiers.
 
     Args:
-        ids: A sequence of target ChEMBL identifiers.
+        ids: Iterable of target ChEMBL identifiers.
         cfg: The pipeline configuration.
         chembl_fetcher: The function used to download ChEMBL target information.
         chembl_config: The configuration passed to the `chembl_fetcher`.
@@ -570,10 +568,7 @@ def run_pipeline(
 
     chembl_cfg = chembl_config or TargetConfig(list_format=cfg.list_format)
     cleaned_ids = _clean_identifier_sequence(ids)
-    if not cleaned_ids:
-        chembl_df = pd.DataFrame(columns=chembl_cfg.columns)
-    else:
-        chembl_df = chembl_fetcher(cleaned_ids, chembl_cfg)
+    chembl_df = chembl_fetcher(cleaned_ids, chembl_cfg)
     records: List[Dict[str, Any]] = []
     fetch_full_entry = bool(cfg.include_isoforms or ensembl_client or oma_client)
     for row in chembl_df.to_dict(orient="records"):

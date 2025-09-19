@@ -246,6 +246,23 @@ def test_http_client_penalises_future_requests(monkeypatch, requests_mock) -> No
     assert pytest.approx([1.0, 4.0], rel=1e-3) == clock.sleeps
 
 
+def test_http_client_retries_configured_attempts_on_failure(
+    monkeypatch: pytest.MonkeyPatch, requests_mock
+) -> None:
+    """Tenacity performs the initial request plus ``max_retries`` attempts."""
+
+    monkeypatch.setattr("tenacity.nap.time.sleep", lambda *_: None)
+    monkeypatch.setattr("library.http_client.time.sleep", lambda *_: None)
+    url = "https://example.org/unavailable"
+    requests_mock.get(url, exc=requests.exceptions.ConnectTimeout)
+    client = HttpClient(timeout=1, max_retries=2, rps=0)
+
+    with pytest.raises(requests.exceptions.ConnectTimeout):
+        client.request("get", url)
+
+    assert requests_mock.call_count == 3
+
+
 def test_rate_limiter_penalty_blocks_until_elapsed(monkeypatch) -> None:
     """Rate limiter delays requests until the configured penalty expires."""
 

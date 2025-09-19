@@ -214,12 +214,12 @@ def resolve_cli_sidecar_paths(
         raise ValueError(msg)
 
     meta_path = (
-        Path(meta_output)
+        Path(meta_output).expanduser()
         if meta_output is not None
         else _append_suffix_to_name(destination, ".meta.yaml")
     )
     errors_path = (
-        Path(errors_output)
+        Path(errors_output).expanduser()
         if errors_output is not None
         else _append_suffix_to_name(destination, ".errors.json")
     )

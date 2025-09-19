@@ -6,6 +6,7 @@ import argparse
 import csv
 import json
 import logging
+import os
 import sys
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -13,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, MutableMapping, Sequence, cast
 
 import pandas as pd
+import requests
 import yaml
 from tqdm.auto import tqdm
 
@@ -62,6 +64,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "timeout": 30.0,
         "max_retries": 6,
         "rps": 0.3,
+        "high_throughput": False,
+        "api_key_env": "SEMANTIC_SCHOLAR_API_KEY",
         "backoff_multiplier": 5.0,
         "retry_penalty_seconds": 30.0,
     },
@@ -89,6 +93,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "status_forcelist": [408, 409, 429, 500, 502, 503, 504],
     },
 }
+
+
+SEMANTIC_SCHOLAR_PUBLIC_RPS = float(DEFAULT_CONFIG["semantic_scholar"]["rps"])
 
 
 OPENALEX_ONLY_PLACEHOLDER_ERROR = "PubMed metadata not requested (OpenAlex-only run)"
@@ -229,6 +236,11 @@ def _create_http_client(
     )
     backoff_multiplier = float(cfg.get("backoff_multiplier", 1.0))
     retry_penalty_seconds = float(cfg.get("retry_penalty_seconds", 0.0))
+    session: requests.Session | None = None
+    api_key = cfg.get("api_key")
+    if isinstance(api_key, str) and api_key.strip():
+        session = requests.Session()
+        session.headers.update({"x-api-key": api_key.strip()})
     return HttpClient(
         timeout=(timeout_connect, timeout_read),
         max_retries=max_retries,
@@ -236,6 +248,7 @@ def _create_http_client(
         status_forcelist=status_forcelist,
         backoff_multiplier=backoff_multiplier,
         retry_penalty_seconds=retry_penalty_seconds,
+        session=session,
     )
 
 
@@ -913,6 +926,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the Semantic Scholar requests-per-second limit",
     )
     parser.add_argument(
+        "--semantic-scholar-high-throughput",
+        dest="global_semantic_scholar_high_throughput",
+        action="store_true",
+        help="Allow Semantic Scholar rates above the public throttle (requires API key)",
+    )
+    parser.add_argument(
+        "--semantic-scholar-api-key",
+        dest="global_semantic_scholar_api_key",
+        default=None,
+        help="Semantic Scholar API key used for authenticated requests",
+    )
+    parser.add_argument(
         "--chunk-size",
         dest="global_chunk_size",
         type=int,
@@ -953,6 +978,10 @@ def build_parser() -> argparse.ArgumentParser:
         semantic_scholar_rps=None,
         semantic_scholar_chunk_size=None,
         semantic_scholar_timeout=None,
+        semantic_scholar_high_throughput=False,
+        global_semantic_scholar_high_throughput=False,
+        semantic_scholar_api_key=None,
+        global_semantic_scholar_api_key=None,
     )
 
     pubmed_parser = subparsers.add_parser(
@@ -973,6 +1002,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the Semantic Scholar chunk size (must be positive)",
     )
     pubmed_parser.add_argument("--semantic-scholar-timeout", type=float, default=None)
+    pubmed_parser.add_argument(
+        "--semantic-scholar-high-throughput",
+        action="store_true",
+        help="Allow Semantic Scholar rates above the public throttle (requires API key)",
+    )
+    pubmed_parser.add_argument(
+        "--semantic-scholar-api-key",
+        default=None,
+        help="Semantic Scholar API key used for authenticated requests",
+    )
 
     openalex_parser = subparsers.add_parser(
         "openalex",
@@ -1016,6 +1055,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     scholar_parser.add_argument("--semantic-scholar-rps", type=float, default=None)
     scholar_parser.add_argument("--semantic-scholar-timeout", type=float, default=None)
+    scholar_parser.add_argument(
+        "--semantic-scholar-high-throughput",
+        action="store_true",
+        help="Allow Semantic Scholar rates above the public throttle (requires API key)",
+    )
+    scholar_parser.add_argument(
+        "--semantic-scholar-api-key",
+        default=None,
+        help="Semantic Scholar API key used for authenticated requests",
+    )
 
     all_parser = subparsers.add_parser(
         "all",
@@ -1042,6 +1091,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override the Semantic Scholar chunk size (must be positive)",
     )
     all_parser.add_argument("--semantic-scholar-timeout", type=float, default=None)
+    all_parser.add_argument(
+        "--semantic-scholar-high-throughput",
+        action="store_true",
+        help="Allow Semantic Scholar rates above the public throttle (requires API key)",
+    )
+    all_parser.add_argument(
+        "--semantic-scholar-api-key",
+        default=None,
+        help="Semantic Scholar API key used for authenticated requests",
+    )
 
     return parser
 
@@ -1100,6 +1159,67 @@ def _cli_option(args: argparse.Namespace, *names: str) -> Any | None:
     return None
 
 
+def _cli_flag(args: argparse.Namespace, name: str, global_name: str) -> bool:
+    """Return ``True`` when either the command-specific or global flag is set."""
+
+    return bool(getattr(args, name, False) or getattr(args, global_name, False))
+
+
+def _resolve_semantic_scholar_api_key(config: Mapping[str, Any]) -> str | None:
+    """Resolve the Semantic Scholar API key from the configuration or environment."""
+
+    api_key = config.get("api_key")
+    if isinstance(api_key, str) and api_key.strip():
+        return api_key.strip()
+    env_name = config.get("api_key_env")
+    if isinstance(env_name, str) and env_name.strip():
+        env_value = os.environ.get(env_name.strip())
+        if isinstance(env_value, str) and env_value.strip():
+            return env_value.strip()
+    return None
+
+
+def _enforce_semantic_scholar_rate_limit(config: MutableMapping[str, Any]) -> None:
+    """Clamp Semantic Scholar throughput unless high-throughput mode is enabled."""
+
+    requested_rps = float(config.get("rps", SEMANTIC_SCHOLAR_PUBLIC_RPS))
+    high_throughput = bool(config.get("high_throughput"))
+    api_key = _resolve_semantic_scholar_api_key(config)
+
+    if high_throughput:
+        if requested_rps > SEMANTIC_SCHOLAR_PUBLIC_RPS and not api_key:
+            msg = (
+                "Semantic Scholar high-throughput mode requires an API key. "
+                "Provide --semantic-scholar-api-key or set the"
+                f" {config.get('api_key_env', 'SEMANTIC_SCHOLAR_API_KEY')} environment variable."
+            )
+            raise ValueError(msg)
+        if api_key:
+            config["api_key"] = api_key
+        return
+
+    if requested_rps > SEMANTIC_SCHOLAR_PUBLIC_RPS:
+        LOGGER.warning(
+            "Semantic Scholar RPS %.2f exceeds the public limit; falling back to %.2f. "
+            "Use --semantic-scholar-high-throughput with an API key to override.",
+            requested_rps,
+            SEMANTIC_SCHOLAR_PUBLIC_RPS,
+        )
+        config["rps"] = SEMANTIC_SCHOLAR_PUBLIC_RPS
+    if api_key:
+        config["api_key"] = api_key
+
+
+def _redact_sensitive_config(config: Mapping[str, Any]) -> Dict[str, Any]:
+    """Return a deep copy of ``config`` with sensitive values redacted."""
+
+    redacted = deepcopy(config)
+    semantic = redacted.get("semantic_scholar")
+    if isinstance(semantic, MutableMapping) and semantic.get("api_key"):
+        semantic["api_key"] = "***"
+    return redacted
+
+
 def apply_cli_overrides(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     """Applies command-line argument overrides to the configuration.
 
@@ -1111,6 +1231,13 @@ def apply_cli_overrides(args: argparse.Namespace, config: Dict[str, Any]) -> Non
         config["io"]["sep"] = args.sep
     if args.encoding:
         config["io"]["encoding"] = args.encoding
+
+    scholar_cfg_raw = config.get("semantic_scholar")
+    scholar_cfg = (
+        cast(MutableMapping[str, Any], scholar_cfg_raw)
+        if isinstance(scholar_cfg_raw, MutableMapping)
+        else None
+    )
     if args.command in {"pubmed", "all"}:
         batch_size = _cli_option(args, "batch_size", "global_batch_size")
         if batch_size is not None:
@@ -1129,28 +1256,43 @@ def apply_cli_overrides(args: argparse.Namespace, config: Dict[str, Any]) -> Non
         crossref_rps = _cli_option(args, "crossref_rps", "global_crossref_rps")
         if crossref_rps is not None:
             config["crossref"]["rps"] = float(crossref_rps)
-    if args.command in {"pubmed", "all", "scholar"}:
+    if scholar_cfg is not None and args.command in {"pubmed", "all", "scholar"}:
         scholar_rps = _cli_option(
             args,
             "semantic_scholar_rps",
             "global_semantic_scholar_rps",
         )
         if scholar_rps is not None:
-            config["semantic_scholar"]["rps"] = float(scholar_rps)
+            scholar_cfg["rps"] = float(scholar_rps)
         scholar_chunk_size = _cli_option(
             args,
             "semantic_scholar_chunk_size",
             "global_semantic_scholar_chunk_size",
         )
         if scholar_chunk_size is not None:
-            config["semantic_scholar"]["chunk_size"] = int(scholar_chunk_size)
+            scholar_cfg["chunk_size"] = int(scholar_chunk_size)
         scholar_timeout = _cli_option(
             args,
             "semantic_scholar_timeout",
             "global_semantic_scholar_timeout",
         )
         if scholar_timeout is not None:
-            config["semantic_scholar"]["timeout"] = float(scholar_timeout)
+            scholar_cfg["timeout"] = float(scholar_timeout)
+        if _cli_flag(
+            args,
+            "semantic_scholar_high_throughput",
+            "global_semantic_scholar_high_throughput",
+        ):
+            scholar_cfg["high_throughput"] = True
+        scholar_api_key = _cli_option(
+            args,
+            "semantic_scholar_api_key",
+            "global_semantic_scholar_api_key",
+        )
+        if scholar_api_key is not None:
+            scholar_cfg["api_key"] = str(scholar_api_key)
+    if scholar_cfg is not None:
+        _enforce_semantic_scholar_rate_limit(scholar_cfg)
     if args.command in {"chembl", "all"}:
         chunk_size = _cli_option(args, "chunk_size", "global_chunk_size")
         if chunk_size is not None:
@@ -1199,7 +1341,7 @@ def main() -> None:
     apply_cli_overrides(args, config)
 
     if args.print_config:
-        print(json.dumps(config, indent=2, sort_keys=True))
+        print(json.dumps(_redact_sensitive_config(config), indent=2, sort_keys=True))
         return
 
     input_path: Path = args.input

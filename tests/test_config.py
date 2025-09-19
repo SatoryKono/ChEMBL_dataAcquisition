@@ -24,6 +24,16 @@ def _write_config(tmp_path: Path, text: str) -> Path:
     return cfg
 
 
+def test_contact_section_parsed() -> None:
+    """The ``contact`` section is required and parsed via Pydantic."""
+
+    loaded = load_and_validate_config(CONFIG)
+    assert loaded.contact.name == "Example Maintainer"
+    assert (
+        loaded.contact.user_agent == "example-tool/1.0 (mailto:maintainer@example.org)"
+    )
+
+
 def test_invalid_type(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     cfg_text = CONFIG.read_text().replace("rps: 1000", 'rps: "fast"')
     cfg = _write_config(tmp_path, cfg_text)

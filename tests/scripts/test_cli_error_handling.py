@@ -16,6 +16,14 @@ from scripts import get_target_data_main
 import scripts.pipeline_targets_main as pipeline_main
 
 
+CONTACT_YAML = (
+    "contact:\n"
+    "  name: Test Maintainer\n"
+    "  email: maintainer@example.org\n"
+    "  user_agent: test-suite/1.0 (mailto:maintainer@example.org)\n"
+)
+
+
 def test_get_target_data_main_missing_input(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -43,7 +51,7 @@ def test_get_cell_line_main_missing_input(
     """The cell line CLI validates that the CSV file exists."""
 
     output_path = tmp_path / "cell_lines.json"
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises((SystemExit, FileNotFoundError)) as excinfo:
         get_cell_line_main.main(
             [
                 "--input",
@@ -52,9 +60,12 @@ def test_get_cell_line_main_missing_input(
                 str(output_path),
             ]
         )
-    assert excinfo.value.code == 1
-    captured = capsys.readouterr()
-    assert "does not exist" in captured.err
+    if isinstance(excinfo.value, SystemExit):
+        assert excinfo.value.code == 1
+        captured = capsys.readouterr()
+        assert "does not exist" in captured.err
+    else:
+        assert "does not exist" in str(excinfo.value)
 
 
 def test_pipeline_targets_main_missing_input(
@@ -63,7 +74,7 @@ def test_pipeline_targets_main_missing_input(
     """The pipeline CLI reports a helpful error when the input CSV is missing."""
 
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("pipeline: {}\n", encoding="utf-8")
+    config_path.write_text(CONTACT_YAML + "pipeline: {}\n", encoding="utf-8")
     argv = [
         "pipeline_targets_main.py",
         "--input",

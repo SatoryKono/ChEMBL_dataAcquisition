@@ -1,4 +1,9 @@
 
+contact:
+  name: "ChEMBL Data Acquisition"
+  email: "chembl-da@example.org"
+  user_agent: "chembl-data-acquisition/1.0 (mailto:chembl-da@example.org)"
+
 gtop:
   base_url: "https://www.guidetopharmacology.org/services"
   network:
@@ -23,6 +28,7 @@ uniprot:
     max_retries: 3
   rate_limit:
     rps: 3
+  batch_size: 100
   columns:
     - uniprot_id_primary
     - uniprot_ids_all

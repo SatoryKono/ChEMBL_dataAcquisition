@@ -1,8 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "required": ["io", "columns", "uniprot", "network", "batch", "logging"],
+  "required": ["contact", "io", "columns", "uniprot", "network", "batch", "logging"],
   "properties": {
+    "contact": {
+      "type": "object",
+      "required": ["name", "user_agent"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "email": { "type": "string", "format": "email" },
+        "user_agent": { "type": "string", "minLength": 1 }
+      }
+    },
     "io": {
       "type": "object",
       "required": ["input", "output", "csv"],

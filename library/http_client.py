@@ -9,8 +9,8 @@ Algorithm Notes
 ---------------
 1. Before each outgoing request the client checks the configured requests per
    second limit and sleeps if necessary.
-2. HTTP errors and network issues are retried up to ``max_retries`` times with
-   exponential backoff.
+2. HTTP errors and network issues are retried up to ``max_retries`` additional
+   times with exponential backoff.
 3. Responses are returned as :class:`requests.Response` objects and are
    expected to be decoded by the caller.
 
@@ -321,7 +321,8 @@ class HttpClient:
         timeout: Default request timeout. Can be either a single float
             applied to the connect and read phases, or a tuple of
             ``(connect, read)`` timeouts.
-        max_retries: Maximum number of retries for transient errors.
+        max_retries: Number of retry attempts performed after the initial
+            request when transient errors occur.
         rps: Target requests per second, implemented via a simple token bucket.
         status_forcelist: HTTP status codes that trigger a retry. Defaults to
             ``DEFAULT_STATUS_FORCELIST``, which excludes ``404 Not Found``.
@@ -438,7 +439,7 @@ class HttpClient:
         @retry(
             reraise=True,
             retry=retry_if_exception_type(requests.RequestException),
-            stop=stop_after_attempt(self.max_retries),
+            stop=stop_after_attempt(self.max_retries + 1),
             wait=wait_strategy,
         )
         def _do_request() -> requests.Response:

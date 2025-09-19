@@ -13,7 +13,7 @@ semantic_scholar:
   chunk_size: 50
   timeout: 30
   max_retries: 3
-  rps: 2.0
+  rps: 0.3
 
 openalex:
   rps: 1.0

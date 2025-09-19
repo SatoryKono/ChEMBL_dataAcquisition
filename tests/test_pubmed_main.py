@@ -452,7 +452,7 @@ def test_semantic_scholar_cli_overrides() -> None:
     args = pm.parse_args(
         [
             "--semantic-scholar-rps",
-            "0.5",
+            "0.2",
             "--semantic-scholar-timeout",
             "10",
             "--semantic-scholar-chunk-size",
@@ -464,6 +464,85 @@ def test_semantic_scholar_cli_overrides() -> None:
 
     pm.apply_cli_overrides(args, config)
 
-    assert config["semantic_scholar"]["rps"] == pytest.approx(0.5)
+    assert config["semantic_scholar"]["rps"] == pytest.approx(0.2)
     assert config["semantic_scholar"]["timeout"] == pytest.approx(10.0)
     assert config["semantic_scholar"]["chunk_size"] == 50
+
+
+def test_semantic_scholar_rps_clamped_without_flag(caplog: pytest.LogCaptureFixture) -> None:
+    """High RPS overrides should be clamped unless explicitly enabled."""
+
+    args = pm.parse_args([
+        "--semantic-scholar-rps",
+        "0.9",
+        "scholar",
+    ])
+    config = deepcopy(pm.DEFAULT_CONFIG)
+
+    with caplog.at_level("WARNING"):
+        pm.apply_cli_overrides(args, config)
+
+    assert config["semantic_scholar"]["rps"] == pytest.approx(
+        pm.SEMANTIC_SCHOLAR_PUBLIC_RPS
+    )
+    assert any("public limit" in message for message in caplog.messages)
+
+
+def test_semantic_scholar_high_throughput_requires_key() -> None:
+    """Enabling high throughput without an API key should raise an error."""
+
+    args = pm.parse_args(
+        [
+            "--semantic-scholar-rps",
+            "0.9",
+            "--semantic-scholar-high-throughput",
+            "scholar",
+        ]
+    )
+    config = deepcopy(pm.DEFAULT_CONFIG)
+
+    with pytest.raises(ValueError, match="requires an API key"):
+        pm.apply_cli_overrides(args, config)
+
+
+def test_semantic_scholar_high_throughput_with_env_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """High throughput mode should accept API keys provided via the environment."""
+
+    monkeypatch.setenv("SEMANTIC_SCHOLAR_API_KEY", "secret-token")
+    args = pm.parse_args(
+        [
+            "--semantic-scholar-rps",
+            "0.9",
+            "--semantic-scholar-high-throughput",
+            "scholar",
+        ]
+    )
+    config = deepcopy(pm.DEFAULT_CONFIG)
+
+    pm.apply_cli_overrides(args, config)
+
+    assert config["semantic_scholar"]["rps"] == pytest.approx(0.9)
+    assert config["semantic_scholar"]["api_key"] == "secret-token"
+
+
+def test_semantic_scholar_high_throughput_with_cli_key() -> None:
+    """CLI-supplied API keys should unlock higher throughput."""
+
+    args = pm.parse_args(
+        [
+            "--semantic-scholar-rps",
+            "0.9",
+            "--semantic-scholar-high-throughput",
+            "--semantic-scholar-api-key",
+            "cli-token",
+            "scholar",
+        ]
+    )
+    config = deepcopy(pm.DEFAULT_CONFIG)
+
+    pm.apply_cli_overrides(args, config)
+
+    assert config["semantic_scholar"]["rps"] == pytest.approx(0.9)
+    assert config["semantic_scholar"]["api_key"] == "cli-token"

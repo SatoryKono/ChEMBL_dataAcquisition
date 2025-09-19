@@ -1,10 +1,11 @@
-from typing import Dict
-from pathlib import Path
 import logging
-from unittest import mock
 import sys
+from pathlib import Path
+from typing import Dict
+from unittest import mock
 
 import pytest
+import requests
 import requests_mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -83,3 +84,29 @@ def test_fetch_respects_retry_after(
         for call in penalty_mock.call_args_list
     )
     assert any("attempt" in record.message for record in caplog.records)
+
+
+def test_uniprot_client_retries_configured_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The client performs ``max_retries`` attempts after the initial request."""
+
+    monkeypatch.setattr("tenacity.nap.sleep", lambda *_: None)
+    monkeypatch.setattr("library.http_client.time.sleep", lambda *_: None)
+    session = mock.create_autospec(requests.Session, instance=True)
+    session.get.side_effect = requests.exceptions.ConnectTimeout("boom")
+    client = UniProtClient(
+        base_url="https://rest.uniprot.org/uniprotkb",
+        fields="",
+        network=NetworkConfig(timeout_sec=1, max_retries=2, backoff_sec=0.1),
+        rate_limit=RateLimitConfig(rps=1000),
+        session=session,
+    )
+
+    response = client._request(
+        "https://rest.uniprot.org/uniprotkb/search",
+        {"query": "accession:P12345"},
+    )
+
+    assert response is None
+    assert session.get.call_count == 3
