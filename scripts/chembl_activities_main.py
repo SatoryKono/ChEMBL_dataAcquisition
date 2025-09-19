@@ -18,6 +18,7 @@ import pandas as pd
 
 from library.cli_common import (
     ensure_output_dir,
+    resolve_cli_sidecar_paths,
     serialise_dataframe,
     write_cli_metadata,
 )
@@ -154,12 +155,11 @@ def run_pipeline(
     output_path = (
         Path(args.output) if args.output else Path(_default_output_name(args.input))
     )
-    errors_path = (
-        Path(args.errors_output)
-        if args.errors_output
-        else output_path.with_suffix(f"{output_path.suffix}.errors.json")
+    meta_path, errors_path, quality_base = resolve_cli_sidecar_paths(
+        output_path,
+        meta_output=args.meta_output,
+        errors_output=args.errors_output,
     )
-    meta_path = Path(args.meta_output) if args.meta_output else None
 
     csv_cfg = CsvConfig(
         sep=args.sep, encoding=args.encoding, list_format=args.list_format
@@ -223,7 +223,7 @@ def run_pipeline(
         meta_path=meta_path,
     )
 
-    analyze_table_quality(serialised, table_name=str(output_path.with_suffix("")))
+    analyze_table_quality(serialised, table_name=str(quality_base))
 
     LOGGER.info("Activity table written to %s", output_path)
     return 0

@@ -19,6 +19,7 @@ if __package__ in {None, ""}:
 from library.cli_common import (  # noqa: E402
     analyze_table_quality,
     ensure_output_dir,
+    resolve_cli_sidecar_paths,
     serialise_dataframe,
     write_cli_metadata,
 )
@@ -89,14 +90,6 @@ def _serialise_and_write(
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments for the GtoP dump CLI."""
 
-
-def parse_args() -> argparse.Namespace:
-    """Parses command-line arguments.
-
-    Returns:
-        An `argparse.Namespace` object containing the parsed arguments.
-    """
-
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--input",
@@ -163,37 +156,10 @@ def parse_args() -> argparse.Namespace:
     )
     return parser.parse_args(argv)
 
-def read_ids(path: Path, column: str) -> list[str]:
-    """Reads and normalizes a list of identifiers from a CSV file.
-
-    Args:
-        path: The path to the CSV file.
-        column: The name of the column containing the identifiers.
-
-    Returns:
-        A list of normalized identifiers.
-    """
-    df = pd.read_csv(path)
-    if column not in df.columns:
-        raise ValueError(f"Column {column} not found in input")
-    series = df[column].astype(str).str.strip()
-    if column == "uniprot_id":
-        series = series.str.upper()
-    if column == "hgnc_id":
-        series = series.str.upper().apply(
-            lambda x: x if x.startswith("HGNC:") else f"HGNC:{x}"
-        )
-    ids = list(dict.fromkeys([x for x in series if x and x != "nan"]))
-    return ids
-
-
 def main(argv: Sequence[str] | None = None) -> None:
     """Entry point for the script."""
 
-
-def main() -> None:
-    """The main entry point for the script."""
-    args = parse_args()
+    args = parse_args(argv)
 
     configure_logging(args.log_level, log_format=args.log_format)
 
@@ -306,23 +272,27 @@ def main() -> None:
 
     targets_path = ensure_output_dir(output_dir / "targets.csv")
     _serialise_and_write(targets_df, targets_path, csv_cfg, list_format=csv_cfg.list_format)
-    analyze_table_quality(targets_df, table_name=str(targets_path.with_suffix("")))
+    targets_meta, _, targets_quality = resolve_cli_sidecar_paths(
+        targets_path,
+        meta_output=args.meta_output,
+    )
+    analyze_table_quality(targets_df, table_name=str(targets_quality))
 
     syn_path = ensure_output_dir(output_dir / "targets_synonyms.csv")
     _serialise_and_write(syn_df, syn_path, csv_cfg, list_format=csv_cfg.list_format)
-    analyze_table_quality(syn_df, table_name=str(syn_path.with_suffix("")))
+    _, _, syn_quality = resolve_cli_sidecar_paths(syn_path)
+    analyze_table_quality(syn_df, table_name=str(syn_quality))
 
     int_path = ensure_output_dir(output_dir / "targets_interactions.csv")
     _serialise_and_write(int_df, int_path, csv_cfg, list_format=csv_cfg.list_format)
-    analyze_table_quality(int_df, table_name=str(int_path.with_suffix("")))
-
-    meta_path = Path(args.meta_output).expanduser().resolve() if args.meta_output else None
+    _, _, int_quality = resolve_cli_sidecar_paths(int_path)
+    analyze_table_quality(int_df, table_name=str(int_quality))
     write_cli_metadata(
         targets_path,
         row_count=int(targets_df.shape[0]),
         column_count=int(targets_df.shape[1]),
         namespace=args,
-        meta_path=meta_path,
+        meta_path=targets_meta,
     )
 
     print(targets_path)

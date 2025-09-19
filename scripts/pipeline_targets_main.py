@@ -46,6 +46,7 @@ from library.logging_utils import configure_logging
 from library.cli_common import (
     analyze_table_quality,
     ensure_output_dir,
+    resolve_cli_sidecar_paths,
     serialise_dataframe,
     write_cli_metadata,
 )
@@ -1396,9 +1397,11 @@ def main() -> None:
         encoding=args.encoding,
     )
 
-    analyze_table_quality(serialised_df, table_name=str(output_path.with_suffix("")))
-
-    meta_path = Path(args.meta_output) if args.meta_output else None
+    meta_path, _, quality_base = resolve_cli_sidecar_paths(
+        output_path,
+        meta_output=args.meta_output,
+    )
+    analyze_table_quality(serialised_df, table_name=str(quality_base))
     write_cli_metadata(
         output_path,
         row_count=int(serialised_df.shape[0]),

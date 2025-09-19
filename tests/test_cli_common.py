@@ -19,6 +19,7 @@ if str(ROOT) not in sys.path:
 from library.cli_common import (
     ensure_output_dir,
     prepare_cli_config,
+    resolve_cli_sidecar_paths,
     serialise_dataframe,
     write_cli_metadata,
 )
@@ -104,7 +105,7 @@ def test_write_cli_metadata_produces_expected_yaml(tmp_path: Path) -> None:
         command_parts=["chembl", "--flag", "value with space"],
     )
 
-    assert meta_file == output_path.with_suffix(".csv.meta.yaml")
+    assert meta_file == output_path.with_name(f"{output_path.name}.meta.yaml")
     payload = yaml.safe_load(meta_file.read_text(encoding="utf-8"))
     assert payload["command"] == "chembl --flag 'value with space'"
     assert payload["config"]["input"] == str(tmp_path / "input.csv")
@@ -147,4 +148,32 @@ def test_write_cli_metadata_defaults_to_sys_argv(
     assert determinism["previous_sha256"] is None
     assert determinism["matches_previous"] is None
     assert determinism["check_count"] == 1
+
+
+def test_resolve_cli_sidecar_paths_defaults(tmp_path: Path) -> None:
+    """The helper should derive default sidecar locations safely."""
+
+    output_path = tmp_path / "nested" / "dataset.tar.gz"
+    meta_path, errors_path, quality_base = resolve_cli_sidecar_paths(output_path)
+
+    assert meta_path == output_path.with_name("dataset.tar.gz.meta.yaml")
+    assert errors_path == output_path.with_name("dataset.tar.gz.errors.json")
+    assert quality_base == output_path.with_name("dataset.tar")
+
+    # Ensure overrides are honoured and converted to Path instances.
+    override_meta, override_errors, override_quality = resolve_cli_sidecar_paths(
+        output_path,
+        meta_output=tmp_path / "custom.yaml",
+        errors_output=str(tmp_path / "errors.json"),
+    )
+
+    assert override_meta == tmp_path / "custom.yaml"
+    assert override_errors == tmp_path / "errors.json"
+    assert override_quality == quality_base
+
+    plain_output = tmp_path / "dataset"
+    plain_meta, plain_errors, plain_quality = resolve_cli_sidecar_paths(plain_output)
+    assert plain_meta == plain_output.with_name("dataset.meta.yaml")
+    assert plain_errors == plain_output.with_name("dataset.errors.json")
+    assert plain_quality == plain_output
  

@@ -14,6 +14,6 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 # Expose ``build_clients`` for legacy tests expecting a global symbol.
-from pipeline_targets_main import build_clients as _build_clients
+from pipeline_targets_main import build_clients as _build_clients  # noqa: E402
 
 builtins.build_clients = _build_clients

@@ -90,7 +90,7 @@ def test_cli_writes_output(tmp_path: Path) -> None:
             ]
         )
     iso_out = out.with_name(f"{out.stem}_isoforms.csv")
-    meta_path = out.with_suffix(f"{out.suffix}.meta.yaml")
+    meta_path = out.with_name(f"{out.name}.meta.yaml")
     assert out.exists()
     assert iso_out.exists()
     assert meta_path.exists()

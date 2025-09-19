@@ -21,6 +21,7 @@ from library.assay_postprocessing import postprocess_assays
 from library.assay_validation import AssaysSchema, validate_assays
 from library.chembl_client import ChemblClient
 from library.chembl_library import get_assays
+from library.cli_common import resolve_cli_sidecar_paths
 from library.data_profiling import analyze_table_quality
 from library.io import read_ids
 from library.io_utils import CsvConfig, serialise_cell
@@ -145,12 +146,11 @@ def run_pipeline(
     output_path = (
         Path(args.output) if args.output else Path(_default_output_name(args.input))
     )
-    errors_path = (
-        Path(args.errors_output)
-        if args.errors_output
-        else output_path.with_suffix(f"{output_path.suffix}.errors.json")
+    meta_path, errors_path, quality_base = resolve_cli_sidecar_paths(
+        output_path,
+        meta_output=args.meta_output,
+        errors_output=args.errors_output,
     )
-    meta_path = Path(args.meta_output) if args.meta_output else None
 
     csv_cfg = CsvConfig(
         sep=args.sep, encoding=args.encoding, list_format=args.list_format
@@ -209,7 +209,7 @@ def run_pipeline(
         meta_path=meta_path,
     )
 
-    analyze_table_quality(serialised, table_name=str(output_path.with_suffix("")))
+    analyze_table_quality(serialised, table_name=str(quality_base))
 
     LOGGER.info("Assay table written to %s", output_path)
     return 0

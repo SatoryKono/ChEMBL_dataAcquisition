@@ -20,10 +20,36 @@ __all__ = [
     "serialise_dataframe",
     "prepare_cli_config",
     "write_cli_metadata",
+    "resolve_cli_sidecar_paths",
     "analyze_table_quality",
 ]
 
 _EXCLUDED_CONFIG_KEYS = frozenset({"output", "errors_output", "meta_output"})
+
+
+def _append_suffix_to_name(path: Path, suffix: str) -> Path:
+    """Return ``path`` with ``suffix`` appended to the filename.
+
+    Args:
+        path: The base file path used to derive the companion file.
+        suffix: The suffix to append, typically starting with a dot (e.g.
+            ``".meta.yaml"``).
+
+    Returns:
+        A new :class:`pathlib.Path` instance that appends ``suffix`` to the
+        original filename while preserving the parent directory.
+
+    Raises:
+        ValueError: If ``suffix`` is empty or ``path`` lacks a filename.
+    """
+
+    if not suffix:
+        msg = "suffix must be a non-empty string"
+        raise ValueError(msg)
+    if path.name == "":
+        msg = "path must include a filename"
+        raise ValueError(msg)
+    return path.with_name(f"{path.name}{suffix}")
 
 
 def ensure_output_dir(path: Path) -> Path:
@@ -97,6 +123,60 @@ def prepare_cli_config(
             continue
         normalised[key] = str(value) if isinstance(value, Path) else value
     return normalised
+
+
+def resolve_cli_sidecar_paths(
+    output_path: Path,
+    *,
+    meta_output: str | Path | None = None,
+    errors_output: str | Path | None = None,
+) -> tuple[Path, Path, Path]:
+    """Derive companion file locations for CLI commands.
+
+    The helper centralises the logic for computing metadata, validation error
+    and quality-report destinations.  It ensures filenames are constructed by
+    appending the relevant suffixes to the *full* output filename, which is
+    important for multi-extension outputs such as ``.tar.gz``.
+
+    Args:
+        output_path: Path to the primary CSV or TSV file written by the CLI.
+        meta_output: Optional override for the metadata destination provided by
+            the user via ``--meta-output``. When omitted the helper appends
+            ``".meta.yaml"`` to the output filename.
+        errors_output: Optional override for the validation errors report. When
+            omitted the helper appends ``".errors.json"`` to the output
+            filename.
+
+    Returns:
+        A tuple ``(meta_path, errors_path, quality_base)`` where ``meta_path``
+        and ``errors_path`` are concrete :class:`pathlib.Path` instances and
+        ``quality_base`` is a path without the final suffix that can be passed
+        to :func:`library.data_profiling.analyze_table_quality`.
+
+    Raises:
+        ValueError: If ``output_path`` does not include a filename.
+    """
+
+    destination = Path(output_path)
+    if destination.name == "":
+        msg = "output_path must include a filename"
+        raise ValueError(msg)
+
+    meta_path = (
+        Path(meta_output)
+        if meta_output is not None
+        else _append_suffix_to_name(destination, ".meta.yaml")
+    )
+    errors_path = (
+        Path(errors_output)
+        if errors_output is not None
+        else _append_suffix_to_name(destination, ".errors.json")
+    )
+    if destination.suffix:
+        quality_base = destination.with_name(destination.stem)
+    else:
+        quality_base = destination
+    return meta_path, errors_path, quality_base
 
 
 def write_cli_metadata(

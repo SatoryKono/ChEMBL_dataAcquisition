@@ -21,8 +21,10 @@ python scripts/get_target_data_main.py \
 The input file must contain a column with ChEMBL target identifiers. Duplicate
 and empty values are ignored. The resulting CSV contains one row per unique
 identifier with nested fields serialised deterministically via
-``--list-format``. A companion ``.meta.yaml`` file captures the CLI invocation,
-row/column counts, and output checksum.
+``--list-format``. A companion ``<output_filename>.meta.yaml`` file captures the
+CLI invocation, row/column counts, and output checksum.  The suffix is appended
+to the entire output filename to support multi-extension artefacts such as
+``.tar.gz``.
 
 ## dump_gtop_target.py
 
@@ -45,9 +47,9 @@ python scripts/dump_gtop_target.py \
 This command creates ``targets.csv`` together with related tables such as
 ``targets_synonyms.csv`` and ``targets_interactions.csv`` in the specified output
 directory. Only unique identifiers are queried and results are written in a
-deterministic order. The main table is accompanied by a metadata sidecar (set
-to a custom path above via ``--meta-output``) that records runtime parameters
-and checksums.
+deterministic order. The main table is accompanied by metadata and validation
+sidecars (configured above via ``--meta-output`` and the default
+``<output_filename>.errors.json``) that record runtime parameters and checksums.
 
 ## Performance smoke testing
 
