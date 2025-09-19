@@ -6,6 +6,7 @@ import logging
 import sys
 from pathlib import Path
 from typing import Any
+from unittest.mock import create_autospec
 
 import pytest
 import requests  # type: ignore[import-untyped]
@@ -169,3 +170,21 @@ def test_get_documents_batches_requests_and_filters_duplicates() -> None:
         "DOC3",
     ]
     assert df["document_chembl_id"].tolist() == ["DOC1", "DOC2", "DOC3"]
+
+
+def test_close_delegates_to_http_client() -> None:
+    http_client = create_autospec(HttpClient, instance=True)
+    client = ChemblClient(http_client=http_client)
+
+    client.close()
+
+    http_client.close.assert_called_once_with()
+
+
+def test_context_manager_closes_http_client() -> None:
+    http_client = create_autospec(HttpClient, instance=True)
+
+    with ChemblClient(http_client=http_client):
+        http_client.close.assert_not_called()
+
+    http_client.close.assert_called_once_with()
