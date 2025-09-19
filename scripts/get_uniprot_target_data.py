@@ -158,6 +158,12 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     configure_logging(args.log_level, log_format=args.log_format)
 
+    command_parts = (
+        tuple(sys.argv)
+        if argv is None
+        else ("get_uniprot_target_data.py", *tuple(argv))
+    )
+
     config_path = ROOT / "config.yaml"
     raw_config = yaml.safe_load(config_path.read_text())
     _ensure_mapping(raw_config, section="root configuration")
@@ -387,6 +393,22 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         )
         write_rows(orthologs_path, orth_rows, orth_cols, csv_cfg)
+        orth_df = pd.DataFrame(orth_rows, columns=orth_cols)
+        serialised_orth_df = serialise_dataframe(
+            orth_df, list_format=csv_cfg.list_format
+        )
+        orth_meta_path, _, orth_quality_base = resolve_cli_sidecar_paths(
+            orthologs_path
+        )
+        analyze_table_quality(serialised_orth_df, table_name=str(orth_quality_base))
+        write_cli_metadata(
+            orthologs_path,
+            row_count=int(serialised_orth_df.shape[0]),
+            column_count=int(serialised_orth_df.shape[1]),
+            namespace=args,
+            command_parts=command_parts,
+            meta_path=orth_meta_path,
+        )
         LOGGER.info(
             "Ortholog table written to %s",
             orthologs_path,
@@ -418,15 +440,24 @@ def main(argv: Sequence[str] | None = None) -> None:
             )
         )
         write_rows(iso_out_path, iso_rows, iso_cols, csv_cfg)
+        iso_df = pd.DataFrame(iso_rows, columns=iso_cols)
+        serialised_iso_df = serialise_dataframe(
+            iso_df, list_format=csv_cfg.list_format
+        )
+        iso_meta_path, _, iso_quality_base = resolve_cli_sidecar_paths(iso_out_path)
+        analyze_table_quality(serialised_iso_df, table_name=str(iso_quality_base))
+        write_cli_metadata(
+            iso_out_path,
+            row_count=int(serialised_iso_df.shape[0]),
+            column_count=int(serialised_iso_df.shape[1]),
+            namespace=args,
+            command_parts=command_parts,
+            meta_path=iso_meta_path,
+        )
 
     meta_path, _, quality_base = resolve_cli_sidecar_paths(output_path)
     analyze_table_quality(serialised_df, table_name=str(quality_base))
 
-    command_parts = (
-        tuple(sys.argv)
-        if argv is None
-        else ("get_uniprot_target_data.py", *tuple(argv))
-    )
     write_cli_metadata(
         output_path,
         row_count=int(serialised_df.shape[0]),
