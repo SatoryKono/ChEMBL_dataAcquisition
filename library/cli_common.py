@@ -240,6 +240,7 @@ def write_cli_metadata(
     meta_path: Path | None = None,
     status: Literal["success", "error"] = "success",
     error: str | None = None,
+    warnings: Sequence[str] | None = None,
 ) -> Path:
     """Persists a `.meta.yaml` companion file next to the output file.
 
@@ -258,6 +259,9 @@ def write_cli_metadata(
             prevented the output from being written.
         error: Optional human-readable description of the failure when
             ``status`` is ``"error"``.
+        warnings: Optional sequence of warning messages to persist alongside the
+            core metadata. Use this to surface non-fatal issues to downstream
+            consumers.
 
     Returns:
         The path to the written metadata file.
@@ -277,4 +281,5 @@ def write_cli_metadata(
         status=status,
         error=error,
         include_hash=include_hash,
+        warnings=warnings,
     )
