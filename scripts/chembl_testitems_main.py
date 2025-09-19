@@ -177,11 +177,6 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         help="Maximum number of identifiers to process",
     )
     parser.add_argument(
-        "--dictionary",
-        default=None,
-        help="Optional dictionary file for downstream enrichment",
-    )
-    parser.add_argument(
         "--smiles-column",
         default="canonical_smiles",
         help="Column containing SMILES strings for PubChem enrichment",

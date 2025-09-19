@@ -13,7 +13,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 chembl_testitems_main = importlib.import_module("scripts.chembl_testitems_main")
-prepare_cli_config = importlib.import_module("library.cli_common").prepare_cli_config
+
+
+def test_parse_args_rejects_dictionary() -> None:
+    with pytest.raises(SystemExit):
+        chembl_testitems_main.parse_args(["--dictionary", "dict.csv"])
 
 
 def test_run_pipeline_passes_pubchem_http_client_config(

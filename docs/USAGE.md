@@ -103,3 +103,6 @@ python scripts/chembl_activities_main.py \
     --chunk-size 5 \
     --log-level INFO
 ```
+
+> **Note:** The legacy `--dictionary` argument has been retired because the
+> activities pipeline does not read external lookup tables.
