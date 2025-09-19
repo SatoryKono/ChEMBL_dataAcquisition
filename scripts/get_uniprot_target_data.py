@@ -225,6 +225,16 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     input_path = Path(args.input)
+
+    if not input_path.exists():
+        message = f"Input file {input_path} does not exist"
+        LOGGER.error(message)
+        raise SystemExit(1) from None
+    if not input_path.is_file():
+        message = f"Input path {input_path} is not a file"
+        LOGGER.error(message)
+        raise SystemExit(1) from None
+
     output_path = Path(args.output) if args.output else _default_output(input_path)
 
     orthologs_path = (
