@@ -46,7 +46,9 @@ class ApiCfg:
     """Minimal configuration for the ChEMBL API."""
 
     chembl_base: str = "https://www.ebi.ac.uk/chembl/api/data"
+    timeout_connect: float = 5.0
     timeout_read: float = 30.0
+    user_agent: str = "ChEMBLDataAcquisition/1.0"
 
 
 @dataclass
@@ -211,19 +213,65 @@ class ChemblClient:
         return self._fetch_many(molecule_ids, self.fetch_molecule)
 
     def request_json(self, url: str, *, cfg: ApiCfg, timeout: float) -> Dict[str, Any]:
-        """Returns the JSON payload for a given URL using the HTTP client.
+        """Return the JSON payload for ``url`` using the HTTP client.
 
         Args:
             url: The URL to request.
             cfg: The API configuration.
-            timeout: The timeout for the request in seconds.
+            timeout: The read timeout for the request in seconds.
 
         Returns:
-            A dictionary containing the JSON payload.
+            A dictionary containing the JSON payload. When the resource is not
+            found (HTTP 404) an empty dictionary is returned after emitting a
+            warning.
+
+        Raises:
+            ValueError: If the response cannot be decoded as JSON.
+            requests.HTTPError: If the response indicates an HTTP error other
+                than 404.
+            requests.RequestException: If a network error occurs while making
+                the request.
         """
-        resp = self._http.request("get", url, timeout=(timeout, timeout))
-        resp.raise_for_status()
-        return resp.json()
+
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": cfg.user_agent or self.user_agent,
+        }
+        timeout_connect = getattr(cfg, "timeout_connect", timeout)
+        request_timeout = (timeout_connect, timeout)
+
+        try:
+            resp = self._http.request(
+                "get", url, timeout=request_timeout, headers=headers
+            )
+        except requests.RequestException:
+            LOGGER.exception("Network error while fetching %s", url)
+            raise
+
+        if resp.status_code == 404:
+            LOGGER.warning("ChEMBL returned 404 for %s", url)
+            return {}
+
+        try:
+            resp.raise_for_status()
+        except requests.HTTPError:
+            LOGGER.exception("HTTP error while fetching %s", url)
+            raise
+
+        content_type = resp.headers.get("Content-Type")
+        if content_type and "json" not in content_type.lower():
+            LOGGER.warning(
+                "Unexpected Content-Type %r while fetching %s", content_type, url
+            )
+            raise ValueError(
+                "Expected JSON response from ChEMBL but received" f" {content_type!r}"
+            )
+
+        try:
+            return resp.json()
+        except ValueError as exc:
+            LOGGER.warning("Failed to decode JSON payload from %s: %s", url, exc)
+            raise
 
 
 def _chunked(seq: Sequence[str], size: int) -> Iterable[List[str]]:
