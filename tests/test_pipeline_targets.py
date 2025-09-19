@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Any, Dict, Iterable, List
 
 import pandas as pd
 import pytest
@@ -61,6 +61,9 @@ class DummyUniProt:
         self.records = records
 
     def fetch(self, acc: str) -> Dict | None:  # pragma: no cover - simple
+        return self.records.get(acc)
+
+    def fetch_entry_json(self, acc: str) -> Dict | None:  # pragma: no cover - simple
         return self.records.get(acc)
 
 
@@ -212,8 +215,10 @@ def test_pipeline_fetches_isoforms_when_enabled(monkeypatch):
         def __init__(self, records: Dict[str, Dict]):
             super().__init__(records)
             self.isoform_calls: List[str] = []
+            self.entry_calls: List[str] = []
 
         def fetch_entry_json(self, acc: str) -> Dict | None:
+            self.entry_calls.append(acc)
             return self.records.get(acc)
 
         def fetch_isoforms_fasta(self, acc: str) -> List[str]:
@@ -236,6 +241,7 @@ def test_pipeline_fetches_isoforms_when_enabled(monkeypatch):
     monkeypatch.setattr("pipeline_targets.resolve_target", fake_resolve)
     cfg = PipelineConfig(include_isoforms=True)
 
+    cache: Dict[str, Dict[str, Any]] = {}
     df = run_pipeline(
         ["CHEMBL1"],
         cfg,
@@ -243,10 +249,13 @@ def test_pipeline_fetches_isoforms_when_enabled(monkeypatch):
         uniprot_client=uni,
         hgnc_client=hgnc,
         gtop_client=gtop,
+        entry_cache=cache,
     )
 
     assert not df.empty
     assert uni.isoform_calls == ["P12345"]
+    assert uni.entry_calls == ["P12345"]
+    assert cache["P12345"]["primaryAccession"] == "P12345"
 
 
 def test_pipeline_selects_human_uniprot(monkeypatch):
