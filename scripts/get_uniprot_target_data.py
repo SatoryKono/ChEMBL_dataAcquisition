@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 
  
@@ -44,8 +45,11 @@ DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_SEP = ","
 DEFAULT_ENCODING = "utf-8"
 
+CONFIG_ENV_VAR = "CHEMBL_DA_UNIPROT_CONFIG"
+
 LOGGER = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_CONFIG_PATH = ROOT / "config.yaml"
 BATCH_SIZE = 100
 
 
@@ -179,6 +183,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         default="human",
         help="Logging output format (human or json)",
     )
+    parser.add_argument(
+        "--config",
+        help=(
+            "Path to YAML configuration file. Defaults to the value of the "
+            f"{CONFIG_ENV_VAR} environment variable or the project config.yaml"
+        ),
+    )
     args = parser.parse_args(argv)
 
     configure_logging(args.log_level, log_format=args.log_format)
@@ -189,15 +200,42 @@ def main(argv: Sequence[str] | None = None) -> None:
         else ("get_uniprot_target_data.py", *tuple(argv))
     )
 
-    config_path = ROOT / "config.yaml"
-    raw_config = yaml.safe_load(config_path.read_text())
-    _ensure_mapping(raw_config, section="root configuration")
+    config_hint = args.config or os.environ.get(CONFIG_ENV_VAR)
+    if config_hint and str(config_hint).strip():
+        config_path = Path(str(config_hint)).expanduser()
+    else:
+        config_path = DEFAULT_CONFIG_PATH
+    config_path = config_path.resolve()
+
+    try:
+        raw_text = config_path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        LOGGER.error("Configuration file %s does not exist", config_path)
+        raise SystemExit(1) from exc
+    except OSError as exc:
+        LOGGER.error("Failed to read configuration file %s: %s", config_path, exc)
+        raise SystemExit(1) from exc
+
+    try:
+        raw_config = yaml.safe_load(raw_text)
+    except yaml.YAMLError as exc:
+        LOGGER.error("Failed to parse YAML in %s: %s", config_path, exc)
+        raise SystemExit(1) from exc
+
+    try:
+        _ensure_mapping(raw_config, section="root configuration")
+    except ValueError as exc:
+        LOGGER.error("%s", exc)
+        raise SystemExit(1) from exc
 
     try:
         cfg = load_uniprot_target_config(config_path)
-    except ConfigError as exc:  # pragma: no cover - defensive logging
+    except FileNotFoundError as exc:
+        LOGGER.error("Configuration file %s does not exist", config_path)
+        raise SystemExit(1) from exc
+    except ConfigError as exc:
         LOGGER.error("%s", exc)
-        raise
+        raise SystemExit(1) from exc
 
     http_cache_mapping = cfg.http_cache.to_cache_dict() if cfg.http_cache else None
     global_cache = CacheConfig.from_dict(http_cache_mapping)
@@ -361,7 +399,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     acc,
                     extra={"uniprot_id": acc},
                 )
-                row = {c: "" for c in cols}
+                row: dict[str, Any] = {c: "" for c in cols}
                 row["uniprot_id"] = acc
                 if ensembl_client:
                     row["orthologs_json"] = []
