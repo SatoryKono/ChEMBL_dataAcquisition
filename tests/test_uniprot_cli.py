@@ -9,6 +9,8 @@ from typing import Any
 
 import pandas as pd
 import pytest
+import requests
+import yaml
 
 from uniprot_enrich import enrich_uniprot
 
@@ -198,3 +200,100 @@ def test_get_uniprot_target_data_batches_requests(
         assert batch_size == module.BATCH_SIZE
         assert len(call_accessions) <= module.BATCH_SIZE
     assert iso_calls == accessions
+
+
+def test_get_uniprot_cli_handles_uniprot_request_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """CLI should surface UniProt request failures via exit code 2."""
+
+    module = importlib.import_module("scripts.get_uniprot_target_data")
+
+    input_path = tmp_path / "input.csv"
+    input_path.write_text("uniprot_id\nP12345\n", encoding="utf-8")
+    output_path = tmp_path / "output.csv"
+
+    class DummyOutputConfig:
+        list_format = "json"
+        include_sequence = False
+        sep = ","
+        encoding = "utf-8"
+
+    class DummyUniProtConfig:
+        def __init__(self) -> None:
+            self.include_isoforms = False
+            self.use_fasta_stream_for_isoform_ids = False
+            self.cache = None
+            self.base_url = "https://example.uniprot"
+            self.timeout_sec = 1.0
+            self.retries = 3
+            self.rps = 10.0
+            self.fields: list[str] = []
+            self.columns: list[str] = []
+
+        def model_dump(self) -> dict[str, list[str]]:
+            return {"fields": self.fields, "columns": self.columns}
+
+    class DummyOrthologsConfig:
+        enabled = False
+
+    class DummyConfig:
+        def __init__(self) -> None:
+            self.http_cache = None
+            self.output = DummyOutputConfig()
+            self.uniprot = DummyUniProtConfig()
+            self.orthologs = DummyOrthologsConfig()
+
+    original_yaml_safe_load = yaml.safe_load
+    monkeypatch.setattr(module.yaml, "safe_load", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        module,
+        "load_uniprot_target_config",
+        lambda *_args, **_kwargs: DummyConfig(),
+    )
+    monkeypatch.setattr(
+        "library.logging_utils.configure_logging", lambda *_args, **_kwargs: None
+    )
+    monkeypatch.setattr(
+        "library.cli_common.analyze_table_quality", lambda *_args, **_kwargs: None
+    )
+
+    class FailingClient:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:  # type: ignore[no-untyped-def]
+            pass
+
+        def fetch_entries_json(self, *_args: Any, **_kwargs: Any) -> dict[str, dict[str, str]]:  # type: ignore[override]
+            from library.uniprot_client import UniProtRequestError
+
+            raise UniProtRequestError(
+                "https://example.uniprot/stream",
+                attempts=3,
+                cause=requests.RequestException("boom"),
+            )
+
+        def fetch_isoforms_fasta(self, *_args: Any, **_kwargs: Any) -> list[str]:  # type: ignore[no-untyped-def]
+            raise AssertionError("fetch_isoforms_fasta should not be called")
+
+        def fetch_entry_json(self, *_args: Any, **_kwargs: Any) -> dict[str, str]:  # type: ignore[no-untyped-def]
+            raise AssertionError("fetch_entry_json should not be called")
+
+    monkeypatch.setattr("library.uniprot_client.UniProtClient", FailingClient)
+    monkeypatch.setattr("library.http_client.CacheConfig.from_dict", lambda *_a, **_k: None)
+
+    with pytest.raises(SystemExit) as exc_info:
+        module.main(
+            [
+                "--input",
+                str(input_path),
+                "--output",
+                str(output_path),
+            ]
+        )
+
+    assert exc_info.value.code == 2
+
+    meta_path = output_path.with_name(f"{output_path.name}.meta.yaml")
+    assert meta_path.exists()
+    meta = original_yaml_safe_load(meta_path.read_text(encoding="utf-8"))
+    assert meta["status"] == "error"
+    assert "Failed to retrieve" in meta.get("error", "")
