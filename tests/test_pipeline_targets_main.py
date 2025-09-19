@@ -25,6 +25,14 @@ from pipeline_targets_main import (
 from library.pipeline_targets import PipelineConfig
 
 
+CONTACT_YAML = (
+    "contact:\n"
+    "  name: Test Maintainer\n"
+    "  email: maintainer@example.org\n"
+    "  user_agent: test-suite/1.0 (mailto:maintainer@example.org)\n"
+)
+
+
 def test_merge_chembl_fields_adds_columns():
     pipeline_df = pd.DataFrame(
         {
@@ -385,7 +393,9 @@ def test_parse_args_with_orthologs_flag(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config_path = tmp_path / "config.yaml"
-    config_path.write_text("orthologs:\n  enabled: true\n", encoding="utf-8")
+    config_path.write_text(
+        CONTACT_YAML + "orthologs:\n  enabled: true\n", encoding="utf-8"
+    )
 
     monkeypatch.setattr(
         sys,

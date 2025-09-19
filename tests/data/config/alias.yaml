@@ -1,3 +1,8 @@
+contact:
+  name: "Example Maintainer"
+  email: "maintainer@example.org"
+  user_agent: "example-tool/1.0 (mailto:maintainer@example.org)"
+
 io:
   input:
     encoding: "utf-8"

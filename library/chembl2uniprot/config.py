@@ -24,6 +24,8 @@ import yaml
 from jsonschema import Draft202012Validator
 from pydantic import BaseModel, Field, ValidationError
 
+from library.config.contact import ContactConfig
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -123,6 +125,9 @@ class Config(BaseModel):
 
     Attributes
     ----------
+    contact:
+        Contact information and default ``User-Agent`` header to use for
+        outbound HTTP requests.
     io:
         I/O related configuration.
     columns:
@@ -137,6 +142,7 @@ class Config(BaseModel):
         Logging configuration.
     """
 
+    contact: ContactConfig
     io: IOConfig
     columns: ColumnsConfig
     uniprot: UniprotConfig
@@ -241,6 +247,8 @@ def _build_config(data: Dict[str, Any]) -> Config:
     # of ``chembl_id`` and standardise on the modern key.
     columns_cfg = _normalise_column_aliases(dict(data["columns"]), drop_legacy=True)
 
+    contact_cfg = ContactConfig(**data["contact"])
+
     io_cfg = IOConfig(
         input=EncodingConfig(**data["io"]["input"]),
         output=EncodingConfig(**data["io"]["output"]),
@@ -254,6 +262,7 @@ def _build_config(data: Dict[str, Any]) -> Config:
         retry=RetryConfig(**data["uniprot"]["retry"]),
     )
     return Config(
+        contact=contact_cfg,
         io=io_cfg,
         columns=ColumnsConfig(**columns_cfg),
         uniprot=uniprot_cfg,
@@ -412,12 +421,18 @@ def load_and_validate_config(
         schema_path = config_path.with_name("config.schema.json")
     schema_path = Path(schema_path)
 
-    config_dict = _read_yaml(config_path)
+    raw_config = _read_yaml(config_path)
+    contact_section = raw_config.get("contact")
     if section:
         try:
-            config_dict = config_dict[section]
+            config_dict = dict(raw_config[section])
         except KeyError as exc:  # pragma: no cover - defensive programming
             raise KeyError(f"Section '{section}' not found in {config_path}") from exc
+    else:
+        config_dict = dict(raw_config)
+
+    if contact_section is not None and "contact" not in config_dict:
+        config_dict["contact"] = contact_section
 
     _apply_env_overrides(config_dict, section=section)
     columns_dict = _normalise_column_aliases(config_dict.get("columns", {}))
