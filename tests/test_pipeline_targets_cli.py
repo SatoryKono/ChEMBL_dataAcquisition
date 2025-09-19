@@ -28,12 +28,13 @@ def test_pipeline_targets_cli_writes_outputs(
     serialise_stats: dict[str, Any] = {"calls": 0}
 
     def tracking_serialise_dataframe(
-        df: pd.DataFrame, list_format: str
+        df: pd.DataFrame, list_format: str, *, inplace: bool = False
     ) -> pd.DataFrame:
         serialise_stats["calls"] += 1
         serialise_stats["list_format"] = list_format
         serialise_stats["columns"] = list(df.columns)
-        return original_serialise(df, list_format)
+        serialise_stats["inplace"] = inplace
+        return original_serialise(df, list_format, inplace=inplace)
 
     monkeypatch.setattr(module, "serialise_dataframe", tracking_serialise_dataframe)
 
@@ -185,6 +186,7 @@ def test_pipeline_targets_cli_writes_outputs(
     assert captured["call_count"] == 1
     assert serialise_stats["calls"] == 1
     assert serialise_stats["list_format"] == "json"
+    assert serialise_stats["inplace"] is True
     assert metadata_stats["calls"] == 1
     assert metadata_stats["kwargs"].get("meta_path") is None
     assert enrich_call["kwargs"].get("cache_config") is None
@@ -344,8 +346,11 @@ def test_pipeline_targets_cli_uses_configured_list_format(
 
     serialise_stats: dict[str, Any] = {}
 
-    def fake_serialise_dataframe(df: pd.DataFrame, list_format: str) -> pd.DataFrame:
+    def fake_serialise_dataframe(
+        df: pd.DataFrame, list_format: str, *, inplace: bool = False
+    ) -> pd.DataFrame:
         serialise_stats["list_format"] = list_format
+        serialise_stats["inplace"] = inplace
         return df
 
     monkeypatch.setattr(module, "serialise_dataframe", fake_serialise_dataframe)
@@ -418,6 +423,7 @@ def test_pipeline_targets_cli_uses_configured_list_format(
     module.main()
 
     assert serialise_stats["list_format"] == "pipe"
+    assert serialise_stats["inplace"] is True
 
 
 def test_pipeline_targets_cli_respects_yaml_defaults(

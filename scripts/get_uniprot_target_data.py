@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-ч
 import sys
 
 from collections.abc import Mapping, Sequence
@@ -214,7 +213,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     output_path = ensure_output_dir(output_path)
-    if args.with_orthologs and orth_cfg.get("enabled", True):
+    if args.with_orthologs and cfg.orthologs.enabled:
         orthologs_path = ensure_output_dir(orthologs_path)
     if include_iso:
         iso_out_path = ensure_output_dir(iso_out_path)
@@ -397,7 +396,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     rows.sort(key=lambda r: r.get("uniprot_id", ""))
     output_df = pd.DataFrame(rows, columns=cols)
-    serialised_df = serialise_dataframe(output_df, list_format=csv_cfg.list_format)
+    serialised_df = serialise_dataframe(
+        output_df, list_format=csv_cfg.list_format, inplace=True
+    )
     write_rows(output_path, rows, cols, csv_cfg)
     if include_iso:
         iso_cols = [

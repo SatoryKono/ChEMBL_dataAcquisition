@@ -119,7 +119,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         list_format=args.list_format,
     )
     result = fetch_targets(identifiers, target_cfg)
-    serialised = serialise_dataframe(result, args.list_format)
+    serialised = serialise_dataframe(result, args.list_format, inplace=True)
 
     columns = list(serialised.columns) or list(target_cfg.columns)
     rows = serialised.to_dict(orient="records")

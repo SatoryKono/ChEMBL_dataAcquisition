@@ -80,7 +80,7 @@ def _serialise_and_write(
 ) -> None:
     """Serialise ``frame`` and persist it to ``path`` using :func:`write_rows`."""
 
-    serialised = serialise_dataframe(frame, list_format)
+    serialised = serialise_dataframe(frame, list_format, inplace=True)
     columns = list(serialised.columns)
     rows = serialised.to_dict(orient="records")
     write_rows(path, rows, columns, cfg)
@@ -88,14 +88,6 @@ def _serialise_and_write(
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse command-line arguments for the GtoP dump CLI."""
-
-
-def parse_args() -> argparse.Namespace:
-    """Parses command-line arguments.
-
-    Returns:
-        An `argparse.Namespace` object containing the parsed arguments.
-    """
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -163,43 +155,13 @@ def parse_args() -> argparse.Namespace:
     )
     return parser.parse_args(argv)
 
-def read_ids(path: Path, column: str) -> list[str]:
-    """Reads and normalizes a list of identifiers from a CSV file.
-
-    Args:
-        path: The path to the CSV file.
-        column: The name of the column containing the identifiers.
-
-    Returns:
-        A list of normalized identifiers.
-    """
-    df = pd.read_csv(path)
-    if column not in df.columns:
-        raise ValueError(f"Column {column} not found in input")
-    series = df[column].astype(str).str.strip()
-    if column == "uniprot_id":
-        series = series.str.upper()
-    if column == "hgnc_id":
-        series = series.str.upper().apply(
-            lambda x: x if x.startswith("HGNC:") else f"HGNC:{x}"
-        )
-    ids = list(dict.fromkeys([x for x in series if x and x != "nan"]))
-    return ids
-
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Entry point for the script."""
+    """CLI entry point for dumping GtoP resources."""
 
-
-def main() -> None:
-    """The main entry point for the script."""
-    args = parse_args()
+    args = parse_args(argv)
 
     configure_logging(args.log_level, log_format=args.log_format)
-
-    input_path = Path(args.input).expanduser().resolve()
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input file {input_path} does not exist")
 
     config_path = Path(args.config).expanduser().resolve()
     cfg_dict = _load_config(config_path)
@@ -233,6 +195,10 @@ def main() -> None:
     sep = args.sep if args.sep else config_sep
     encoding = args.encoding if args.encoding else config_encoding
     csv_cfg = CsvConfig(sep=sep, encoding=encoding, list_format="json")
+
+    input_path = Path(args.input).expanduser().resolve()
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input file {input_path} does not exist")
 
     try:
         identifiers = _read_identifiers(input_path, args.id_column, csv_cfg)
