@@ -152,6 +152,41 @@ The repository is organized as follows:
 
 The pipeline is primarily driven by the scripts in the `scripts/` directory. Each script provides a command-line interface for a specific task.
 
+### CLI conventions
+
+All high-volume command line tools in `scripts/` share a consistent set of
+options so that automation can switch between activities, assays, molecules, and
+tissue metadata with minimal changes:
+
+* `--input` (default: `input.csv`) – path to the source CSV. When omitted, the
+  CLI looks for `input.csv` in the working directory. Some tools, such as
+  `chembl_tissue_main.py`, also accept identifier values directly via dedicated
+  flags like `--chembl-id`.
+* `--output` – destination file. If not provided, the scripts derive a name in
+  the form `output_<stem>_<YYYYMMDD>.<ext>` where `<ext>` matches the format
+  produced by the CLI (`.csv` for table exports, `.json` for tissues).
+* `--column` – column that contains the identifiers to query. Each CLI exposes a
+  sensible default (for example `activity_chembl_id`, `assay_chembl_id`, or
+  `molecule_chembl_id`).
+* `--chunk-size` – batch size used when calling the upstream APIs. A zero or
+  negative value aborts argument parsing with `error: --chunk-size must be a
+  positive integer`, which prevents invalid batching strategies from starting a
+  run.
+* `--sep`, `--encoding`, and `--list-format` – CSV serialisation controls.
+* `--log-level` and `--log-format` – logging configuration. All CLIs provide
+  human-readable logs by default and can be switched to JSON for machine
+  consumption.
+* `--errors-output` and `--meta-output` – optional overrides for sidecar files.
+  When omitted, the helpers in `library.cli_common` append `.errors.json` and
+  `.meta.yaml` to the full output filename. Metadata files store the effective
+  configuration, runtime command, and row/column counts for reproducibility.
+* `--dictionary` – reserved for downstream enrichment workflows. The value is
+  recorded in the metadata sidecar for provenance, but the current CLIs do not
+  read or validate the file. Passing the flag is therefore optional.
+* `--limit` and `--dry-run` – exposed by streaming CLIs such as
+  `chembl_activities_main.py` and `chembl_testitems_main.py` to cap the number of
+  identifiers or to inspect the input without performing network requests.
+
 ### Configuration
 
 The pipeline's behavior is controlled by the `config.yaml` file. This file contains settings for API endpoints, network parameters, data processing options, and output formats. A JSON schema for this file is provided in `schemas/config.schema.json`.
@@ -326,7 +361,17 @@ python scripts/chembl_activities_main.py \
 ```
 
 The `--chunk-size` option must be a positive integer; zero or negative values
-are rejected during argument parsing.
+are rejected during argument parsing before any HTTP requests are sent. The
+guard keeps the worker pool aligned with the ChEMBL API limits and ensures that
+erroneous invocations fail fast with `error: --chunk-size must be a positive
+integer`.
+
+```bash
+python scripts/chembl_activities_main.py --chunk-size 0 --dry-run
+```
+
+The command exits immediately with the validation error above, confirming that
+invalid batch sizes are caught before processing starts.
 
 Validation errors are persisted to `<output_filename>.errors.json`, where
 `<output_filename>` includes the complete original name (for example,
@@ -383,7 +428,9 @@ python scripts/chembl_activities_main.py \
 ```
 
 As above, ensure that `--chunk-size` is set to a positive integer before
-running the command.
+running the command. Any attempt to pass `0` or a negative integer terminates
+with the `error: --chunk-size must be a positive integer` message emitted by
+`argparse`.
 
 Add the first command to the CI smoke test job to guard against regressions in
 argument parsing and input handling without depending on external services.
