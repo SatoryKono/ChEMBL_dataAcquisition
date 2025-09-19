@@ -400,7 +400,11 @@ def get_documents(
     records: list[dict[str, Any]] = []
 
     for chunk in _chunked(unique_ids, chunk_size):
-        url = f"{base}&document_chembl_id__in={','.join(chunk)}"
+        # Align the ``limit`` parameter with the chunk size so the API returns
+        # all requested records even when the server-side default is smaller.
+        limit = len(chunk)
+        ids_param = ",".join(chunk)
+        url = f"{base}&document_chembl_id__in={ids_param}&limit={limit}"
         data = client.request_json(url, cfg=cfg, timeout=effective_timeout)
         items = data.get("documents") or data.get("document") or []
         for item in items:
