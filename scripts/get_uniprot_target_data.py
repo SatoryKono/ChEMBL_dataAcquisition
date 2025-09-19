@@ -11,11 +11,11 @@ import argparse
 import logging
 import sys
 
- 
+
 from itertools import chain, islice
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
- 
+
 
 from datetime import datetime
 from pathlib import Path
@@ -166,6 +166,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         "--with-orthologs", action="store_true", help="Retrieve ortholog information"
     )
     parser.add_argument(
+        "--orthologs-enabled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Override the configuration toggle controlling ortholog enrichment. "
+            "Use --no-orthologs-enabled to force-disable ortholog retrieval."
+        ),
+    )
+    parser.add_argument(
         "--orthologs-output", help="Path to write normalised ortholog table"
     )
     parser.add_argument(
@@ -198,6 +207,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     except ConfigError as exc:  # pragma: no cover - defensive logging
         LOGGER.error("%s", exc)
         raise
+
+    effective_orthologs_enabled = cfg.orthologs.enabled
+    if args.orthologs_enabled is not None:
+        effective_orthologs_enabled = bool(args.orthologs_enabled)
+        cfg.orthologs.enabled = effective_orthologs_enabled
 
     http_cache_mapping = cfg.http_cache.to_cache_dict() if cfg.http_cache else None
     global_cache = CacheConfig.from_dict(http_cache_mapping)
@@ -256,7 +270,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     output_path = ensure_output_dir(output_path)
     meta_path, _, quality_base = resolve_cli_sidecar_paths(output_path)
-    if args.with_orthologs and cfg.orthologs.enabled:
+    metadata_warnings: list[str] = []
+
+    if args.with_orthologs and effective_orthologs_enabled:
         orthologs_path = ensure_output_dir(orthologs_path)
     if include_iso:
         iso_out_path = ensure_output_dir(iso_out_path)
@@ -305,7 +321,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     orth_cols: list[str] = []
     orth_rows: list[dict[str, Any]] = []
 
-    if args.with_orthologs and cfg.orthologs.enabled:
+    if args.with_orthologs and effective_orthologs_enabled:
         orth_cache_mapping = (
             cfg.orthologs.cache.to_cache_dict() if cfg.orthologs.cache else None
         )
@@ -347,6 +363,19 @@ def main(argv: Sequence[str] | None = None) -> None:
             "is_high_confidence",
             "source_db",
         ]
+    elif args.with_orthologs != effective_orthologs_enabled:
+        if args.with_orthologs:
+            warning_message = (
+                "Ortholog enrichment was requested via --with-orthologs but ortholog "
+                "clients are disabled; skipping ortholog retrieval."
+            )
+        else:
+            warning_message = (
+                "Ortholog enrichment is enabled in the configuration but "
+                "--with-orthologs was not supplied; skipping ortholog retrieval."
+            )
+        LOGGER.warning(warning_message)
+        metadata_warnings.append(warning_message)
 
     for batch in _batched(accessions, BATCH_SIZE):
         batch_entries = client.fetch_entries_json(batch, batch_size=BATCH_SIZE)
@@ -361,7 +390,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                     acc,
                     extra={"uniprot_id": acc},
                 )
-                row = {c: "" for c in cols}
+                row: dict[str, Any] = {c: "" for c in cols}
                 row["uniprot_id"] = acc
                 if ensembl_client:
                     row["orthologs_json"] = []
@@ -470,9 +499,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         serialised_orth_df = serialise_dataframe(
             orth_df, list_format=csv_cfg.list_format
         )
-        orth_meta_path, _, orth_quality_base = resolve_cli_sidecar_paths(
-            orthologs_path
-        )
+        orth_meta_path, _, orth_quality_base = resolve_cli_sidecar_paths(orthologs_path)
         analyze_table_quality(serialised_orth_df, table_name=str(orth_quality_base))
         write_cli_metadata(
             orthologs_path,
@@ -519,9 +546,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         write_rows(iso_out_path, iso_rows, iso_cols, csv_cfg)
         iso_df = pd.DataFrame(iso_rows, columns=iso_cols)
-        serialised_iso_df = serialise_dataframe(
-            iso_df, list_format=csv_cfg.list_format
-        )
+        serialised_iso_df = serialise_dataframe(iso_df, list_format=csv_cfg.list_format)
         iso_meta_path, _, iso_quality_base = resolve_cli_sidecar_paths(iso_out_path)
         analyze_table_quality(serialised_iso_df, table_name=str(iso_quality_base))
         write_cli_metadata(
@@ -542,6 +567,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         namespace=args,
         command_parts=command_parts,
         meta_path=meta_path,
+        warnings=metadata_warnings or None,
     )
 
     LOGGER.info(

@@ -240,6 +240,7 @@ def write_cli_metadata(
     meta_path: Path | None = None,
     status: Literal["success", "error"] = "success",
     error: str | None = None,
+    warnings: Sequence[str] | None = None,
 ) -> Path:
     """Persists a `.meta.yaml` companion file next to the output file.
 
@@ -249,15 +250,18 @@ def write_cli_metadata(
         column_count: The number of columns in the output CSV.
         namespace: The CLI arguments used to produce the dataset, converted to a
             serializable mapping via `prepare_cli_config`.
-        command_parts: A sequence of command-line arguments used to invoke the CLI.
-            If omitted, the function falls back to `sys.argv`.
-        meta_path: An optional override for the metadata file location. Defaults to
-            `<output_path>.meta.yaml`.
-        status: Execution outcome recorded in the metadata sidecar. ``"success"``
-            denotes a completed run, while ``"error"`` captures failures that
-            prevented the output from being written.
-        error: Optional human-readable description of the failure when
-            ``status`` is ``"error"``.
+    command_parts: A sequence of command-line arguments used to invoke the CLI.
+        If omitted, the function falls back to `sys.argv`.
+    meta_path: An optional override for the metadata file location. Defaults to
+        `<output_path>.meta.yaml`.
+    status: Execution outcome recorded in the metadata sidecar. ``"success"``
+        denotes a completed run, while ``"error"`` captures failures that
+        prevented the output from being written.
+    error: Optional human-readable description of the failure when
+        ``status`` is ``"error"``.
+    warnings: Optional collection of warning messages captured during the CLI
+        execution. When provided, the warnings are stored alongside other
+        metadata in the sidecar file.
 
     Returns:
         The path to the written metadata file.
@@ -267,6 +271,11 @@ def write_cli_metadata(
     command = " ".join(shlex.quote(part) for part in command_sequence)
     config = prepare_cli_config(namespace)
     include_hash = status == "success"
+    warning_messages: Sequence[str] | None
+    if warnings:
+        warning_messages = tuple(warnings)
+    else:
+        warning_messages = None
     return write_meta_yaml(
         Path(output_path),
         command=command,
@@ -277,4 +286,5 @@ def write_cli_metadata(
         status=status,
         error=error,
         include_hash=include_hash,
+        warnings=warning_messages,
     )
