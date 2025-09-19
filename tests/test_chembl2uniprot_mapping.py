@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Iterator, List
+from typing import Any, Dict, Iterable, Iterator, List
 from unittest import mock
 
 import pytest
@@ -19,9 +19,11 @@ from chembl2uniprot.config import (
     UniprotConfig,
 )
 from chembl2uniprot.mapping import (
+    DEFAULT_USER_AGENT,
     RateLimiter,
     _fetch_results,
     _map_batch,
+    _SESSION,
     _request_with_retry,
 )
 
@@ -38,6 +40,69 @@ class _DummyResponse:
 
     def json(self) -> Dict[str, Any]:
         return self.payload
+
+
+class _RecordingSession(requests.Session):
+    """Session stub that records calls and yields pre-seeded responses."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls: List[tuple[str, str, float | None]] = []
+        self._responses: Iterator[Any] | None = None
+        self.closed_flag = False
+
+    def queue_responses(self, responses: Iterable[Any]) -> None:
+        """Prime the session with an iterable of responses."""
+
+        self._responses = iter(responses)
+
+    def request(self, method: str, url: str, **kwargs: Any) -> Any:  # type: ignore[override]
+        self.calls.append((method, url, kwargs.get("timeout")))
+        if self._responses is None:
+            raise AssertionError("Responses have not been queued")
+        try:
+            return next(self._responses)
+        except StopIteration as exc:  # pragma: no cover - defensive guard
+            raise AssertionError("Unexpected extra request") from exc
+
+    def close(self) -> None:  # pragma: no cover - exercised via fixture assertions
+        super().close()
+        self.closed_flag = True
+
+
+class _RetryableResponse:
+    """Response stub supporting :meth:`raise_for_status`."""
+
+    def __init__(
+        self,
+        status_code: int,
+        *,
+        headers: Dict[str, str] | None = None,
+        payload: Dict[str, Any] | None = None,
+    ) -> None:
+        self.status_code = status_code
+        self.headers = headers or {}
+        self._payload = payload or {}
+        self.text = json.dumps(self._payload)
+
+    def json(self) -> Dict[str, Any]:
+        return self._payload
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            err = requests.HTTPError(f"HTTP {self.status_code}")
+            err.response = self  # type: ignore[attr-defined]
+            raise err
+
+
+@pytest.fixture
+def recording_session() -> Iterator[_RecordingSession]:
+    """Provide a session stub that ensures cleanup after each test."""
+
+    session = _RecordingSession()
+    yield session
+    session.close()
+    assert session.closed_flag
 
 
 @pytest.fixture
@@ -204,52 +269,19 @@ def test_map_batch_returns_failed_ids(
 def test_request_with_retry_honours_retry_after(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
+    recording_session: _RecordingSession,
 ) -> None:
     """429 responses should trigger retries and rate limiter penalties."""
 
     monkeypatch.setattr("tenacity.nap.sleep", lambda _: None)
     monkeypatch.setattr("library.http_client.time.sleep", lambda _: None)
 
-    class _StubResponse:
-        def __init__(
-            self,
-            status_code: int,
-            *,
-            headers: Dict[str, str] | None = None,
-            payload: Dict[str, Any] | None = None,
-        ) -> None:
-            self.status_code = status_code
-            self.headers = headers or {}
-            self._payload = payload or {}
-            self.text = json.dumps(self._payload)
-
-        def json(self) -> Dict[str, Any]:
-            return self._payload
-
-        def raise_for_status(self) -> None:
-            if self.status_code >= 400:
-                err = requests.HTTPError(f"HTTP {self.status_code}")
-                err.response = self
-                raise err
-
-    responses = iter(
+    recording_session.queue_responses(
         [
-            _StubResponse(429, headers={"Retry-After": "0.2"}),
-            _StubResponse(200, payload={"ok": True}),
+            _RetryableResponse(429, headers={"Retry-After": "0.2"}),
+            _RetryableResponse(200, payload={"ok": True}),
         ]
     )
-    call_log: List[str] = []
-
-    def _request_stub(
-        method: str, url: str, *, timeout: float, **kwargs: Any
-    ) -> _StubResponse:
-        call_log.append(f"{method}:{url}:{timeout}")
-        try:
-            return next(responses)
-        except StopIteration:  # pragma: no cover - defensive guard
-            raise AssertionError("Unexpected extra request") from None
-
-    monkeypatch.setattr("chembl2uniprot.mapping.requests.request", _request_stub)
 
     rate_limiter = RateLimiter(1000.0)
 
@@ -268,13 +300,68 @@ def test_request_with_retry_honours_retry_after(
             rate_limiter=rate_limiter,
             max_attempts=3,
             backoff=0.1,
+            penalty_seconds=0.1,
+            session=recording_session,
         )
 
     assert response.json() == {"ok": True}
-    assert len(call_log) == 2
+    assert len(recording_session.calls) == 2
     assert penalty_mock.call_count >= 1
     assert any(
         call.args and pytest.approx(0.2, rel=0.05) == call.args[0]
         for call in penalty_mock.call_args_list
     )
     assert any("attempt" in record.message for record in caplog.records)
+
+
+def test_request_with_retry_applies_fallback_penalty(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    recording_session: _RecordingSession,
+) -> None:
+    """Fallback penalties should guard against missing ``Retry-After`` headers."""
+
+    monkeypatch.setattr("tenacity.nap.sleep", lambda _: None)
+    monkeypatch.setattr("library.http_client.time.sleep", lambda _: None)
+
+    recording_session.queue_responses(
+        [
+            _RetryableResponse(503),
+            _RetryableResponse(200, payload={"ok": True}),
+        ]
+    )
+
+    rate_limiter = RateLimiter(1000.0)
+
+    with (
+        mock.patch.object(
+            rate_limiter,
+            "apply_penalty",
+            wraps=rate_limiter.apply_penalty,
+        ) as penalty_mock,
+        caplog.at_level(logging.WARNING),
+    ):
+        response = _request_with_retry(
+            "get",
+            "https://rest.uniprot.org/test",
+            timeout=1.0,
+            rate_limiter=rate_limiter,
+            max_attempts=3,
+            backoff=0.1,
+            penalty_seconds=0.5,
+            session=recording_session,
+        )
+
+    assert response.json() == {"ok": True}
+    assert len(recording_session.calls) == 2
+    assert any(
+        call.args and pytest.approx(0.5, rel=0.1) == call.args[0]
+        for call in penalty_mock.call_args_list
+    )
+    assert any("penalty" in record.message for record in caplog.records)
+
+
+def test_default_session_has_descriptive_user_agent() -> None:
+    """Module level session advertises a descriptive User-Agent string."""
+
+    assert _SESSION.headers.get("User-Agent") == DEFAULT_USER_AGENT

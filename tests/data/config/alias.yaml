@@ -24,6 +24,7 @@ uniprot:
   retry:
     max_attempts: 2
     backoff_sec: 0
+    penalty_sec: 0
 network:
   timeout_sec: 30
 batch:

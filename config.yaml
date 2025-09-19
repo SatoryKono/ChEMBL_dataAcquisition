@@ -137,6 +137,7 @@ chembl2uniprot:
     retry:
       max_attempts: 5
       backoff_sec: 1
+      penalty_sec: 1
   network:
     timeout_sec: 30
   batch:
