@@ -11,11 +11,11 @@ import argparse
 import logging
 import sys
 
- 
+
 from itertools import chain, islice
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
- 
+
 
 from datetime import datetime
 from pathlib import Path
@@ -46,7 +46,7 @@ DEFAULT_ENCODING = "utf-8"
 
 LOGGER = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[1]
-BATCH_SIZE = 100
+DEFAULT_BATCH_SIZE = 100
 
 
 def _ensure_mapping(value: Any, *, section: str) -> dict[str, Any]:
@@ -103,6 +103,20 @@ def _batched(values: Iterable[str], size: int) -> Iterator[list[str]]:
         yield batch
 
 
+def _positive_int(value: str) -> int:
+    """Return ``value`` as a strictly positive integer for CLI arguments."""
+
+    try:
+        parsed = int(value)
+    except ValueError as exc:  # pragma: no cover - defensive
+        msg = "Batch size must be a positive integer"
+        raise argparse.ArgumentTypeError(msg) from exc
+    if parsed <= 0:
+        msg = "Batch size must be a positive integer"
+        raise argparse.ArgumentTypeError(msg)
+    return parsed
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Runs the UniProt target data retrieval workflow.
 
@@ -148,6 +162,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     parser.add_argument("--sep", help="CSV separator, e.g. ','")
     parser.add_argument("--encoding", help="File encoding, e.g. 'utf-8'")
+    parser.add_argument(
+        "--batch-size",
+        type=_positive_int,
+        help=(
+            "Number of UniProt accessions to request per batch. Defaults to "
+            "the configuration value"
+        ),
+    )
     parser.add_argument(
         "--include-sequence",
         action="store_true",
@@ -217,6 +239,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         if cfg.uniprot.cache
         else None
     )
+    batch_size = args.batch_size or cfg.uniprot.batch_size or DEFAULT_BATCH_SIZE
     client = UniProtClient(
         base_url=cfg.uniprot.base_url,
         fields=_resolve_uniprot_fields(cfg.uniprot.model_dump()),
@@ -348,8 +371,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             "source_db",
         ]
 
-    for batch in _batched(accessions, BATCH_SIZE):
-        batch_entries = client.fetch_entries_json(batch, batch_size=BATCH_SIZE)
+    for batch in _batched(accessions, batch_size):
+        batch_entries = client.fetch_entries_json(batch, batch_size=batch_size)
         for acc in batch:
             data = batch_entries.get(acc)
             if data is None and "-" in acc:
@@ -470,9 +493,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         serialised_orth_df = serialise_dataframe(
             orth_df, list_format=csv_cfg.list_format
         )
-        orth_meta_path, _, orth_quality_base = resolve_cli_sidecar_paths(
-            orthologs_path
-        )
+        orth_meta_path, _, orth_quality_base = resolve_cli_sidecar_paths(orthologs_path)
         analyze_table_quality(serialised_orth_df, table_name=str(orth_quality_base))
         write_cli_metadata(
             orthologs_path,
@@ -519,9 +540,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         write_rows(iso_out_path, iso_rows, iso_cols, csv_cfg)
         iso_df = pd.DataFrame(iso_rows, columns=iso_cols)
-        serialised_iso_df = serialise_dataframe(
-            iso_df, list_format=csv_cfg.list_format
-        )
+        serialised_iso_df = serialise_dataframe(iso_df, list_format=csv_cfg.list_format)
         iso_meta_path, _, iso_quality_base = resolve_cli_sidecar_paths(iso_out_path)
         analyze_table_quality(serialised_iso_df, table_name=str(iso_quality_base))
         write_cli_metadata(

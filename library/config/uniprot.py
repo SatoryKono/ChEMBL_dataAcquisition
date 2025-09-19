@@ -129,6 +129,7 @@ class UniProtSection(CacheAwareSection):
     timeout_sec: float = Field(default=30.0, gt=0)
     retries: int = Field(default=3, ge=0)
     rps: float = Field(default=3.0, gt=0)
+    batch_size: int = Field(default=100, gt=0)
     columns: list[str] = Field(default_factory=list)
 
     @model_validator(mode="before")
