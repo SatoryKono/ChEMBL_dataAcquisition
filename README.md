@@ -119,7 +119,7 @@ individual tools manually execute:
 ```bash
 ruff check .
 ruff format .  # or `black .` to match the configured formatter
-mypy --strict --ignore-missing-imports .
+mypy --strict library/chembl2uniprot library/config
 pytest
 ```
 
@@ -323,7 +323,7 @@ You can run these checks with the following commands:
 ```bash
 ruff format --check .
 ruff check .
-mypy --strict
+mypy --strict library/chembl2uniprot library/config
 ```
 
 The formatting and linting configuration is centralised in `pyproject.toml`. Both
@@ -331,8 +331,10 @@ The formatting and linting configuration is centralised in `pyproject.toml`. Bot
 syntax, ensuring the same limits apply regardless of which tool is run.
 
 Strict type checking is being rolled out incrementally. The `mypy --strict`
-invocation currently validates the `scripts/chembl_testitems_main.py` entry
-point, providing a template for migrating additional modules to strict typing.
+invocation currently validates the `library/chembl2uniprot` package and the
+`library/config` models that back the CLI configuration. These modules provide
+the template for migrating additional code to strict typing while keeping
+generated data and legacy ingestion logic out of the default run.
 
 ## License
 
