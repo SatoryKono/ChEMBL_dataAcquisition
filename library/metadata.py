@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -109,6 +109,7 @@ def write_meta_yaml(
     status: Literal["success", "error"] = "success",
     error: str | None = None,
     include_hash: bool = True,
+    warnings: Sequence[str] | None = None,
 ) -> Path:
     """Writes dataset metadata to a YAML file next to the output file.
 
@@ -134,6 +135,10 @@ def write_meta_yaml(
     include_hash:
         When :data:`True`, compute and persist the SHA-256 digest alongside a
         determinism record. Disable when the output file was not produced.
+    warnings:
+        Optional collection of warning messages emitted during execution. The
+        sequence is preserved as provided and intended for non-fatal issues that
+        should be visible to downstream consumers of the metadata.
     """
 
     default_meta_path = output_path.with_name(f"{output_path.name}.meta.yaml")
@@ -153,6 +158,9 @@ def write_meta_yaml(
 
     if error:
         metadata["error"] = error
+
+    if warnings:
+        metadata["warnings"] = list(warnings)
 
     if include_hash:
         metadata["sha256"] = _file_sha256(output_path)
