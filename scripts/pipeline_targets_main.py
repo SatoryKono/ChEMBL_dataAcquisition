@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from collections.abc import Iterable, Mapping, Sequence
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, MutableMapping
 
 import pandas as pd
 import requests
@@ -750,7 +750,10 @@ def extract_activity(data: Any) -> dict[str, str]:
 
 
 def add_activity_fields(
-    pipeline_df: pd.DataFrame, fetch_entry: Callable[[str], Any]
+    pipeline_df: pd.DataFrame,
+    fetch_entry: Callable[[str], Any],
+    *,
+    entry_cache: MutableMapping[str, Any] | None = None,
 ) -> pd.DataFrame:
     """Appends catalytic activity and EC numbers parsed from UniProt entries.
 
@@ -759,6 +762,9 @@ def add_activity_fields(
             `uniprot_id_primary` column.
         fetch_entry: A callable that returns a UniProt JSON entry for a given
             accession.
+        entry_cache: Optional shared cache storing UniProt records. Entries are
+            retrieved from the cache when present and newly downloaded records are
+            inserted to support reuse across multiple enrichment steps.
 
     Returns:
         The pipeline DataFrame with `reactions` and `reaction_ec_numbers`
@@ -772,8 +778,23 @@ def add_activity_fields(
     )
     ids, unique_ids = _prepare_identifier_series(raw_ids)
     cache: Dict[str, dict[str, str]] = {}
+    shared_cache = entry_cache
     for acc in unique_ids:
-        entry = fetch_entry(acc)
+        if not acc:
+            cache[acc] = {"reactions": "", "reaction_ec_numbers": ""}
+            if shared_cache is not None and acc not in shared_cache:
+                shared_cache[acc] = None
+            continue
+        cached_entry: Any = None
+        cache_has_key = False
+        if shared_cache is not None and acc in shared_cache:
+            cache_has_key = True
+            cached_entry = shared_cache[acc]
+        entry = cached_entry
+        if entry is None and not cache_has_key:
+            entry = fetch_entry(acc)
+            if shared_cache is not None:
+                shared_cache[acc] = entry
         cache[acc] = (
             extract_activity(entry)
             if entry
@@ -858,7 +879,10 @@ def extract_isoform(data: Any) -> dict[str, str]:
 
 
 def add_isoform_fields(
-    pipeline_df: pd.DataFrame, fetch_entry: Callable[[str], Any]
+    pipeline_df: pd.DataFrame,
+    fetch_entry: Callable[[str], Any],
+    *,
+    entry_cache: MutableMapping[str, Any] | None = None,
 ) -> pd.DataFrame:
     """Appends isoform data parsed from UniProt entries to the pipeline DataFrame.
 
@@ -867,6 +891,9 @@ def add_isoform_fields(
             `uniprot_id_primary` column.
         fetch_entry: A callable that returns a UniProt JSON entry for a given
             accession.
+        entry_cache: Optional shared cache storing UniProt records. Entries are
+            reused from the cache when present and newly fetched records are added
+            to it to prevent redundant downloads across enrichment steps.
 
     Returns:
         The pipeline DataFrame with `isoform_names`, `isoform_ids`, and
@@ -880,8 +907,27 @@ def add_isoform_fields(
     )
     ids, unique_ids = _prepare_identifier_series(raw_ids)
     cache: Dict[str, dict[str, str]] = {}
+    shared_cache = entry_cache
     for acc in unique_ids:
-        entry = fetch_entry(acc)
+        if not acc:
+            cache[acc] = {
+                "isoform_names": "None",
+                "isoform_ids": "None",
+                "isoform_synonyms": "None",
+            }
+            if shared_cache is not None and acc not in shared_cache:
+                shared_cache[acc] = None
+            continue
+        cached_entry: Any = None
+        cache_has_key = False
+        if shared_cache is not None and acc in shared_cache:
+            cache_has_key = True
+            cached_entry = shared_cache[acc]
+        entry = cached_entry
+        if entry is None and not cache_has_key:
+            entry = fetch_entry(acc)
+            if shared_cache is not None:
+                shared_cache[acc] = entry
         cache[acc] = (
             extract_isoform(entry)
             if entry
@@ -1280,6 +1326,7 @@ def _run_pipeline(args: argparse.Namespace) -> None:
     ) -> pd.DataFrame:  # pragma: no cover - simple wrapper
         return chembl_df
 
+    entry_cache: Dict[str, Any] = {}
     with tqdm(total=len(ids), desc="targets") as pbar:
         out_df = run_pipeline(
             ids,
@@ -1293,20 +1340,22 @@ def _run_pipeline(args: argparse.Namespace) -> None:
             oma_client=oma_client,
             target_species=target_species,
             progress_callback=pbar.update,
+            entry_cache=entry_cache,
         )
     enrich_client = enrich_client_factory(cache_config=enrich_cache)
     out_df = add_uniprot_fields(out_df, enrich_client.fetch_all)
     out_df = merge_chembl_fields(out_df, chembl_df)
-    entry_cache: Dict[str, Any] = {}
 
     def cached_fetch(acc: str) -> Any:
+        if not acc:
+            return None
         if acc not in entry_cache:
             entry_cache[acc] = uni_client.fetch_entry_json(acc)
         return entry_cache[acc]
 
-    out_df = add_activity_fields(out_df, cached_fetch)
+    out_df = add_activity_fields(out_df, cached_fetch, entry_cache=entry_cache)
     if use_isoforms:
-        out_df = add_isoform_fields(out_df, cached_fetch)
+        out_df = add_isoform_fields(out_df, cached_fetch, entry_cache=entry_cache)
 
     if args.iuphar_target and args.iuphar_family:
         target_csv = Path(args.iuphar_target).expanduser().resolve()
