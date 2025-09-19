@@ -77,6 +77,15 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         "--rps", type=float, default=2.0, help="Maximum requests per second"
     )
     parser.add_argument(
+        "--retry-penalty",
+        type=float,
+        default=1.0,
+        help=(
+            "Fallback sleep in seconds applied after 429 responses without a"
+            " Retry-After header"
+        ),
+    )
+    parser.add_argument(
         "--base-url",
         default="https://www.ebi.ac.uk/chembl/api/data",
         help="ChEMBL API root",
@@ -159,6 +168,7 @@ def run_pipeline(
         timeout=args.timeout,
         max_retries=args.max_retries,
         rps=args.rps,
+        retry_penalty_seconds=args.retry_penalty,
     )
 
     assays_df = get_assays(client, assay_ids, chunk_size=args.chunk_size)

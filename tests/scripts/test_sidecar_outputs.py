@@ -12,6 +12,8 @@ import pytest
 import requests_mock
 import yaml
 
+from library.cli_common import resolve_cli_sidecar_paths
+
 
 @pytest.fixture(name="cell_line_module")
 def fixture_cell_line_module() -> Any:
@@ -43,22 +45,25 @@ def test_get_cell_line_cli_writes_sidecars(
     requests_mock.get(success_url, json={"cell_chembl_id": "CHEMBL123"})
     requests_mock.get(missing_url, status_code=404)
 
-    cell_line_module.main(
-        [
-            "--cell-line-id",
-            "CHEMBL123",
-            "--cell-line-id",
-            "CHEMBL404",
-            "--output",
-            str(output_path),
-            "--meta-output",
-            str(meta_output),
-            "--errors-output",
-            str(errors_output),
-            "--base-url",
-            "https://example.org",
-        ]
-    )
+    with pytest.raises(SystemExit) as exit_info:
+        cell_line_module.main(
+            [
+                "--cell-line-id",
+                "CHEMBL123",
+                "--cell-line-id",
+                "CHEMBL404",
+                "--output",
+                str(output_path),
+                "--meta-output",
+                str(meta_output),
+                "--errors-output",
+                str(errors_output),
+                "--base-url",
+                "https://example.org",
+            ]
+        )
+
+    assert exit_info.value.code == 1
 
     assert meta_output.exists()
     metadata = yaml.safe_load(meta_output.read_text(encoding="utf-8"))
@@ -155,3 +160,32 @@ def test_hgnc_cli_writes_sidecars(
     assert errors_payload == [
         {"uniprot_id": "P99999", "error": "HGNC identifier missing"}
     ]
+
+
+def test_resolve_cli_sidecar_paths_expands_user(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ensure custom sidecar destinations expand ``~`` to the home directory."""
+
+    # ``Path.expanduser`` resolves ``~`` against the ``HOME`` or ``USERPROFILE``
+    # environment variables. Setting both makes the behaviour deterministic
+    # across operating systems.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+
+    output_path = tmp_path / "results.csv"
+    meta_override = "~/overrides/meta.yaml"
+    errors_override = "~/overrides/errors.json"
+
+    meta_path, errors_path, quality_base = resolve_cli_sidecar_paths(
+        output_path,
+        meta_output=meta_override,
+        errors_output=errors_override,
+    )
+
+    expected_meta = tmp_path / "overrides" / "meta.yaml"
+    expected_errors = tmp_path / "overrides" / "errors.json"
+
+    assert meta_path == expected_meta
+    assert errors_path == expected_errors
+    assert quality_base == output_path.with_name(output_path.stem)

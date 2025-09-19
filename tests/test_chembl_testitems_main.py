@@ -133,10 +133,12 @@ def test_run_pipeline_passes_pubchem_http_client_config(
         "backoff_multiplier": 2.0,
         "retry_penalty_seconds": 7.5,
     }
+    assert captured["chembl_client"]["retry_penalty_seconds"] == args.retry_penalty
     assert captured["meta_config"]["pubchem_max_retries"] == 9
     assert captured["meta_config"]["pubchem_rps"] == 1.5
     assert captured["meta_config"]["pubchem_backoff"] == 2.0
     assert captured["meta_config"]["pubchem_retry_penalty"] == 7.5
+    assert captured["meta_config"]["retry_penalty"] == args.retry_penalty
     assert captured["chunk_size"] == args.chunk_size
 
 

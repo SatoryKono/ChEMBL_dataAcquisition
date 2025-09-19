@@ -138,6 +138,7 @@ def test_parse_args_inherits_env_ortholog_default(
     assert args.with_orthologs is True
 
 
+ 
 def test_apply_env_overrides_parses_species_sequence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -152,6 +153,34 @@ def test_apply_env_overrides_parses_species_sequence(
     module._apply_env_overrides(data, section="pipeline")
 
     assert data["orthologs"]["target_species"] == ["Mouse", "Rat"]
+ 
+def test_parse_args_reports_yaml_errors(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Invalid configuration files should trigger a human-friendly error."""
+
+    module: Any = importlib.import_module("scripts.pipeline_targets_main")
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("pipeline: [broken\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as excinfo:
+        module.parse_args(
+            [
+                "--config",
+                str(config_path),
+                "--input",
+                "input.csv",
+                "--output",
+                "output.csv",
+            ]
+        )
+
+    assert excinfo.value.code == 2
+    stderr = capsys.readouterr().err
+    assert "Invalid configuration file" in stderr
+    assert "Traceback" not in stderr
+ 
 
 
 def test_pipeline_targets_cli_writes_outputs(
