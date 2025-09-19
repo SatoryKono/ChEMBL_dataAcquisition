@@ -217,47 +217,46 @@ def test_hgnc_client_recovers_after_retry_after(
     caplog.set_level("WARNING", "library.http_client")
 
     cfg = load_config(CONFIG, section="hgnc")
-    client = HGNCClient(cfg)
-
-    accession = "P35348"
-    hgnc_url = f"https://rest.genenames.org/fetch/uniprot_ids/{accession}"
-    requests_mock.get(
-        hgnc_url,
-        [
-            {
-                "status_code": 429,
-                "headers": {"Retry-After": "1.5"},
-                "json": {"response": {"docs": []}},
-            },
-            {
-                "status_code": 200,
-                "json": {
-                    "response": {
-                        "docs": [
-                            {
-                                "symbol": "ADRA1A",
-                                "name": "adrenoceptor alpha 1A",
-                                "hgnc_id": "HGNC:277",
-                            }
-                        ]
-                    }
+    with HGNCClient(cfg) as client:
+        accession = "P35348"
+        hgnc_url = f"https://rest.genenames.org/fetch/uniprot_ids/{accession}"
+        requests_mock.get(
+            hgnc_url,
+            [
+                {
+                    "status_code": 429,
+                    "headers": {"Retry-After": "1.5"},
+                    "json": {"response": {"docs": []}},
                 },
-            },
-        ],
-    )
-    uniprot_url = f"https://rest.uniprot.org/uniprotkb/{accession}.json"
-    requests_mock.get(
-        uniprot_url,
-        json={
-            "proteinDescription": {
-                "recommendedName": {
-                    "fullName": {"value": "Alpha-1A adrenergic receptor"}
+                {
+                    "status_code": 200,
+                    "json": {
+                        "response": {
+                            "docs": [
+                                {
+                                    "symbol": "ADRA1A",
+                                    "name": "adrenoceptor alpha 1A",
+                                    "hgnc_id": "HGNC:277",
+                                }
+                            ]
+                        }
+                    },
+                },
+            ],
+        )
+        uniprot_url = f"https://rest.uniprot.org/uniprotkb/{accession}.json"
+        requests_mock.get(
+            uniprot_url,
+            json={
+                "proteinDescription": {
+                    "recommendedName": {
+                        "fullName": {"value": "Alpha-1A adrenergic receptor"}
+                    }
                 }
-            }
-        },
-    )
+            },
+        )
 
-    record = client.fetch(accession)
+        record = client.fetch(accession)
 
     assert record.hgnc_id == "HGNC:277"
     assert record.gene_symbol == "ADRA1A"
