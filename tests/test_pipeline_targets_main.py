@@ -180,6 +180,31 @@ def test_add_activity_fields() -> None:
     assert row["reaction_ec_numbers"] == "4.4.4.4"
 
 
+def test_add_activity_fields_reuses_entry_cache() -> None:
+    df = pd.DataFrame({"uniprot_id_primary": ["P00001"]})
+    calls: list[str] = []
+
+    def fetch_entry(_: str) -> dict:
+        calls.append("P00001")
+        return {
+            "comments": [
+                {
+                    "commentType": "CATALYTIC ACTIVITY",
+                    "reaction": {
+                        "name": {"value": "X = Y"},
+                        "ecNumber": [{"value": "4.4.4.4"}],
+                    },
+                }
+            ]
+        }
+
+    cache: dict[str, Any] = {}
+    add_activity_fields(df, fetch_entry, entry_cache=cache)
+    add_activity_fields(df, fetch_entry, entry_cache=cache)
+    assert calls == ["P00001"]
+    assert cache["P00001"]["comments"][0]["reaction"]["name"]["value"] == "X = Y"
+
+
 def test_extract_isoform() -> None:
     entry = {
         "comments": [
@@ -230,6 +255,68 @@ def test_add_isoform_fields() -> None:
     assert row["isoform_names"] == "Isoform 1"
     assert row["isoform_ids"] == "P1-1"
     assert row["isoform_synonyms"] == "Alpha"
+
+
+def test_add_isoform_fields_reuses_entry_cache() -> None:
+    df = pd.DataFrame({"uniprot_id_primary": ["P99999"]})
+    calls: list[str] = []
+
+    def fetch_entry(_: str) -> dict:
+        calls.append("P99999")
+        return {
+            "comments": [
+                {
+                    "commentType": "ALTERNATIVE PRODUCTS",
+                    "isoforms": [
+                        {
+                            "name": {"value": "Isoform 1"},
+                            "isoformIds": ["P1-1"],
+                            "synonyms": [{"value": "Alpha"}],
+                        }
+                    ],
+                }
+            ]
+        }
+
+    cache: dict[str, Any] = {}
+    add_isoform_fields(df, fetch_entry, entry_cache=cache)
+    add_isoform_fields(df, fetch_entry, entry_cache=cache)
+    assert calls == ["P99999"]
+    assert cache["P99999"]["comments"][0]["isoforms"][0]["name"]["value"] == "Isoform 1"
+
+
+def test_activity_and_isoform_share_entry_cache() -> None:
+    df = pd.DataFrame({"uniprot_id_primary": ["P12345"]})
+    calls: list[str] = []
+
+    def fetch_entry(_: str) -> dict:
+        calls.append("P12345")
+        return {
+            "comments": [
+                {
+                    "commentType": "CATALYTIC ACTIVITY",
+                    "reaction": {
+                        "name": {"value": "R = P"},
+                        "ecNumber": [{"value": "1.1.1.1"}],
+                    },
+                },
+                {
+                    "commentType": "ALTERNATIVE PRODUCTS",
+                    "isoforms": [
+                        {
+                            "name": {"value": "Isoform A"},
+                            "isoformIds": ["P12345-1"],
+                            "synonyms": [{"value": "Alpha"}],
+                        }
+                    ],
+                },
+            ]
+        }
+
+    cache: dict[str, Any] = {}
+    add_activity_fields(df, fetch_entry, entry_cache=cache)
+    add_isoform_fields(df, fetch_entry, entry_cache=cache)
+    assert calls == ["P12345"]
 
 
 def test_build_clients_infers_uniprot_fields(

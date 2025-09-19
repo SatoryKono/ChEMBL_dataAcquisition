@@ -5,7 +5,7 @@ import logging
 from math import isnan
 from datetime import UTC, datetime
 from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
-from typing import Any, Callable, Dict, List, Sequence
+from typing import Any, Callable, Dict, List, MutableMapping, Sequence
 
 import pandas as pd
 from typing import TYPE_CHECKING
@@ -518,6 +518,7 @@ def run_pipeline(
     oma_client: OmaClient | None = None,
     target_species: Sequence[str] | None = None,
     progress_callback: Callable[[int], None] | None = None,
+    entry_cache: MutableMapping[str, Any] | None = None,
 ) -> pd.DataFrame:
     """Orchestrates data acquisition for a sequence of ChEMBL target identifiers.
 
@@ -534,6 +535,10 @@ def run_pipeline(
         target_species: A list of species to consider when retrieving orthologs.
         progress_callback: An optional callback that receives the incremental count
             of processed records.
+        entry_cache: Optional mapping storing previously fetched UniProt entries.
+            When supplied, the cache is updated with records retrieved during the
+            pipeline execution so that downstream enrichment steps can reuse the
+            data without additional network requests.
 
     Returns:
         A pandas DataFrame containing the orchestrated data.
@@ -546,6 +551,7 @@ def run_pipeline(
     else:
         chembl_df = chembl_fetcher(cleaned_ids, chembl_cfg)
     records: List[Dict[str, Any]] = []
+    fetch_full_entry = bool(cfg.include_isoforms or ensembl_client or oma_client)
     for row in chembl_df.to_dict(orient="records"):
         chembl_id = row.get("target_chembl_id", "")
         comps = _load_serialised_list(row.get("target_components"), cfg.list_format)
@@ -553,8 +559,19 @@ def run_pipeline(
         uniprot_entries: List[Dict[str, Any]] = []
         raw_entries: Dict[str, Dict[str, Any]] = {}
         for acc in sorted(dict.fromkeys(accessions)):
-            if cfg.include_isoforms or ensembl_client or oma_client:
-                raw = uniprot_client.fetch_entry_json(acc)
+            if not acc:
+                continue
+            cached_entry: Any = None
+            cache_has_key = False
+            if entry_cache is not None and acc in entry_cache:
+                cache_has_key = True
+                cached_entry = entry_cache[acc]
+            if fetch_full_entry:
+                raw = cached_entry
+                if raw is None and not cache_has_key:
+                    raw = uniprot_client.fetch_entry_json(acc)
+                    if entry_cache is not None:
+                        entry_cache[acc] = raw
                 if raw:
                     raw_entries[acc] = raw
                     fasta_headers: List[str] = []
@@ -570,9 +587,10 @@ def run_pipeline(
                         )
                     )
             else:
-                raw = uniprot_client.fetch(acc)
+                raw = cached_entry
+                if raw is None and not cache_has_key:
+                    raw = uniprot_client.fetch(acc)
                 if raw:
-                    raw_entries[acc] = raw
                     uniprot_entries.append(
                         normalize_entry(raw, include_sequence=cfg.include_sequence)
                     )
