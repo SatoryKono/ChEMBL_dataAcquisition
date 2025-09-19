@@ -41,6 +41,69 @@ def _is_not_found_error(exception: requests.HTTPError) -> bool:
     return bool(re.search(r"\b404\b", message))
 
 
+def _coerce_bool(value: Any) -> bool | None:
+    """Return a boolean representation of ``value`` when possible.
+
+    Args:
+        value: The input value which may already be a boolean, a string
+            representation, or a numeric flag.
+
+    Returns:
+        A boolean value when the input can be interpreted as such, otherwise
+        ``None``.
+    """
+
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return bool(int(value))
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if not text or text in {"null", "none"}:
+            return None
+        if text in {"true", "t", "1", "yes", "y"}:
+            return True
+        if text in {"false", "f", "0", "no", "n"}:
+            return False
+    return None
+
+
+def _ensure_data_validity_warning(payload: Dict[str, Any]) -> None:
+    """Populate ``data_validity_warning`` in ``payload`` when absent.
+
+    The ChEMBL activity endpoint omits the ``data_validity_warning`` flag, even
+    when a descriptive warning is provided.  This helper infers a boolean flag
+    from the existing fields so downstream consumers can rely on the presence
+    of the column.
+
+    Args:
+        payload: A JSON dictionary representing an activity record. The
+            dictionary is updated in-place.
+    """
+
+    warning = _coerce_bool(payload.get("data_validity_warning"))
+    if warning is None:
+        warning = _coerce_bool(payload.get("data_validity_flag"))
+
+    if warning is not None:
+        payload["data_validity_warning"] = warning
+        return
+
+    comment = payload.get("data_validity_comment")
+    description = payload.get("data_validity_description")
+
+    if isinstance(comment, str) and comment.strip():
+        payload["data_validity_warning"] = True
+        return
+    if isinstance(description, str) and description.strip():
+        payload["data_validity_warning"] = True
+        return
+
+    payload["data_validity_warning"] = None
+
+
 @dataclass
 class ApiCfg:
     """Minimal configuration for the ChEMBL API."""
@@ -139,9 +202,12 @@ class ChemblClient:
         Returns:
             A dictionary containing the activity data, or None if not found.
         """
-        return self._fetch_resource(
+        payload = self._fetch_resource(
             "activity", activity_id, id_field="activity_chembl_id"
         )
+        if payload is not None:
+            _ensure_data_validity_warning(payload)
+        return payload
 
     def fetch_molecule(self, molecule_id: str) -> Dict[str, Any] | None:
         """Fetches the JSON data for a given molecule_id.
