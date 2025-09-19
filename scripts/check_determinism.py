@@ -40,7 +40,14 @@ def _sample_rows() -> Sequence[Dict[str, Any]]:
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """Parse command line arguments for the determinism checker."""
+    """Parses command-line arguments for the determinism checker.
+
+    Args:
+        argv: A sequence of command-line arguments. If None, `sys.argv` is used.
+
+    Returns:
+        An `argparse.Namespace` object containing the parsed arguments.
+    """
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -82,7 +89,14 @@ def _write_and_record(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the determinism check and update ``.meta.yaml`` with the outcome."""
+    """Runs the determinism check and updates the `.meta.yaml` file with the outcome.
+
+    Args:
+        argv: A sequence of command-line arguments. If None, `sys.argv` is used.
+
+    Returns:
+        An exit code, 0 for success and 1 for failure.
+    """
 
     args = parse_args(argv)
     configure_logging("INFO")

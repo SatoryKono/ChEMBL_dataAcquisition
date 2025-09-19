@@ -230,27 +230,20 @@ def analyze_table_quality(
     separator: str = ",",
     encoding: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Profile ``table`` and compute correlations for numeric columns.
+    """Profiles a table and computes correlations for numeric columns.
 
-    Parameters
-    ----------
-    table:
-        :class:`pandas.DataFrame` or path to a CSV file.
-    table_name:
-        Base name used for output files.  The generated reports append
-        ``"_quality_report_table.csv"`` and ``"_data_correlation_report_table.csv"``
-        to this value.
-    separator:
-        Field delimiter used when reading CSV files provided via ``table``.
-        Defaults to a comma.
-    encoding:
-        Encoding to use when reading the CSV file. When ``None`` (the
-        default) the reader attempts several common encodings.
+    Args:
+        table: A pandas DataFrame or a path to a CSV file.
+        table_name: The base name for the output files. The function generates
+            two reports: a quality report and a correlation matrix, which are
+            saved to files with names derived from this base name.
+        separator: The field delimiter to use when reading a CSV file.
+        encoding: The encoding to use when reading a CSV file. If None, the
+            function attempts several common encodings.
 
-    Returns
-    -------
-    tuple[pandas.DataFrame, pandas.DataFrame]
-        Quality report and correlation matrix.
+    Returns:
+        A tuple containing the quality report and the correlation matrix as
+        pandas DataFrames.
     """
 
     df = _load_table(table, separator=separator, encoding=encoding)

@@ -38,7 +38,11 @@ def _default_output(path: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Entry point for the protein classification CLI."""
+    """The entry point for the protein classification CLI.
+
+    Args:
+        argv: A list of command-line arguments. If None, `sys.argv` is used.
+    """
     parser = argparse.ArgumentParser(
         description="Annotate proteins with classification labels"
     )

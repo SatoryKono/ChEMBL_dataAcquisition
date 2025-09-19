@@ -519,34 +519,24 @@ def run_pipeline(
     target_species: Sequence[str] | None = None,
     progress_callback: Callable[[int], None] | None = None,
 ) -> pd.DataFrame:
-    """Orchestrate data acquisition for ``ids``.
+    """Orchestrates data acquisition for a sequence of ChEMBL target identifiers.
 
-    Parameters
-    ----------
-    ids:
-        Sequence of target ChEMBL identifiers.
-    cfg:
-        Pipeline configuration controlling behaviour.
-    chembl_fetcher:
-        Function used to download ChEMBL target information.
-    chembl_config:
-        Configuration passed to ``chembl_fetcher``. When ``None`` a
-        :class:`TargetConfig` using the pipeline's list format is created.
-    uniprot_client:
-        Client instance for the UniProt service.
-    hgnc_client:
-        Optional client for HGNC lookups.
-    gtop_client:
-        Optional client for IUPHAR/GtoP data.
-    ensembl_client:
-        Optional client for Ensembl ortholog retrieval.
-    oma_client:
-        Optional client for OMA ortholog lookups.
-    target_species:
-        List of species considered when retrieving orthologs.
-    progress_callback:
-        Optional callback receiving the incremental count of processed records.
-        Can be used to update external progress indicators.
+    Args:
+        ids: A sequence of target ChEMBL identifiers.
+        cfg: The pipeline configuration.
+        chembl_fetcher: The function used to download ChEMBL target information.
+        chembl_config: The configuration passed to the `chembl_fetcher`.
+        uniprot_client: The client instance for the UniProt service.
+        hgnc_client: An optional client for HGNC lookups.
+        gtop_client: An optional client for IUPHAR/GtoP data.
+        ensembl_client: An optional client for Ensembl ortholog retrieval.
+        oma_client: An optional client for OMA ortholog lookups.
+        target_species: A list of species to consider when retrieving orthologs.
+        progress_callback: An optional callback that receives the incremental count
+            of processed records.
+
+    Returns:
+        A pandas DataFrame containing the orchestrated data.
     """
 
     chembl_cfg = chembl_config or TargetConfig(list_format=cfg.list_format)

@@ -128,21 +128,16 @@ def _prepare_identifier_series(
 def merge_chembl_fields(
     pipeline_df: pd.DataFrame, chembl_df: pd.DataFrame
 ) -> pd.DataFrame:
-    """Merge ChEMBL-specific columns into the pipeline output.
+    """Merges ChEMBL-specific columns into the pipeline output.
 
-    Parameters
-    ----------
-    pipeline_df:
-        Data frame produced by :func:`run_pipeline`.
-    chembl_df:
-        Data frame containing raw ChEMBL target information.
+    Args:
+        pipeline_df: The DataFrame produced by the main pipeline.
+        chembl_df: A DataFrame containing raw ChEMBL target information.
 
-    Returns
-    -------
-    pandas.DataFrame
-        Combined data frame with additional ChEMBL columns appended. Existing
-        columns in ``pipeline_df`` are preserved; overlapping columns from
-        ``chembl_df`` are ignored to avoid duplication.
+    Returns:
+        A combined DataFrame with additional ChEMBL columns appended. Existing
+        columns in `pipeline_df` are preserved, and overlapping columns from
+        `chembl_df` are ignored to avoid duplication.
     """
 
     extra_cols = [c for c in chembl_df.columns if c not in pipeline_df.columns]
@@ -553,23 +548,16 @@ def add_iuphar_classification(
     *,
     encoding: str = "utf-8",
 ) -> pd.DataFrame:
-    """Append IUPHAR classification columns to ``pipeline_df``.
+    """Appends IUPHAR classification columns to the pipeline DataFrame.
 
-    Parameters
-    ----------
-    pipeline_df:
-        Data frame produced by :func:`run_pipeline`.
-    target_csv:
-        Path to the ``_IUPHAR_target.csv`` file.
-    family_csv:
-        Path to the ``_IUPHAR_family.csv`` file.
-    encoding:
-        File encoding used when loading the IUPHAR tables.
+    Args:
+        pipeline_df: The DataFrame produced by the main pipeline.
+        target_csv: The path to the `_IUPHAR_target.csv` file.
+        family_csv: The path to the `_IUPHAR_family.csv` file.
+        encoding: The file encoding to use when loading the IUPHAR tables.
 
-    Returns
-    -------
-    pandas.DataFrame
-        ``pipeline_df`` extended with classification fields. Existing
+    Returns:
+        The pipeline DataFrame extended with classification fields. Existing
         columns are preserved.
     """
 
@@ -626,26 +614,15 @@ def add_protein_classification(
     pipeline_df: pd.DataFrame,
     fetch_entries: Callable[[Iterable[str]], Dict[str, Any]],
 ) -> pd.DataFrame:
-    """Append automated protein classification columns.
+    """Appends automated protein classification columns to the pipeline DataFrame.
 
-    Parameters
-    ----------
-    pipeline_df:
-        Data frame produced by :func:`run_pipeline`.
-    fetch_entries:
-        Callable returning a mapping of UniProt accession to the corresponding
-        JSON entry for a set of accessions.
+    Args:
+        pipeline_df: The DataFrame produced by the main pipeline.
+        fetch_entries: A callable that returns a mapping of UniProt accession
+            to the corresponding JSON entry for a set of accessions.
 
-    Returns
-    -------
-    pandas.DataFrame
-        ``pipeline_df`` extended with predicted classification fields. The
-        following columns are added:
-
-        ``protein_class_pred_L1``, ``protein_class_pred_L2``,
-        ``protein_class_pred_L3``, ``protein_class_pred_rule_id``,
-        ``protein_class_pred_evidence`` and
-        ``protein_class_pred_confidence``.
+    Returns:
+        The pipeline DataFrame extended with predicted classification fields.
     """
 
     columns = [
@@ -713,22 +690,16 @@ def add_uniprot_fields(
     pipeline_df: pd.DataFrame,
     fetch_all: Callable[[Iterable[str]], Dict[str, Dict[str, str]]],
 ) -> pd.DataFrame:
-    """Append supplementary UniProt annotations to ``pipeline_df``.
+    """Appends supplementary UniProt annotations to the pipeline DataFrame.
 
-    Parameters
-    ----------
-    pipeline_df:
-        Data frame produced by :func:`run_pipeline` and containing a
-        ``uniprot_id_primary`` column.
-    fetch_all:
-        Callable returning a mapping from UniProt accession to a dictionary of
-        annotation fields. Typically this is
-        :meth:`library.uniprot_enrich.enrich.UniProtClient.fetch_all`.
+    Args:
+        pipeline_df: The DataFrame produced by the main pipeline, containing a
+            `uniprot_id_primary` column.
+        fetch_all: A callable that returns a mapping from a UniProt accession
+            to a dictionary of annotation fields.
 
-    Returns
-    -------
-    pandas.DataFrame
-        ``pipeline_df`` with additional UniProt fields appended. Existing
+    Returns:
+        The pipeline DataFrame with additional UniProt fields appended. Existing
         columns are left untouched.
     """
 
@@ -781,23 +752,19 @@ def add_uniprot_fields(
 
 
 def extract_activity(data: Any) -> dict[str, str]:
-    """Return catalytic reaction names and EC numbers found in ``data``.
+    """Extracts catalytic reaction names and EC numbers from UniProt data.
 
-    The UniProt record may list one or more "CATALYTIC ACTIVITY" comments,
-    each describing a reaction and an associated EC number. This helper
-    aggregates those reactions and numbers as pipe-separated strings.
+    The UniProt record may list one or more "CATALYTIC ACTIVITY" comments, each
+    describing a reaction and an associated EC number. This helper aggregates
+    those reactions and numbers as pipe-separated strings.
 
-    Parameters
-    ----------
-    data:
-        A UniProt JSON structure, list of entries, or search results
-        containing UniProt entries.
+    Args:
+        data: A UniProt JSON structure, a list of entries, or search results
+            containing UniProt entries.
 
-    Returns
-    -------
-    dict[str, str]
-        A dictionary with keys ``reactions`` and ``reaction_ec_numbers``.
-        Missing information yields empty strings.
+    Returns:
+        A dictionary with "reactions" and "reaction_ec_numbers" as keys.
+        Missing information results in empty strings.
     """
 
     reactions: list[str] = []
@@ -837,20 +804,16 @@ def extract_activity(data: Any) -> dict[str, str]:
 def add_activity_fields(
     pipeline_df: pd.DataFrame, fetch_entry: Callable[[str], Any]
 ) -> pd.DataFrame:
-    """Append catalytic activity and EC numbers parsed from UniProt entries.
+    """Appends catalytic activity and EC numbers parsed from UniProt entries.
 
-    Parameters
-    ----------
-    pipeline_df:
-        Data frame produced by :func:`run_pipeline` containing a
-        ``uniprot_id_primary`` column.
-    fetch_entry:
-        Callable returning a UniProt JSON entry for a given accession.
+    Args:
+        pipeline_df: The DataFrame produced by the main pipeline, containing a
+            `uniprot_id_primary` column.
+        fetch_entry: A callable that returns a UniProt JSON entry for a given
+            accession.
 
-    Returns
-    -------
-    pandas.DataFrame
-        ``pipeline_df`` with ``reactions`` and ``reaction_ec_numbers``
+    Returns:
+        The pipeline DataFrame with `reactions` and `reaction_ec_numbers`
         columns populated. Existing columns are preserved.
     """
 
@@ -877,25 +840,20 @@ def add_activity_fields(
 
 
 def extract_isoform(data: Any) -> dict[str, str]:
-    """Return isoform information found in ``data``.
+    """Extracts isoform information from UniProt data.
 
-    The function inspects ``ALTERNATIVE PRODUCTS`` comments and gathers the
-    names, IDs, and synonyms for each isoform. Multiple IDs or synonyms within
-    an isoform are joined by ``":"`` while separate isoforms are joined by
-    ``"|"``. When no isoform data is available, the strings ``"None"`` are
-    returned for all fields.
+    This function inspects "ALTERNATIVE PRODUCTS" comments and gathers the names,
+    IDs, and synonyms for each isoform. Multiple IDs or synonyms within an
+    isoform are joined by ":" while separate isoforms are joined by "|". If no
+    isoform data is available, "None" is returned for all fields.
 
-    Parameters
-    ----------
-    data:
-        A UniProt JSON structure, list of entries, or search results containing
-        UniProt entries.
+    Args:
+        data: A UniProt JSON structure, a list of entries, or search results
+            containing UniProt entries.
 
-    Returns
-    -------
-    dict[str, str]
-        Mapping with keys ``isoform_names``, ``isoform_ids`` and
-        ``isoform_synonyms`` containing pipe-separated strings.
+    Returns:
+        A dictionary with "isoform_names", "isoform_ids", and "isoform_synonyms"
+        as keys, containing pipe-separated strings.
     """
 
     names: list[str] = []
@@ -954,21 +912,17 @@ def extract_isoform(data: Any) -> dict[str, str]:
 def add_isoform_fields(
     pipeline_df: pd.DataFrame, fetch_entry: Callable[[str], Any]
 ) -> pd.DataFrame:
-    """Append isoform data parsed from UniProt entries.
+    """Appends isoform data parsed from UniProt entries to the pipeline DataFrame.
 
-    Parameters
-    ----------
-    pipeline_df:
-        Data frame produced by :func:`run_pipeline` containing a
-        ``uniprot_id_primary`` column.
-    fetch_entry:
-        Callable returning a UniProt JSON entry for a given accession.
+    Args:
+        pipeline_df: The DataFrame produced by the main pipeline, containing a
+            `uniprot_id_primary` column.
+        fetch_entry: A callable that returns a UniProt JSON entry for a given
+            accession.
 
-    Returns
-    -------
-    pandas.DataFrame
-        ``pipeline_df`` with ``isoform_names``, ``isoform_ids`` and
-        ``isoform_synonyms`` columns populated. Existing columns are preserved.
+    Returns:
+        The pipeline DataFrame with `isoform_names`, `isoform_ids`, and
+        `isoform_synonyms` columns populated. Existing columns are preserved.
     """
 
     raw_ids = (
@@ -1003,7 +957,14 @@ def add_isoform_fields(
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    """Parse command-line arguments for the pipeline."""
+    """Parses command-line arguments for the pipeline.
+
+    Args:
+        argv: A sequence of command-line arguments. If None, `sys.argv` is used.
+
+    Returns:
+        An `argparse.Namespace` object containing the parsed arguments.
+    """
 
     argv = list(sys.argv[1:] if argv is None else argv)
 
@@ -1117,27 +1078,20 @@ def build_clients(
     list[str],
     Callable[..., UniProtEnrichClient],
 ]:
-    """Initialise service clients used by the pipeline.
+    """Initializes the service clients used by the pipeline.
 
-    Parameters
-    ----------
-    cfg_path:
-        Path to the YAML configuration file.
-    pipeline_cfg:
-        High-level pipeline configuration controlling retries and rate limits.
-    with_orthologs:
-        When ``True`` return ortholog clients in addition to the core clients.
-    default_cache:
-        Optional fallback cache configuration applied when a section does not
-        specify its own cache settings.
+    Args:
+        cfg_path: The path to the YAML configuration file.
+        pipeline_cfg: The high-level pipeline configuration, which controls
+            retries and rate limits.
+        with_orthologs: If True, ortholog clients are returned in addition to
+            the core clients.
+        default_cache: An optional fallback cache configuration to apply when a
+            section does not specify its own cache settings.
 
-    Returns
-    -------
-    tuple
-        Tuple containing instantiated service clients along with a factory for
-        :class:`~library.uniprot_enrich.enrich.UniProtClient` that already
-        embeds retry, timeout and rate limit settings sourced from
-        ``pipeline_cfg``.
+    Returns:
+        A tuple containing the instantiated service clients and a factory for
+        the UniProtEnrichClient.
     """
 
     data = _load_yaml_mapping(cfg_path)
@@ -1246,7 +1200,7 @@ def build_clients(
 
 
 def main() -> None:
-    """Main entry point for the unified target data pipeline."""
+    """The main entry point for the unified target data pipeline."""
 
     args = parse_args()
     configure_logging(args.log_level, log_format=args.log_format)

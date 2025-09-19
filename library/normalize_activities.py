@@ -119,16 +119,20 @@ def _normalise_collection(value: Any) -> list[Any]:
 
 
 def normalize_activities(df: pd.DataFrame) -> pd.DataFrame:
-    """Return a normalised copy of ``df``.
+    """Returns a normalized copy of the input DataFrame.
 
-    Normalisation performs the following steps:
+    Normalization performs the following steps:
 
-    * String-like columns are stripped of surrounding whitespace and empty
-      values are replaced with ``None``.
-    * Numeric columns are converted to ``Float64`` or ``Int64`` where
-      applicable.
-    * Boolean columns are cast to pandas' nullable boolean dtype.
-    * Mapping and collection columns are sorted deterministically.
+    - String-like columns are stripped of surrounding whitespace, and empty values are replaced with None.
+    - Numeric columns are converted to Float64 or Int64 where applicable.
+    - Boolean columns are cast to pandas' nullable boolean dtype.
+    - Mapping and collection columns are sorted deterministically.
+
+    Args:
+        df: The pandas DataFrame to normalize.
+
+    Returns:
+        A new DataFrame with normalized data.
     """
 
     result = df.copy()

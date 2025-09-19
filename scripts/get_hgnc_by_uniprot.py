@@ -23,13 +23,11 @@ DEFAULT_LOG_FORMAT = "human"
 
 
 def main(argv: list[str] | None = None) -> None:
-    """Parse command-line arguments and run the HGNC mapping process.
+    """Parses command-line arguments and runs the HGNC mapping process.
 
-    Parameters
-    ----------
-    argv:
-        Optional list of command line arguments. When ``None`` the values
-        supplied on the command line are used.
+    Args:
+        argv: An optional list of command-line arguments. If None, the
+            arguments are taken from `sys.argv`.
     """
 
     parser = argparse.ArgumentParser(description="Map UniProt accessions to HGNC IDs")

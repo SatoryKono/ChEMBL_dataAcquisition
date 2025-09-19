@@ -18,11 +18,17 @@ REQUIRED_COLUMNS: List[str] = [
 
 
 def postprocess_assays(df: pd.DataFrame) -> pd.DataFrame:
-    """Return ``df`` augmented with ``assay_with_same_target``.
+    """Returns the input DataFrame augmented with the `assay_with_same_target` column.
 
-    The function groups rows by ``document_chembl_id`` and ``target_chembl_id``
-    and counts how many assays share the same pair.  Missing identifiers are
+    The function groups rows by `document_chembl_id` and `target_chembl_id`
+    and counts how many assays share the same pair. Missing identifiers are
     treated as their own group so that orphaned records still receive a count.
+
+    Args:
+        df: The pandas DataFrame to post-process.
+
+    Returns:
+        A new DataFrame with the `assay_with_same_target` column added.
     """
 
     missing = [column for column in REQUIRED_COLUMNS if column not in df.columns]

@@ -48,7 +48,14 @@ def _serialise_complex_columns(df: pd.DataFrame, list_format: str) -> pd.DataFra
 
 
 def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
-    """Parse command line arguments for the assay pipeline CLI."""
+    """Parses command-line arguments for the assay pipeline CLI.
+
+    Args:
+        args: A sequence of command-line arguments. If None, `sys.argv` is used.
+
+    Returns:
+        An `argparse.Namespace` object containing the parsed arguments.
+    """
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -120,7 +127,16 @@ def _prepare_configuration(namespace: argparse.Namespace) -> dict[str, object]:
 def run_pipeline(
     args: argparse.Namespace, *, command_parts: Sequence[str] | None = None
 ) -> int:
-    """Execute the assay acquisition pipeline with ``args``."""
+    """Executes the assay acquisition pipeline with the given arguments.
+
+    Args:
+        args: An `argparse.Namespace` object containing the pipeline arguments.
+        command_parts: A sequence of command-line arguments used to invoke the
+            pipeline. If None, `sys.argv` is used.
+
+    Returns:
+        An exit code, 0 for success and 1 for failure.
+    """
 
     input_path = Path(args.input)
     if not input_path.exists():
@@ -200,7 +216,14 @@ def run_pipeline(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Entry point used by the CLI and tests."""
+    """The entry point used by the CLI and tests.
+
+    Args:
+        argv: A sequence of command-line arguments. If None, `sys.argv` is used.
+
+    Returns:
+        An exit code, 0 for success and 1 for failure.
+    """
 
     args = parse_args(argv)
     configure_logging(args.log_level, log_format=args.log_format)

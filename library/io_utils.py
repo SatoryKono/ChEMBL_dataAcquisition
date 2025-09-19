@@ -19,7 +19,16 @@ class CsvConfig:
 
 
 def read_ids(path: Path, column: str, cfg: CsvConfig) -> List[str]:
-    """Read a CSV file and return normalised, deduplicated accession IDs."""
+    """Reads a CSV file and returns a list of normalized, deduplicated accession IDs.
+
+    Args:
+        path: The path to the CSV file.
+        column: The name of the column containing the accession IDs.
+        cfg: The CSV configuration.
+
+    Returns:
+        A list of normalized, deduplicated accession IDs.
+    """
 
     df = pd.read_csv(path, sep=cfg.sep, encoding=cfg.encoding, dtype=str)
     if column not in df.columns:
@@ -126,23 +135,17 @@ def _serialise_value(value: Any, list_format: str) -> str:
 
 
 def serialise_cell(value: Any, list_format: str) -> Any:
-    """Serialise a value for CSV output while preserving separators.
+    """Serializes a value for CSV output while preserving separators.
 
-    Parameters
-    ----------
-    value:
-        The value to serialise. Lists and dictionaries are converted into
-        deterministic JSON payloads using :func:`_serialise_list` and
-        :func:`_serialise_value` respectively.
-    list_format:
-        Encoding for list-like values (``"json"`` or ``"pipe"``).
+    Args:
+        value: The value to serialize. Lists and dictionaries are converted into
+            deterministic JSON payloads.
+        list_format: The encoding for list-like values ("json" or "pipe").
 
-    Returns
-    -------
-    Any
-        Serialised representation suitable for writing to CSV cells.
-        Non-collection objects are returned unchanged except for strings in
-        ``"pipe"`` mode where pipe characters are escaped.
+    Returns:
+        The serialized representation suitable for writing to a CSV cell.
+        Non-collection objects are returned unchanged, except for strings in "pipe"
+        mode where pipe characters are escaped.
     """
 
     if isinstance(value, (dict, list)):
@@ -158,7 +161,15 @@ def write_rows(
     columns: Sequence[str],
     cfg: CsvConfig,
 ) -> None:
-    """Write ``rows`` to ``path`` using deterministic ordering."""
+    """Writes rows to a CSV file with deterministic ordering.
+
+    Args:
+        path: The path to the output CSV file.
+        rows: A sequence of dictionaries, where each dictionary represents a row.
+        columns: A sequence of column names, defining the order of columns in the
+            output file.
+        cfg: The CSV configuration.
+    """
 
     with path.open("w", encoding=cfg.encoding, newline="") as fh:
         writer = csv.writer(fh, delimiter=cfg.sep)

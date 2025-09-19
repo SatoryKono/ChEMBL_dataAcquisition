@@ -53,7 +53,11 @@ def _load_ids_from_csv(path: Path, column: str, sep: str, encoding: str) -> list
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Parse command line arguments and download cell line records."""
+    """Parses command-line arguments and downloads cell line records.
+
+    Args:
+        argv: A sequence of command-line arguments. If None, `sys.argv` is used.
+    """
 
     parser = argparse.ArgumentParser(
         description="Download metadata for one or more ChEMBL cell lines",

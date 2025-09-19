@@ -395,44 +395,27 @@ def add_pubchem_data(
     http_client_config: Mapping[str, Any] | None = None,
     session: requests.Session | None = None,
 ) -> pd.DataFrame:
-    """Augment ``df`` with PubChem descriptors based on SMILES strings.
+    """Augments a DataFrame with PubChem descriptors based on SMILES strings.
 
-    Parameters
-    ----------
-    df:
-        Input molecule table.  The function returns ``df`` unchanged when the
-        frame is empty or does not contain ``smiles_column``.
-    smiles_column:
-        Name of the column containing SMILES representations used to query the
-        PubChem service.
-    properties:
-        Sequence of property names requested from the API.  Defaults to the
-        ``PUBCHEM_PROPERTIES`` tuple defined in this module.
-    timeout:
-        Socket timeout for PubChem HTTP requests in seconds.
-    base_url:
-        Base URL of the PubChem PUG REST API.
-    user_agent:
-        Custom ``User-Agent`` header sent with each HTTP request.
-    http_client:
-        Optional :class:`~library.http_client.HttpClient` used for outbound
-        requests. When omitted a new client is created with sensible defaults
-        for retry and rate limiting.
-    http_client_config:
-        Optional mapping overriding the HTTP client defaults. Supported keys are
-        ``max_retries``, ``rps``, ``backoff_multiplier``,
-        ``retry_penalty_seconds`` and ``status_forcelist``. Ignored when
-        ``http_client`` is provided.
-    session:
-        Optional :class:`requests.Session` reused when a new
-        :class:`HttpClient` is instantiated internally. Retained for backwards
-        compatibility with older code paths.
+    Args:
+        df: The input molecule table. The function returns the DataFrame unchanged
+            if it is empty or does not contain the `smiles_column`.
+        smiles_column: The name of the column containing SMILES representations
+            used to query the PubChem service.
+        properties: A sequence of property names to request from the API.
+        timeout: The socket timeout for PubChem HTTP requests in seconds.
+        base_url: The base URL of the PubChem PUG REST API.
+        user_agent: The custom User-Agent header to send with each HTTP request.
+        http_client: An optional HttpClient to use for outbound requests. If
+            omitted, a new client is created with sensible defaults.
+        http_client_config: An optional mapping to override the HTTP client
+            defaults. Ignored if `http_client` is provided.
+        session: An optional requests.Session to reuse when a new HttpClient is
+            instantiated internally.
 
-    Returns
-    -------
-    pandas.DataFrame
-        A copy of the input frame enriched with ``pubchem_*`` columns.  Missing
-        annotations remain represented as ``pd.NA`` values.
+    Returns:
+        A copy of the input DataFrame enriched with `pubchem_*` columns. Missing
+        annotations are represented as `pd.NA`.
     """
 
     if df.empty:

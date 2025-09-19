@@ -178,15 +178,15 @@ def _resolve_level(log_level: str) -> int:
 def configure_logging(
     log_level: str = "INFO", *, log_format: LogFormat = "human"
 ) -> None:
-    """Configure application logging for CLI entry points.
+    """Configures application logging for CLI entry points.
 
     Args:
-        log_level: Verbosity level name, for example ``"INFO"`` or ``"DEBUG"``.
-        log_format: Output format for log records.  ``"human"`` emits formatted
-            text while ``"json"`` writes structured JSON lines.
+        log_level: The verbosity level name (e.g., "INFO", "DEBUG").
+        log_format: The output format for log records. "human" emits formatted
+            text, while "json" writes structured JSON lines.
 
     Raises:
-        ValueError: If ``log_format`` or ``log_level`` is not recognised.
+        ValueError: If the log format or log level is not recognized.
     """
 
     if log_format not in ("human", "json"):

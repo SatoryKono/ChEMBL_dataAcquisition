@@ -18,7 +18,11 @@ DEFAULT_LOG_FORMAT = "human"
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command line arguments."""
+    """Parses command-line arguments.
+
+    Returns:
+        An `argparse.Namespace` object containing the parsed arguments.
+    """
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", required=True, help="Path to _IUPHAR_target.csv")
@@ -44,7 +48,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """CLI entry point."""
+    """The main entry point for the script."""
 
     args = parse_args()
     configure_logging(args.log_level, log_format=args.log_format)

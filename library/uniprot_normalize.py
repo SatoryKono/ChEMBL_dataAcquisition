@@ -266,14 +266,15 @@ def normalize_entry(
     include_sequence: bool = False,
     isoforms: List[Isoform] | None = None,
 ) -> Dict[str, Any]:
-    """Normalise a raw UniProt record into a flat dictionary.
+    """Normalizes a raw UniProt record into a flat dictionary.
 
-    Parameters
-    ----------
-    entry:
-        Parsed JSON document as returned by the UniProt API.
-    include_sequence:
-        Whether to include the full amino acid sequence.
+    Args:
+        entry: A parsed JSON document as returned by the UniProt API.
+        include_sequence: Whether to include the full amino acid sequence.
+        isoforms: A list of isoforms to include in the normalized record.
+
+    Returns:
+        A dictionary containing the normalized UniProt record.
     """
 
     result: Dict[str, Any] = {c: "" for c in output_columns(include_sequence)}

@@ -7,26 +7,21 @@ from pathlib import Path
 
 
 def ensure_project_root(*, package_dir: str = "library") -> Path:
-    """Insert the project root and package directory into :data:`sys.path`.
+    """Inserts the project root and package directory into `sys.path`.
 
-    Parameters
-    ----------
-    package_dir:
-        Name of the directory within the project root that contains importable
-        modules. The directory is added to :data:`sys.path` if it exists.
-
-    Returns
-    -------
-    Path
-        Absolute path to the project root directory.
-
-    Notes
-    -----
-    The function is idempotent: repeated calls do not create duplicate
-    :data:`sys.path` entries. The package directory is placed ahead of the
-    project root to allow packages such as ``chembl2uniprot`` (stored inside the
-    ``library`` folder) to be imported as top-level modules when running the
+    This function is idempotent, meaning that repeated calls will not create
+    duplicate `sys.path` entries. The package directory is placed ahead of the
+    project root to allow packages such as `chembl2uniprot` (stored inside the
+    `library` folder) to be imported as top-level modules when running the
     scripts directly.
+
+    Args:
+        package_dir: The name of the directory within the project root that
+            contains importable modules. The directory is added to `sys.path`
+            if it exists.
+
+    Returns:
+        The absolute path to the project root directory.
     """
 
     script_path = Path(__file__).resolve()

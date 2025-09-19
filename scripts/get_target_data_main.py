@@ -30,7 +30,6 @@ DEFAULT_LOG_FORMAT = "human"
 DEFAULT_INPUT = "input.csv"
 DEFAULT_COLUMN = "target_chembl_id"
 
-
 def _default_output_name(input_path: str) -> str:
     """Derive the default output file name from ``input_path``."""
 
@@ -41,6 +40,7 @@ def _default_output_name(input_path: str) -> str:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Create an argument parser and return parsed ``argv``."""
+
 
     parser = argparse.ArgumentParser(description="Download ChEMBL target data")
     parser.add_argument(

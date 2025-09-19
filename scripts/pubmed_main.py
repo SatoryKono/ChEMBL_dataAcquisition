@@ -575,15 +575,11 @@ def _write_output(
 
 
 def run_crossref_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
-    """Write Crossref metadata for the provided DOI values to disk.
+    """Writes Crossref metadata for the provided DOI values to disk.
 
-    Parameters
-    ----------
-    args:
-        Parsed command-line options produced by :func:`build_parser`.
-    config:
-        Effective configuration mapping produced by :func:`load_config` with
-        CLI overrides already applied.
+    Args:
+        args: Parsed command-line options.
+        config: The effective configuration mapping with CLI overrides applied.
     """
 
     io_cfg = config["io"]
@@ -620,7 +616,12 @@ def run_crossref_command(args: argparse.Namespace, config: Dict[str, Any]) -> No
 
 
 def run_openalex_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
-    """Write OpenAlex and Crossref metadata for the provided PMIDs to disk."""
+    """Writes OpenAlex and Crossref metadata for the provided PMIDs to disk.
+
+    Args:
+        args: Parsed command-line options.
+        config: The effective configuration mapping with CLI overrides applied.
+    """
 
     io_cfg = config["io"]
     column = args.column or config["pipeline"].get("column_pubmed", "PMID")
@@ -659,6 +660,13 @@ def run_openalex_command(args: argparse.Namespace, config: Dict[str, Any]) -> No
 
 
 def run_pubmed_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    """Runs the PubMed command, which fetches and merges data from PubMed and
+    partner sources.
+
+    Args:
+        args: Parsed command-line options.
+        config: The effective configuration mapping with CLI overrides applied.
+    """
     io_cfg = config["io"]
     column = args.column or config["pipeline"].get("column_pubmed", "PMID")
     ids = _read_identifier_column(
@@ -708,6 +716,12 @@ def run_pubmed_command(args: argparse.Namespace, config: Dict[str, Any]) -> None
 
 
 def run_chembl_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    """Runs the ChEMBL command, which downloads ChEMBL document metadata.
+
+    Args:
+        args: Parsed command-line options.
+        config: The effective configuration mapping with CLI overrides applied.
+    """
     io_cfg = config["io"]
     column = args.column or config["pipeline"].get(
         "column_chembl", "document_chembl_id"
@@ -764,6 +778,13 @@ def run_chembl_command(args: argparse.Namespace, config: Dict[str, Any]) -> None
 
 
 def run_all_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    """Runs the 'all' command, which fetches ChEMBL documents and enriches them
+    with data from the PubMed ecosystem.
+
+    Args:
+        args: Parsed command-line options.
+        config: The effective configuration mapping with CLI overrides applied.
+    """
     io_cfg = config["io"]
     column = args.column or config["pipeline"].get(
         "column_chembl", "document_chembl_id"
@@ -835,6 +856,11 @@ def run_all_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Builds the command-line parser for the script.
+
+    Returns:
+        An `argparse.ArgumentParser` object.
+    """
     default_config = (
         Path(__file__).resolve().parent.parent / "config" / "documents.yaml"
     )
@@ -993,6 +1019,12 @@ def _cli_option(args: argparse.Namespace, *names: str) -> Any | None:
 
 
 def apply_cli_overrides(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    """Applies command-line argument overrides to the configuration.
+
+    Args:
+        args: The parsed command-line arguments.
+        config: The configuration dictionary to update.
+    """
     if args.sep:
         config["io"]["sep"] = args.sep
     if args.encoding:
@@ -1049,7 +1081,12 @@ def apply_cli_overrides(args: argparse.Namespace, config: Dict[str, Any]) -> Non
 def run_semantic_scholar_command(
     args: argparse.Namespace, config: Dict[str, Any]
 ) -> None:
-    """Write Semantic Scholar metadata for the provided PMIDs to disk."""
+    """Writes Semantic Scholar metadata for the provided PMIDs to disk.
+
+    Args:
+        args: Parsed command-line options.
+        config: The effective configuration mapping with CLI overrides applied.
+    """
 
     io_cfg = config["io"]
     column = args.column or config["pipeline"].get("column_pubmed", "PMID")
@@ -1073,6 +1110,7 @@ def run_semantic_scholar_command(
 
 
 def main() -> None:
+    """The main entry point for the script."""
     parser = build_parser()
     args = parser.parse_args()
     configure_logging(args.log_level, log_format=args.log_format)

@@ -27,22 +27,16 @@ _EXCLUDED_CONFIG_KEYS = frozenset({"output", "errors_output", "meta_output"})
 
 
 def ensure_output_dir(path: Path) -> Path:
-    """Ensure that the parent directory of ``path`` exists.
+    """Ensures that the parent directory of a given path exists.
 
-    Parameters
-    ----------
-    path:
-        Destination file path.
+    Args:
+        path: The destination file path.
 
-    Returns
-    -------
-    Path
-        The normalised ``Path`` object pointing to the destination file.
+    Returns:
+        The normalized Path object pointing to the destination file.
 
-    Raises
-    ------
-    ValueError
-        Raised when ``path`` does not reference a file name.
+    Raises:
+        ValueError: If the path does not reference a file name.
     """
 
     target = Path(path)
@@ -54,21 +48,16 @@ def ensure_output_dir(path: Path) -> Path:
 
 
 def serialise_dataframe(df: pd.DataFrame, list_format: str) -> pd.DataFrame:
-    """Serialise non-scalar dataframe columns for CSV output.
+    """Serializes non-scalar DataFrame columns for CSV output.
 
-    Parameters
-    ----------
-    df:
-        DataFrame containing data destined for CSV output.
-    list_format:
-        Desired representation for list-like values. Accepted values are
-        ``"json"`` and ``"pipe"``.
+    Args:
+        df: The DataFrame containing data destined for CSV output.
+        list_format: The desired representation for list-like values. Accepted
+            values are "json" and "pipe".
 
-    Returns
-    -------
-    pandas.DataFrame
-        A new dataframe with the same shape as ``df`` where complex values are
-        serialised into deterministic strings.
+    Returns:
+        A new DataFrame with the same shape as the input, where complex values
+        are serialized into deterministic strings.
     """
 
     result = df.copy()
@@ -84,22 +73,17 @@ def prepare_cli_config(
     *,
     exclude_keys: Iterable[str] | None = None,
 ) -> dict[str, Any]:
-    """Normalise CLI arguments into a serialisable mapping.
+    """Normalizes CLI arguments into a serializable mapping.
 
-    Parameters
-    ----------
-    namespace:
-        Source of configuration values. Typically an
-        :class:`argparse.Namespace`, but any mapping is accepted.
-    exclude_keys:
-        Iterable of keys that should be omitted from the result. When omitted,
-        standard output-related keys are ignored.
+    Args:
+        namespace: The source of configuration values, typically an
+            `argparse.Namespace`, but any mapping is accepted.
+        exclude_keys: An iterable of keys to omit from the result. If omitted,
+            standard output-related keys are ignored.
 
-    Returns
-    -------
-    dict[str, Any]
-        Dictionary representation of the namespace with :class:`~pathlib.Path`
-        values converted to strings for YAML serialisation.
+    Returns:
+        A dictionary representation of the namespace, with Path values
+        converted to strings for YAML serialization.
     """
 
     excluded = set(_EXCLUDED_CONFIG_KEYS if exclude_keys is None else exclude_keys)
@@ -124,30 +108,21 @@ def write_cli_metadata(
     command_parts: Sequence[str] | None = None,
     meta_path: Path | None = None,
 ) -> Path:
-    """Persist a ``.meta.yaml`` companion file next to ``output_path``.
+    """Persists a `.meta.yaml` companion file next to the output file.
 
-    Parameters
-    ----------
-    output_path:
-        CSV file produced by the CLI.
-    row_count:
-        Number of rows present in the output CSV.
-    column_count:
-        Number of columns present in the output CSV.
-    namespace:
-        CLI arguments used to produce the dataset. Converted to a serialisable
-        mapping via :func:`prepare_cli_config`.
-    command_parts:
-        Sequence of command line arguments used to invoke the CLI. When
-        omitted, the function falls back to :data:`sys.argv`.
-    meta_path:
-        Optional override for the metadata file location. Defaults to
-        ``<output_path>.meta.yaml``.
+    Args:
+        output_path: The path to the CSV file produced by the CLI.
+        row_count: The number of rows in the output CSV.
+        column_count: The number of columns in the output CSV.
+        namespace: The CLI arguments used to produce the dataset, converted to a
+            serializable mapping via `prepare_cli_config`.
+        command_parts: A sequence of command-line arguments used to invoke the CLI.
+            If omitted, the function falls back to `sys.argv`.
+        meta_path: An optional override for the metadata file location. Defaults to
+            `<output_path>.meta.yaml`.
 
-    Returns
-    -------
-    Path
-        Path to the written metadata file.
+    Returns:
+        The path to the written metadata file.
     """
 
     command_sequence = command_parts if command_parts is not None else tuple(sys.argv)

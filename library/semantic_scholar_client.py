@@ -23,7 +23,17 @@ def _chunked(seq: Sequence[str], size: int) -> List[List[str]]:
 
 @dataclass
 class SemanticScholarRecord:
-    """Container for a Semantic Scholar response."""
+    """A container for a Semantic Scholar response.
+
+    Attributes:
+        pmid: The PubMed ID of the paper.
+        doi: The DOI of the paper.
+        publication_types: A list of publication types for the paper.
+        venue: The venue where the paper was published.
+        paper_id: The Semantic Scholar ID of the paper.
+        external_ids: A dictionary of external IDs for the paper.
+        error: An error message if the request failed.
+    """
 
     pmid: str
     doi: str | None
@@ -34,7 +44,11 @@ class SemanticScholarRecord:
     error: str | None = None
 
     def to_dict(self) -> Dict[str, Any]:
-        """Return a serialisable representation of the record."""
+        """Returns a serializable representation of the record.
+
+        Returns:
+            A dictionary containing the record's data.
+        """
 
         return {
             "scholar.PMID": self.pmid,
@@ -113,21 +127,16 @@ def fetch_semantic_scholar_records(
     client: HttpClient,
     chunk_size: int = 100,
 ) -> List[SemanticScholarRecord]:
-    """Fetch metadata from Semantic Scholar.
+    """Fetches metadata from Semantic Scholar.
 
-    Parameters
-    ----------
-    pmids
-        Sequence of PubMed identifiers.
-    client
-        HTTP client used for requests.
-    chunk_size
-        Maximum number of identifiers passed to the batch endpoint.
+    Args:
+        pmids: A sequence of PubMed identifiers.
+        client: An HttpClient instance used for requests.
+        chunk_size: The maximum number of identifiers to pass to the batch endpoint.
 
-    Returns
-    -------
-    list of :class:`SemanticScholarRecord`
-        Parsed records in the same order as input identifiers.
+    Returns:
+        A list of SemanticScholarRecord objects, with failed requests represented by
+        records with the `error` attribute populated.
     """
 
     cleaned = [pid for pid in (p.strip() for p in pmids) if pid]
