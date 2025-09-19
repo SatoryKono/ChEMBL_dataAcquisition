@@ -128,10 +128,12 @@ The relevant configuration sections are:
 
 - ``output`` – CSV separator, encoding, default list serialisation format and
   whether sequences are exported.
-- ``uniprot`` – REST endpoint, retry budget, timeout, rate limit and optional
-  request-level cache for UniProtKB.
-- ``orthologs`` – toggle for ortholog enrichment, allowed species, retry and
-  rate limit parameters plus an optional cache configuration.
+- ``uniprot`` – REST endpoint, ``network`` settings (timeout and retries),
+  ``rate_limit`` (requests per second) and optional request-level cache for
+  UniProtKB.
+- ``orthologs`` – toggle for ortholog enrichment, allowed species and nested
+  ``network``/``rate_limit`` sections together with an optional cache
+  configuration.
 - ``http_cache`` – global HTTP cache used as a fallback when a section does not
   define its own cache settings.
 
@@ -140,12 +142,15 @@ Each setting can be overridden via environment variables prefixed with
 underscores, for example::
 
     export CHEMBL_DA__OUTPUT__SEP="\t"
-    export CHEMBL_DA__UNIPROT__RPS=6
+    export CHEMBL_DA__UNIPROT__RATE_LIMIT__RPS=6
+    export CHEMBL_DA__ORTHOLOGS__NETWORK__TIMEOUT_SEC=45
     export CHEMBL_DA__ORTHOLOGS__TARGET_SPECIES="[\"Human\", \"Mouse\"]"
     export CHEMBL_DA__HTTP_CACHE__ENABLED=true
 
-These overrides are processed before validation, ensuring the resulting
-configuration matches the constraints enforced by the loader.
+These overrides are processed before validation.  The loader uses dedicated
+Pydantic models for the ``uniprot``, ``hgnc``, ``gtop`` and ``orthologs``
+sections so type mismatches or missing keys are reported with descriptive error
+messages.
 
 Every run also emits companion sidecar files next to the main CSV.  Validation
 issues are stored in ``<output_filename>.errors.json`` and provenance metadata

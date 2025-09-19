@@ -279,7 +279,7 @@ def test_build_clients_uses_uniprot_rate_limit_from_config() -> None:
     uni_client, *_ = build_clients("config.yaml", pipeline_cfg)
 
     config = yaml.safe_load(Path("config.yaml").read_text())
-    configured_rps = float(config["uniprot"]["rps"])
+    configured_rps = float(config["uniprot"]["rate_limit"]["rps"])
 
     assert uni_client.rate_limit.rps == configured_rps
 

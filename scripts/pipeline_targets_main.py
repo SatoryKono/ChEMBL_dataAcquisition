@@ -29,7 +29,14 @@ if __package__ in {None, ""}:
 
 from library.chembl_targets import TargetConfig, fetch_targets
 from library.gtop_client import GtoPClient, GtoPConfig
-from library.hgnc_client import HGNCClient, load_config as load_hgnc_config
+from library.hgnc_client import (
+    HGNCClient,
+    Config as HGNCDataclassConfig,
+    HGNCServiceConfig as HGNCEndpointConfig,
+    NetworkConfig as HGNCNetworkConfig,
+    OutputConfig as HGNCOutputConfig,
+    RateLimitConfig as HGNCRateLimitConfig,
+)
 from library.uniprot_client import (
     NetworkConfig as UniNetworkConfig,
     RateLimitConfig as UniRateConfig,
@@ -37,6 +44,12 @@ from library.uniprot_client import (
 )
 from library.orthologs import EnsemblHomologyClient, OmaClient
 from library.http_client import CacheConfig
+from library.config.pipeline_targets import (
+    PipelineClientsConfig,
+    SectionBase,
+    UniProtSectionConfig,
+    OrthologsSectionConfig,
+)
 from library.uniprot_enrich.enrich import (
     UniProtClient as UniProtEnrichClient,
     _collect_ec_numbers,
@@ -357,39 +370,9 @@ class SectionSettings:
     cache: CacheConfig | None
 
 
-def _coerce_float(value: Any, *, default: float, context: str) -> float:
-    """Return ``value`` as a float while honouring ``default`` for nulls."""
-
-    if value is None:
-        return float(default)
-    if isinstance(value, bool):
-        msg = f"Expected '{context}' to be numeric, not {type(value).__name__!s}"
-        raise TypeError(msg)
-    try:
-        return float(value)
-    except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
-        msg = f"Expected '{context}' to be numeric, received {value!r}"
-        raise TypeError(msg) from exc
-
-
-def _coerce_int(value: Any, *, default: int, context: str) -> int:
-    """Return ``value`` as an integer while honouring ``default`` for nulls."""
-
-    if value is None:
-        return int(default)
-    if isinstance(value, bool):
-        msg = f"Expected '{context}' to be an integer, not {type(value).__name__!s}"
-        raise TypeError(msg)
-    try:
-        return int(value)
-    except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
-        msg = f"Expected '{context}' to be an integer, received {value!r}"
-        raise TypeError(msg) from exc
-
-
 def _resolve_section_settings(
     section_name: str,
-    section_cfg: Mapping[str, Any],
+    section_cfg: SectionBase,
     *,
     pipeline_cfg: PipelineConfig,
     global_cache: CacheConfig | None,
@@ -397,60 +380,13 @@ def _resolve_section_settings(
 ) -> SectionSettings:
     """Return normalised timeout, retry, rate limit and cache settings."""
 
-    network_cfg_raw = section_cfg.get("network")
-    network_cfg = (
-        _ensure_mapping(network_cfg_raw, context=f"{section_name}.network")
-        if isinstance(network_cfg_raw, Mapping)
-        else None
-    )
+    timeout_sec = section_cfg.network.effective_timeout(pipeline_cfg.timeout_sec)
+    max_retries = section_cfg.network.effective_retries(pipeline_cfg.retries)
+    backoff_sec = section_cfg.network.effective_backoff(default_backoff)
+    rps = section_cfg.rate_limit.effective_rps(pipeline_cfg.rate_limit_rps)
 
-    def _network_value(*keys: str) -> Any:
-        for key in keys:
-            if network_cfg is not None and network_cfg.get(key) is not None:
-                return network_cfg.get(key)
-            if section_cfg.get(key) is not None:
-                return section_cfg.get(key)
-        return None
-
-    timeout_sec = _coerce_float(
-        _network_value("timeout_sec", "timeout"),
-        default=pipeline_cfg.timeout_sec,
-        context=f"{section_name}.timeout_sec",
-    )
-    max_retries = _coerce_int(
-        _network_value("max_retries", "retries"),
-        default=pipeline_cfg.retries,
-        context=f"{section_name}.retries",
-    )
-    backoff_sec = _coerce_float(
-        _network_value("backoff_sec", "backoff_base_sec", "backoff"),
-        default=default_backoff,
-        context=f"{section_name}.backoff",
-    )
-
-    rate_limit_raw = section_cfg.get("rate_limit")
-    rate_limit_cfg = (
-        _ensure_mapping(rate_limit_raw, context=f"{section_name}.rate_limit")
-        if isinstance(rate_limit_raw, Mapping)
-        else None
-    )
-
-    def _rate_value(*keys: str) -> Any:
-        for key in keys:
-            if rate_limit_cfg is not None and rate_limit_cfg.get(key) is not None:
-                return rate_limit_cfg.get(key)
-            if section_cfg.get(key) is not None:
-                return section_cfg.get(key)
-        return None
-
-    rps = _coerce_float(
-        _rate_value("rps", "rate_limit_rps"),
-        default=pipeline_cfg.rate_limit_rps,
-        context=f"{section_name}.rps",
-    )
-
-    cache_cfg = _optional_mapping(section_cfg, "cache", context=f"{section_name}.cache")
-    cache = CacheConfig.from_dict(cache_cfg) or global_cache
+    cache_cfg = section_cfg.cache.to_cache_config() if section_cfg.cache else None
+    cache = cache_cfg or global_cache
 
     return SectionSettings(
         timeout_sec=timeout_sec,
@@ -511,7 +447,9 @@ def _normalise_field_names(value: Any, *, source: str) -> list[str]:
     return names
 
 
-def _resolve_uniprot_fields(uni_cfg: Mapping[str, Any]) -> str:
+def _resolve_uniprot_fields(
+    uni_cfg: Mapping[str, Any] | UniProtSectionConfig,
+) -> str:
     """Return the UniProt ``fields`` parameter derived from ``uni_cfg``.
 
     The configuration may specify the desired UniProt fields explicitly via the
@@ -533,12 +471,19 @@ def _resolve_uniprot_fields(uni_cfg: Mapping[str, Any]) -> str:
         are configured.
     """
 
-    field_names = _normalise_field_names(uni_cfg.get("fields"), source="uniprot.fields")
+    fields_source: Any
+    columns_source: Any
+    if isinstance(uni_cfg, UniProtSectionConfig):
+        fields_source = uni_cfg.fields
+        columns_source = uni_cfg.columns
+    else:
+        fields_source = uni_cfg.get("fields")
+        columns_source = uni_cfg.get("columns")
+
+    field_names = _normalise_field_names(fields_source, source="uniprot.fields")
     if field_names:
         return ",".join(field_names)
-    column_names = _normalise_field_names(
-        uni_cfg.get("columns"), source="uniprot.columns"
-    )
+    column_names = _normalise_field_names(columns_source, source="uniprot.columns")
     return ",".join(column_names)
 
 
@@ -1097,11 +1042,14 @@ def build_clients(
 
     data = _load_yaml_mapping(cfg_path)
     _apply_env_overrides(data)
-    global_cache = default_cache or CacheConfig.from_dict(
-        _optional_mapping(data, "http_cache", context="http_cache")
-    )
+    clients_cfg = PipelineClientsConfig.model_validate(data)
 
-    uni_cfg = _ensure_mapping(data.get("uniprot"), context="uniprot", allow_none=False)
+    http_cache_cfg = (
+        clients_cfg.http_cache.to_cache_config() if clients_cfg.http_cache else None
+    )
+    global_cache = default_cache or http_cache_cfg
+
+    uni_cfg = clients_cfg.uniprot
     uni_settings = _resolve_section_settings(
         "uniprot",
         uni_cfg,
@@ -1110,7 +1058,7 @@ def build_clients(
     )
     fields = _resolve_uniprot_fields(uni_cfg)
     uni = UniProtClient(
-        base_url=str(uni_cfg["base_url"]),
+        base_url=str(uni_cfg.base_url),
         fields=fields,
         network=UniNetworkConfig(
             timeout_sec=uni_settings.timeout_sec,
@@ -1121,25 +1069,29 @@ def build_clients(
         cache=uni_settings.cache,
     )
 
-    # The HGNC configuration is nested under the top-level "hgnc" section
-    # in the YAML file. Explicitly select this section to avoid passing the
-    # entire configuration dictionary to ``HGNCServiceConfig``, which would
-    # otherwise raise ``TypeError`` due to unexpected keys.
-    hcfg = load_hgnc_config(cfg_path, section="hgnc")
-    hgnc_cfg = _ensure_mapping(data.get("hgnc"), context="hgnc")
+    hgnc_cfg = clients_cfg.hgnc
     hgnc_settings = _resolve_section_settings(
         "hgnc",
         hgnc_cfg,
         pipeline_cfg=pipeline_cfg,
         global_cache=global_cache,
     )
-    hcfg.network.timeout_sec = hgnc_settings.timeout_sec
-    hcfg.network.max_retries = hgnc_settings.max_retries
-    hcfg.rate_limit.rps = hgnc_settings.rps
-    hcfg.cache = hgnc_settings.cache
+    hcfg = HGNCDataclassConfig(
+        hgnc=HGNCEndpointConfig(base_url=str(hgnc_cfg.hgnc.base_url)),
+        network=HGNCNetworkConfig(
+            timeout_sec=hgnc_settings.timeout_sec,
+            max_retries=hgnc_settings.max_retries,
+        ),
+        rate_limit=HGNCRateLimitConfig(rps=hgnc_settings.rps),
+        output=HGNCOutputConfig(
+            sep=hgnc_cfg.output.sep,
+            encoding=hgnc_cfg.output.encoding,
+        ),
+        cache=hgnc_settings.cache,
+    )
     hgnc = HGNCClient(hcfg)
 
-    gtop_cfg = _ensure_mapping(data.get("gtop"), context="gtop", allow_none=False)
+    gtop_cfg = clients_cfg.gtop
     gtop_settings = _resolve_section_settings(
         "gtop",
         gtop_cfg,
@@ -1147,7 +1099,7 @@ def build_clients(
         global_cache=global_cache,
     )
     gcfg = GtoPConfig(
-        base_url=str(gtop_cfg["base_url"]),
+        base_url=str(gtop_cfg.base_url),
         timeout_sec=gtop_settings.timeout_sec,
         max_retries=gtop_settings.max_retries,
         rps=gtop_settings.rps,
@@ -1160,7 +1112,7 @@ def build_clients(
     oma_client: OmaClient | None = None
     target_species: list[str] = []
     if with_orthologs:
-        orth_cfg = _ensure_mapping(data.get("orthologs"), context="orthologs")
+        orth_cfg = clients_cfg.orthologs or OrthologsSectionConfig()
         orth_settings = _resolve_section_settings(
             "orthologs",
             orth_cfg,
@@ -1188,9 +1140,7 @@ def build_clients(
             rate_limit=UniRateConfig(rps=orth_settings.rps),
             cache=orth_cache,
         )
-        target_species = _ensure_str_sequence(
-            orth_cfg.get("target_species"), context="orthologs.target_species"
-        )
+        target_species = list(orth_cfg.target_species)
     enrich_factory = partial(
         UniProtEnrichClient,
         request_timeout=pipeline_cfg.timeout_sec,
