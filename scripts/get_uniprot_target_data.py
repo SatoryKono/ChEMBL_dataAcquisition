@@ -11,7 +11,11 @@ import argparse
 import logging
 import sys
 
+ 
+from itertools import chain
+ 
 from collections.abc import Iterator, Mapping, Sequence
+ 
 
 from datetime import datetime
 from pathlib import Path
@@ -130,7 +134,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--input", default=DEFAULT_INPUT, help="Input CSV path")
     parser.add_argument("--output", help="Output CSV path")
     parser.add_argument(
-        "--column", default=DEFAULT_COLUMN, help="Column with UniProt IDs"
+        "--column",
+        default=DEFAULT_COLUMN,
+        help=(
+            "Column containing UniProt accessions (default: 'uniprot_id'; must be"
+            " present in the input file)"
+        ),
     )
     parser.add_argument("--sep", help="CSV separator, e.g. ','")
     parser.add_argument("--encoding", help="File encoding, e.g. 'utf-8'")
@@ -231,12 +240,45 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     output_path = ensure_output_dir(output_path)
+    meta_path, _, quality_base = resolve_cli_sidecar_paths(output_path)
     if args.with_orthologs and cfg.orthologs.enabled:
         orthologs_path = ensure_output_dir(orthologs_path)
     if include_iso:
         iso_out_path = ensure_output_dir(iso_out_path)
 
-    accessions = read_ids(input_path, args.column, csv_cfg)
+    command_parts = (
+        tuple(sys.argv)
+        if argv is None
+        else ("get_uniprot_target_data.py", *tuple(argv))
+    )
+
+    def _report_missing_column() -> None:
+        message = (
+            f"Input file {input_path} does not contain the required "
+            f"'{args.column}' column"
+        )
+        LOGGER.error(message)
+        write_cli_metadata(
+            output_path,
+            row_count=0,
+            column_count=0,
+            namespace=args,
+            command_parts=command_parts,
+            meta_path=meta_path,
+            status="error",
+            error=message,
+        )
+        raise SystemExit(1) from None
+
+    raw_accessions = read_ids(input_path, args.column, csv_cfg)
+    try:
+        first_accession = next(raw_accessions)
+    except StopIteration:
+        accessions = iter(())
+    except KeyError:
+        _report_missing_column()
+    else:
+        accessions = chain((first_accession,), raw_accessions)
     rows: list[dict[str, Any]] = []
     iso_rows: list[dict[str, Any]] = []
 
@@ -471,7 +513,6 @@ def main(argv: Sequence[str] | None = None) -> None:
             meta_path=iso_meta_path,
         )
 
-    meta_path, _, quality_base = resolve_cli_sidecar_paths(output_path)
     analyze_table_quality(serialised_df, table_name=str(quality_base))
 
     write_cli_metadata(

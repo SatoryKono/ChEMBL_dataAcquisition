@@ -121,7 +121,9 @@ downstream automation.
 
 The ``get_uniprot_target_data.py`` script retrieves detailed information about
 UniProt targets.  Provide a CSV file with a column containing UniProt accession
-IDs and obtain a normalised dump with deterministic column ordering.
+IDs and obtain a normalised dump with deterministic column ordering. By
+default the CLI looks for a column named ``uniprot_id``; use ``--column`` to
+point to a different header when necessary.
 
 ```bash
 python scripts/get_uniprot_target_data.py \

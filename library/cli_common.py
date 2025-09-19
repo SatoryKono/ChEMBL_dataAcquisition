@@ -238,6 +238,8 @@ def write_cli_metadata(
     namespace: Namespace | Mapping[str, Any],
     command_parts: Sequence[str] | None = None,
     meta_path: Path | None = None,
+    status: Literal["success", "error"] = "success",
+    error: str | None = None,
 ) -> Path:
     """Persists a `.meta.yaml` companion file next to the output file.
 
@@ -251,6 +253,11 @@ def write_cli_metadata(
             If omitted, the function falls back to `sys.argv`.
         meta_path: An optional override for the metadata file location. Defaults to
             `<output_path>.meta.yaml`.
+        status: Execution outcome recorded in the metadata sidecar. ``"success"``
+            denotes a completed run, while ``"error"`` captures failures that
+            prevented the output from being written.
+        error: Optional human-readable description of the failure when
+            ``status`` is ``"error"``.
 
     Returns:
         The path to the written metadata file.
@@ -259,6 +266,7 @@ def write_cli_metadata(
     command_sequence = command_parts if command_parts is not None else tuple(sys.argv)
     command = " ".join(shlex.quote(part) for part in command_sequence)
     config = prepare_cli_config(namespace)
+    include_hash = status == "success"
     return write_meta_yaml(
         Path(output_path),
         command=command,
@@ -266,4 +274,7 @@ def write_cli_metadata(
         row_count=row_count,
         column_count=column_count,
         meta_path=meta_path,
+        status=status,
+        error=error,
+        include_hash=include_hash,
     )
