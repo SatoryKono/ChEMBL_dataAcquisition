@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-import argparse
+ 
+ 
 import csv
+ 
+import logging
+ 
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Iterator, Sequence
@@ -24,6 +28,8 @@ from library.cli_common import (  # noqa: E402
 from library.io import read_ids  # noqa: E402
 from library.io_utils import CsvConfig  # noqa: E402
 from library.logging_utils import configure_logging  # noqa: E402
+
+LOGGER = logging.getLogger(__name__)
 
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_SEP = ","
@@ -139,15 +145,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: Sequence[str] | None = None) -> None:
-    """Parse command-line arguments and run the target data download."""
+def _run(args: argparse.Namespace) -> None:
+    """Execute the target metadata export using parsed CLI arguments."""
 
-    args = parse_args(argv)
-    configure_logging(args.log_level, log_format=args.log_format)
+    if not args.column or not str(args.column).strip():
+        raise ValueError("--column must name a non-empty column")
+    if not args.sep:
+        raise ValueError("--sep must be a non-empty delimiter")
+    if not args.encoding:
+        raise ValueError("--encoding must be provided")
 
-    input_path = Path(args.input).expanduser().resolve()
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input file {input_path} does not exist")
+    input_path = Path(args.input).expanduser()
+    if not input_path.exists() or not input_path.is_file():
+        raise FileNotFoundError(f"Input file {input_path.resolve()} does not exist")
+    input_path = input_path.resolve()
 
     output_candidate = (
         Path(args.output).expanduser().resolve()
@@ -159,7 +170,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     csv_cfg = CsvConfig(
         sep=args.sep, encoding=args.encoding, list_format=args.list_format
     )
+ 
     identifiers = read_ids(input_path, args.column, csv_cfg)
+ 
+    try:
+        identifiers = list(read_ids(input_path, args.column, csv_cfg))
+    except KeyError as exc:
+        raise ValueError(str(exc)) from exc
+ 
 
     target_cfg = TargetConfig(
         output_sep=args.sep,
@@ -216,6 +234,22 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
 
     print(output_path)
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    """Parse command-line arguments and run the target data download."""
+
+    args = parse_args(argv)
+    configure_logging(args.log_level, log_format=args.log_format)
+
+    try:
+        _run(args)
+    except (FileNotFoundError, ValueError) as exc:
+        LOGGER.error("%s", exc)
+        raise SystemExit(1) from exc
+    except Exception as exc:  # pragma: no cover - defensive guard
+        LOGGER.exception("Unexpected error while downloading target metadata")
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":  # pragma: no cover
