@@ -22,6 +22,9 @@ jobs:
         run: |
           python scripts/update_constraints_main.py --lock-file requirements.lock --constraints-file constraints.txt --log-level INFO
           git diff --exit-code constraints.txt
+      - name: Check dependency metadata
+        run: |
+          python scripts/check_dependency_versions_main.py --pyproject pyproject.toml --constraints-file constraints.txt --extras dev
       - name: Ruff
         run: ruff check .
       - name: Mypy

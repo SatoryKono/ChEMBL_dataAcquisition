@@ -16,10 +16,12 @@ The primary goal of this project is to provide a deterministic and configurable 
 
 ## Requirements
 
-The project targets Python 3.12. All runtime and development dependencies are
-pinned to guarantee reproducible environments. The tables below summarise the
-current versions tracked in [`constraints.txt`](constraints.txt), which is
-generated from [`requirements.lock`](requirements.lock).
+The project targets Python 3.12. [`requirements.lock`](requirements.lock) is the
+single source of truth for fully pinned dependencies. The compact
+[`constraints.txt`](constraints.txt) file is generated from the lock file and is
+used during installation to apply the exact versions resolved by `pip-compile`.
+`pyproject.toml` mirrors these versions by declaring the pinned releases as the
+minimum supported versions.
 
 ### Runtime dependencies
 
@@ -33,6 +35,7 @@ generated from [`requirements.lock`](requirements.lock).
 | tenacity       | 9.1.2          |
 | pydantic       | 2.11.9         |
 | requests-cache | 1.2.1          |
+| packaging      | 25.0           |
 
 ### Development dependencies
 
@@ -48,11 +51,21 @@ generated from [`requirements.lock`](requirements.lock).
 | types-PyYAML    | 6.0.12.20250915 |
 | types-requests  | 2.32.4.20250913 |
 | types-jsonschema| 4.25.1.20250822 |
+| types-pytz      | 2025.2.0.20250809 |
 
-To refresh these pins run `pip-compile` to update `requirements.lock` and then
-execute `python scripts/update_constraints_main.py`. The script rewrites
-`constraints.txt` based on the lock file and fails the CI workflow if the files
-fall out of sync.
+To refresh these pins run `pip-compile` to update `requirements.lock`, regenerate
+the short constraints file, and verify that `pyproject.toml` still reflects the
+resolved versions:
+
+```bash
+pip-compile --resolver=backtracking pyproject.toml --output-file requirements.lock
+python scripts/update_constraints_main.py
+python scripts/check_dependency_versions_main.py
+```
+
+`pip-compile` is part of `pip-tools` and can be installed in a dedicated update
+environment. The verification step ensures that the lower bounds in
+`pyproject.toml` match the pinned versions in `constraints.txt`.
 
 ## Installation
 
@@ -68,6 +81,13 @@ fall out of sync.
     pip install --constraint constraints.txt .[dev]
     ```
     Omit ``.[dev]`` if you only need the runtime dependencies.
+
+    To confirm that the installation metadata remains in sync with the lock
+    files, run:
+
+    ```bash
+    python scripts/check_dependency_versions_main.py
+    ```
 
 3.  Install the pre-commit hooks to ensure consistent formatting, linting, type
     checking, and tests before each commit:
