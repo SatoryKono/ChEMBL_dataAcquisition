@@ -61,7 +61,8 @@ class NetworkConfig:
     timeout_sec:
         Request timeout in seconds.
     max_retries:
-        Maximum number of retry attempts for transient failures.
+        Maximum number of retry attempts performed after the initial request
+        when transient failures occur.
     backoff_sec:
         Exponential backoff multiplier in seconds.
     """
@@ -173,7 +174,7 @@ class UniProtClient:
         @retry(
             reraise=True,
             retry=retry_if_exception_type(requests.RequestException),
-            stop=stop_after_attempt(self.network.max_retries),
+            stop=stop_after_attempt(self.network.max_retries + 1),
             wait=wait_strategy,
             before_sleep=_log_retry,
         )
