@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from collections.abc import Iterable, Mapping, Sequence
-from typing import Any, Callable, Dict, List, MutableMapping
+from typing import Any, Callable, Dict, MutableMapping
 
 import pandas as pd
 import requests
@@ -73,6 +73,8 @@ from library.pipeline_targets import (
 )
 
 from library.iuphar import ClassificationRecord, IUPHARClassifier, IUPHARData
+from library.io import read_ids
+from library.io_utils import CsvConfig
 
 
 LOGGER = logging.getLogger(__name__)
@@ -108,6 +110,9 @@ def _normalise_identifier_value(value: Any) -> str:
     return text
 
 
+_normalise_identifier_series = _normalise_identifier_value
+
+
 def _prepare_identifier_series(
     series: pd.Series | None,
 ) -> tuple[pd.Series, list[str]]:
@@ -131,7 +136,7 @@ def _prepare_identifier_series(
     if series is None:
         empty = pd.Series(dtype=str)
         return empty, []
-    normalised = series.map(_normalise_identifier_value)
+    normalised = series.map(_normalise_identifier_series)
     non_null = series.dropna()
     if non_null.empty:
         return normalised, []
@@ -1313,11 +1318,20 @@ def _run_pipeline(args: argparse.Namespace) -> None:
         default_cache=global_cache,
     )
 
-    df = pd.read_csv(input_path, sep=args.sep, encoding=args.encoding)
-    if args.id_column not in df.columns:
-        raise ValueError(f"Missing required column '{args.id_column}'")
-    _, unique_ids = _prepare_identifier_series(df[args.id_column])
-    ids: List[str] = list(unique_ids)
+    csv_cfg = CsvConfig(sep=args.sep, encoding=args.encoding)
+    try:
+        identifier_iter = (
+            identifier
+            for identifier in read_ids(
+                input_path,
+                args.id_column,
+                csv_cfg,
+                normalise=_normalise_identifier_series,
+            )
+        )
+    except KeyError as exc:
+        raise ValueError(exc.args[0]) from exc
+    ids: list[str] = [identifier for identifier in identifier_iter if identifier]
 
     chembl_df: pd.DataFrame = fetch_targets(ids, chembl_cfg, batch_size=args.batch_size)
 
