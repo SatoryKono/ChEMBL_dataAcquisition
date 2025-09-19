@@ -104,7 +104,14 @@ _SPECIES_MAP = {
     "human": "homo_sapiens",
     "mouse": "mus_musculus",
     "rat": "rattus_norvegicus",
-    "dog": "canis_familiaris",
+    # The Ensembl API expects the full species name ``canis_lupus_familiaris``
+    # for dog ortholog queries.  The previously used alias
+    # ``canis_familiaris`` triggered HTTP 400 errors and prevented the pipeline
+    # from retrieving ortholog data for genes when dog was included in the
+    # target species list.  Normalise both the friendly ``dog`` alias and the
+    # shortened scientific name to the canonical value accepted by the API.
+    "dog": "canis_lupus_familiaris",
+    "canis_familiaris": "canis_lupus_familiaris",
     "macaque": "macaca_mulatta",
     "zebrafish": "danio_rerio",
 }
