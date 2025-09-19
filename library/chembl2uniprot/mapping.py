@@ -74,6 +74,22 @@ except ModuleNotFoundError:  # pragma: no cover
 LOGGER = logging.getLogger(__name__)
 
 
+DEFAULT_USER_AGENT = "ChEMBLDataAcquisition/chembl2uniprot"
+"""Descriptive User-Agent used for UniProt API requests."""
+
+
+def _create_session() -> requests.Session:
+    """Return a :class:`requests.Session` pre-configured for UniProt calls."""
+
+    session = requests.Session()
+    # Identify the integration clearly to aid UniProt troubleshooting.
+    session.headers.update({"User-Agent": DEFAULT_USER_AGENT})
+    return session
+
+
+_SESSION: requests.Session = _create_session()
+
+
 FAILED_IDS_ERROR_THRESHOLD = 100
 """Maximum acceptable number of failed identifiers per UniProt job."""
 
@@ -264,6 +280,8 @@ def _request_with_retry(
     rate_limiter: RateLimiter,
     max_attempts: int,
     backoff: float,
+    penalty_seconds: float | None = None,
+    session: requests.Session | None = None,
     **kwargs: Any,
 ) -> requests.Response:
     """Perform an HTTP request with retry and rate limiting.
@@ -286,8 +304,15 @@ def _request_with_retry(
         The maximum number of retry attempts.
     backoff:
         The backoff factor for exponential backoff between retries.
+    penalty_seconds:
+        Optional cooldown enforced when UniProt responds with a retryable
+        status code without specifying an explicit wait duration.
+        ``None`` falls back to ``backoff`` with a minimum of one second.
+    session:
+        Optional HTTP session. When omitted a module level session with a
+        descriptive ``User-Agent`` header is reused across calls.
     **kwargs:
-        Additional keyword arguments to pass to `requests.request`.
+        Additional keyword arguments to pass to :meth:`requests.Session.request`.
 
     Returns
     -------
@@ -296,6 +321,7 @@ def _request_with_retry(
     """
 
     wait_strategy = RetryAfterWaitStrategy(wait_exponential(multiplier=backoff))
+    http_session = session or _SESSION
 
     def _log_retry(retry_state: RetryCallState) -> None:
         if retry_state.outcome is None:
@@ -336,7 +362,7 @@ def _request_with_retry(
     def _do_request() -> requests.Response:
         # Honour the rate limit before each network call, including retries.
         rate_limiter.wait()
-        resp = requests.request(method, url, timeout=timeout, **kwargs)
+        resp = http_session.request(method, url, timeout=timeout, **kwargs)
         if resp.status_code in DEFAULT_STATUS_FORCELIST:
             retry_after = retry_after_from_response(resp)
             if retry_after is not None and retry_after > 0:
@@ -349,12 +375,19 @@ def _request_with_retry(
                 )
                 rate_limiter.apply_penalty(retry_after)
             else:
+                fallback_penalty = (
+                    penalty_seconds
+                    if penalty_seconds is not None and penalty_seconds > 0
+                    else (backoff if backoff > 0 else 1.0)
+                )
                 LOGGER.warning(
-                    "Transient HTTP %s for %s %s; retrying with backoff",
+                    "Transient HTTP %s for %s %s; retrying with backoff and applying %.2f s penalty",
                     resp.status_code,
                     method.upper(),
                     url,
+                    fallback_penalty,
                 )
+                rate_limiter.apply_penalty(fallback_penalty)
             resp.raise_for_status()
         return resp
 
@@ -407,6 +440,7 @@ def _start_job(
         rate_limiter=rate_limiter,
         max_attempts=retry_cfg.max_attempts,
         backoff=retry_cfg.backoff_sec,
+        penalty_seconds=retry_cfg.penalty_sec,
         data=payload,
     )
     try:
@@ -450,6 +484,7 @@ def _poll_job(
             rate_limiter=rate_limiter,
             max_attempts=retry_cfg.max_attempts,
             backoff=retry_cfg.backoff_sec,
+            penalty_seconds=retry_cfg.penalty_sec,
             allow_redirects=False,
         )
         if resp.status_code == 303:
@@ -512,6 +547,7 @@ def _fetch_results(
             rate_limiter=rate_limiter,
             max_attempts=retry_cfg.max_attempts,
             backoff=retry_cfg.backoff_sec,
+            penalty_seconds=retry_cfg.penalty_sec,
         )
         try:
             payload = resp.json()

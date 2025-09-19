@@ -79,6 +79,7 @@ class RetryConfig(BaseModel):
 
     max_attempts: int = Field(gt=0)
     backoff_sec: float = Field(ge=0)
+    penalty_sec: float | None = Field(default=None, ge=0)
 
 
 class UniprotConfig(BaseModel):
