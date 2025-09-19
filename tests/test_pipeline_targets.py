@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Tuple
 
 import pandas as pd
 import pytest
@@ -62,6 +62,18 @@ class DummyUniProt:
 
     def fetch(self, acc: str) -> Dict | None:  # pragma: no cover - simple
         return self.records.get(acc)
+
+    def fetch_entry_json(self, acc: str) -> Dict | None:  # pragma: no cover - simple
+        return self.records.get(acc)
+
+    def fetch_entries_json(
+        self, accessions: Iterable[str], *, batch_size: int = 100
+    ) -> Dict[str, Dict]:  # pragma: no cover - simple
+        return {
+            acc: self.records[acc]
+            for acc in dict.fromkeys(accessions)
+            if acc in self.records
+        }
 
 
 class DummyHGNC:
@@ -213,9 +225,6 @@ def test_pipeline_fetches_isoforms_when_enabled(monkeypatch):
             super().__init__(records)
             self.isoform_calls: List[str] = []
 
-        def fetch_entry_json(self, acc: str) -> Dict | None:
-            return self.records.get(acc)
-
         def fetch_isoforms_fasta(self, acc: str) -> List[str]:
             self.isoform_calls.append(acc)
             return [f">sp|{acc}-1|"]
@@ -247,6 +256,74 @@ def test_pipeline_fetches_isoforms_when_enabled(monkeypatch):
 
     assert not df.empty
     assert uni.isoform_calls == ["P12345"]
+
+
+class RecordingBatchUniProt(DummyUniProt):
+    def __init__(self, records: Dict[str, Dict]):
+        super().__init__(records)
+        self.batch_requests: List[Tuple[Tuple[str, ...], int]] = []
+        self.entry_json_calls: List[str] = []
+        self.fetch_calls: List[str] = []
+        self.isoform_calls: List[str] = []
+
+    def fetch_entries_json(
+        self, accessions: Iterable[str], *, batch_size: int = 100
+    ) -> Dict[str, Dict]:
+        unique = [acc for acc in dict.fromkeys(accessions) if acc]
+        results: Dict[str, Dict] = {}
+        for idx in range(0, len(unique), batch_size):
+            chunk = tuple(unique[idx : idx + batch_size])
+            self.batch_requests.append((chunk, batch_size))
+            results.update(super().fetch_entries_json(chunk, batch_size=batch_size))
+        return results
+
+    def fetch_entry_json(self, acc: str) -> Dict | None:
+        self.entry_json_calls.append(acc)
+        return super().fetch_entry_json(acc)
+
+    def fetch(self, acc: str) -> Dict | None:
+        self.fetch_calls.append(acc)
+        return super().fetch(acc)
+
+    def fetch_isoforms_fasta(self, acc: str) -> List[str]:
+        self.isoform_calls.append(acc)
+        return [f">sp|{acc}-1|"]
+
+
+def test_pipeline_uses_batched_uniprot_requests(monkeypatch) -> None:
+    accessions = ["P12345", "P23456", "P34567"]
+
+    def chembl_fetch(ids, cfg=None):
+        return make_chembl_df(accessions)
+
+    uni = RecordingBatchUniProt(
+        {
+            acc: make_uniprot(acc, "Homo sapiens", 9606, ["Eukaryota"])
+            for acc in accessions
+        }
+    )
+    hgnc = DummyHGNC({})
+    gtop = DummyGtoP({})
+    monkeypatch.setattr("pipeline_targets.resolve_target", fake_resolve)
+    cfg = PipelineConfig(include_isoforms=True)
+
+    df = run_pipeline(
+        ["CHEMBL1"],
+        cfg,
+        chembl_fetcher=chembl_fetch,
+        uniprot_client=uni,
+        hgnc_client=hgnc,
+        gtop_client=gtop,
+        batch_size=2,
+    )
+
+    assert not df.empty
+    assert uni.fetch_calls == []
+    assert uni.entry_json_calls == []
+    assert len(uni.batch_requests) == 2
+    assert uni.batch_requests[0] == (("P12345", "P23456"), 2)
+    assert uni.batch_requests[1] == (("P34567",), 2)
+    assert sorted(uni.isoform_calls) == sorted(accessions)
 
 
 def test_pipeline_selects_human_uniprot(monkeypatch):
