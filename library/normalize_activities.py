@@ -6,6 +6,7 @@ import json
 import logging
 from typing import Any, Iterable
 
+import numpy as np
 import pandas as pd
 
 LOGGER = logging.getLogger(__name__)
@@ -58,22 +59,6 @@ def _normalise_string(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
-
-
-def _normalise_numeric(value: Any) -> float | None:
-    if value in (None, "") or (isinstance(value, float) and pd.isna(value)):
-        return None
-    numeric = pd.to_numeric([value], errors="coerce")[0]
-    if pd.isna(numeric):
-        return None
-    return float(numeric)
-
-
-def _normalise_integer(value: Any) -> int | None:
-    numeric = _normalise_numeric(value)
-    if numeric is None:
-        return None
-    return int(numeric)
 
 
 def _normalise_boolean(value: Any) -> bool | None:
@@ -143,11 +128,14 @@ def normalize_activities(df: pd.DataFrame) -> pd.DataFrame:
 
     for column in _FLOAT_COLUMNS:
         if column in result.columns:
-            result[column] = result[column].map(_normalise_numeric).astype("Float64")
+            result[column] = pd.to_numeric(result[column], errors="coerce").astype(
+                "Float64"
+            )
 
     for column in _INT_COLUMNS:
         if column in result.columns:
-            result[column] = result[column].map(_normalise_integer).astype("Int64")
+            truncated = np.trunc(pd.to_numeric(result[column], errors="coerce"))
+            result[column] = truncated.astype("Int64")
 
     for column in _BOOLEAN_COLUMNS:
         if column in result.columns:
