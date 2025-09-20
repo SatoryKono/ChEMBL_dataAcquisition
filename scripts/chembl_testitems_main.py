@@ -332,8 +332,17 @@ def run_pipeline(
         http_client_config=pubchem_http_client_config,
     )
     enriched = _ensure_output_columns(enriched, REQUIRED_ENRICHED_COLUMNS)
-    validated = validate_testitems(enriched, errors_path=errors_path)
-    validated = _ensure_output_columns(validated, REQUIRED_ENRICHED_COLUMNS)
+
+    validation_result = validate_testitems(enriched, errors_path=errors_path)
+    validation_errors = validation_result.errors
+    if not validation_errors.empty:
+        invalid_row_count = int(validation_errors["index"].nunique())
+        LOGGER.warning(
+            "Validation removed %d row(s) due to data quality issues", invalid_row_count
+        )
+    validated = _ensure_output_columns(
+        validation_result.valid, REQUIRED_ENRICHED_COLUMNS
+    )
 
     schema_columns = [
         column
