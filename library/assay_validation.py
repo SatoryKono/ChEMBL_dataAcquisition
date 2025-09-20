@@ -1,174 +1,220 @@
-"""Validation utilities for normalised assay tables."""
+"""Vectorised validation utilities for normalised assay tables."""
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
-from typing import Any, Iterable, List, Mapping
+from typing import Iterable
 
-import numpy as np
 import pandas as pd
-from pandas.api.types import is_scalar
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+
+from .validation_core import (
+    ValidationResult,
+    build_error_frame,
+    coerce_dataframe,
+    combine_error_frames,
+    serialise_errors,
+)
 
 LOGGER = logging.getLogger(__name__)
 
-
-class AssaysSchema(BaseModel):
-    """Pydantic model describing a validated assay record."""
-
-    model_config = ConfigDict(extra="allow")
-
-    assay_chembl_id: str
-    document_chembl_id: str
-    target_chembl_id: str | None = None
-    assay_category: str | None = None
-    assay_group: str | None = None
-    assay_type: str | None = None
-    assay_type_description: str | None = None
-    assay_organism: str | None = None
-    assay_test_type: str | None = None
-    assay_cell_type: str | None = None
-    assay_tissue: str | None = None
-    assay_tax_id: str | None = None
-    assay_with_same_target: int
-    confidence_score: int | None = None
-    confidence_description: str | None = None
-    relationship_type: str | None = None
-    relationship_description: str | None = None
-    bao_format: str | None = None
-    bao_label: str | None = None
-
-    @field_validator("assay_chembl_id", mode="before")
-    @classmethod
-    def _ensure_non_empty(cls, value: Any) -> str:
-        if not value:
-            raise ValueError("assay_chembl_id must not be empty")
-        return str(value)
-
-    @field_validator("assay_with_same_target", mode="before")
-    @classmethod
-    def _ensure_positive(cls, value: Any) -> int:
-        if value is None:
-            raise ValueError("assay_with_same_target is required")
-        int_value = int(value)
-        if int_value < 0:
-            raise ValueError("assay_with_same_target must be non-negative")
-        return int_value
-
-    @classmethod
-    def ordered_columns(cls) -> List[str]:
-        """Return the columns defined by the schema in declaration order."""
-
-        return list(cls.model_fields.keys())
+_REQUIRED_COLUMNS = ("assay_chembl_id", "document_chembl_id")
+_OPTIONAL_INT_COLUMNS = ("confidence_score",)
 
 
-def _is_missing_scalar(value: Any) -> bool:
-    """Return ``True`` when ``value`` represents a missing scalar."""
+class AssaysSchema:
+    """Schema stub exposing the legacy column order for downstream code."""
 
-    try:
-        result = pd.isna(value)
-    except (TypeError, ValueError):
-        return False
-    if isinstance(result, (bool, np.bool_)):
-        return bool(result)
-    return False
+    @staticmethod
+    def ordered_columns() -> list[str]:
+        """Return the ordered column list from the historic Pydantic schema."""
 
-
-def _coerce_value(value: Any) -> Any:
-    """Normalise ``value`` so it is JSON-serialisable and handles nulls."""
-
-    if value is None:
-        return None
-
-    if isinstance(value, np.ndarray):
-        dtype_kind = value.dtype.kind
-        if dtype_kind in {"O", "U", "S"}:
-            if value.size == 0:
-                return []
-            return [_coerce_value(item) for item in value.tolist()]
-        if value.size == 0:
-            return None
-        if value.size == 1:
-            return _coerce_value(value.item())
-        return [_coerce_value(item) for item in value.tolist()]
-
-    if isinstance(value, np.generic):
-        scalar_value = value.item()
-        return None if _is_missing_scalar(scalar_value) else scalar_value
-
-    if is_scalar(value):
-        return None if _is_missing_scalar(value) else value
-
-    return value
+        return [
+            "assay_chembl_id",
+            "document_chembl_id",
+            "target_chembl_id",
+            "assay_category",
+            "assay_group",
+            "assay_type",
+            "assay_type_description",
+            "assay_organism",
+            "assay_test_type",
+            "assay_cell_type",
+            "assay_tissue",
+            "assay_tax_id",
+            "assay_with_same_target",
+            "confidence_score",
+            "confidence_description",
+            "relationship_type",
+            "relationship_description",
+            "bao_format",
+            "bao_label",
+        ]
 
 
-def _coerce_record(row: pd.Series) -> dict[str, Any]:
-    clean: dict[str, Any] = {}
-    for key, value in row.items():
-        clean[key] = _coerce_value(value)
-    return clean
+def _coerce_assay_identifier(df: pd.DataFrame) -> Iterable[pd.DataFrame]:
+    column = "assay_chembl_id"
+    if column not in df.columns:
+        return []
+    original = df[column]
+    flattened = original.apply(
+        lambda value: value[0] if isinstance(value, list) and len(value) == 1 else value
+    )
+    series = flattened.astype("string")
+    stripped = series.str.strip()
+    mask = stripped.isna() | stripped.eq("")
+    df[column] = stripped.mask(mask, other=pd.NA)
+    message = "assay_chembl_id must not be empty"
+    return [
+        build_error_frame(original, mask.fillna(False), column=column, message=message)
+    ]
 
 
-def validate_assays(
-    df: pd.DataFrame,
-    schema: type[AssaysSchema] = AssaysSchema,
-    *,
-    errors_path: Path,
-) -> pd.DataFrame:
-    """Validates rows in a DataFrame against the given schema and writes failures to a file.
+def _coerce_document_identifier(df: pd.DataFrame) -> Iterable[pd.DataFrame]:
+    column = "document_chembl_id"
+    if column not in df.columns:
+        return []
+    original = df[column]
+    flattened = original.apply(
+        lambda value: value[0] if isinstance(value, list) and len(value) == 1 else value
+    )
+    series = flattened.astype("string")
+    mask = series.isna()
+    df[column] = series
+    message = "value must not be missing"
+    return [
+        build_error_frame(original, mask.fillna(False), column=column, message=message)
+    ]
 
-    Args:
-        df: The pandas DataFrame to validate.
-        schema: The Pydantic schema to validate against.
-        errors_path: The path to the file where validation errors will be written.
 
-    Returns:
-        A new DataFrame containing only the valid rows.
+def _coerce_required_assay_count(df: pd.DataFrame) -> Iterable[pd.DataFrame]:
+    column = "assay_with_same_target"
+    if column not in df.columns:
+        if df.empty:
+            return []
+        placeholder = pd.Series(pd.NA, index=df.index)
+        missing_mask = pd.Series(True, index=df.index)
+        return [
+            build_error_frame(
+                placeholder,
+                missing_mask,
+                column=column,
+                message="assay_with_same_target is required",
+                error_type="missing_error",
+            )
+        ]
+    original = df[column]
+    numeric = pd.to_numeric(original, errors="coerce")
+    mask_missing = original.isna()
+    mask_invalid = original.notna() & numeric.isna()
+    ints = pd.Series(pd.NA, index=df.index, dtype="Int64")
+    valid_numeric = numeric.dropna()
+    if not valid_numeric.empty:
+        ints.loc[valid_numeric.index] = valid_numeric.astype(int)
+    mask_negative = ints < 0
+    df[column] = ints.mask(mask_negative, other=pd.NA)
+    return [
+        build_error_frame(
+            original,
+            mask_missing.fillna(False),
+            column=column,
+            message="assay_with_same_target is required",
+        ),
+        build_error_frame(
+            original,
+            mask_invalid.fillna(False),
+            column=column,
+            message="value must be an integer",
+        ),
+        build_error_frame(
+            original,
+            mask_negative.fillna(False),
+            column=column,
+            message="value must be non-negative",
+        ),
+    ]
+
+
+def _coerce_optional_int(df: pd.DataFrame, column: str) -> Iterable[pd.DataFrame]:
+    if column not in df.columns:
+        return []
+    original = df[column]
+    numeric = pd.to_numeric(original, errors="coerce")
+    mask_invalid = original.notna() & numeric.isna()
+    result = pd.Series(pd.NA, index=df.index, dtype="Int64")
+    valid_numeric = numeric.dropna()
+    if not valid_numeric.empty:
+        result.loc[valid_numeric.index] = valid_numeric.astype(int)
+    df[column] = result
+    return [
+        build_error_frame(
+            original,
+            mask_invalid.fillna(False),
+            column=column,
+            message="value must be an integer",
+        )
+    ]
+
+
+def validate_assays(df: pd.DataFrame, *, errors_path: Path) -> ValidationResult:
+    """Validate the assay table using vectorised checks.
+
+    Parameters
+    ----------
+    df:
+        Normalised assay DataFrame.
+    errors_path:
+        Output path for the JSON error report.
+
+    Returns
+    -------
+    ValidationResult
+        Container with the filtered DataFrame and aggregated error report.
     """
 
     if df.empty:
         LOGGER.info("Validation skipped because the DataFrame is empty")
-        return df
+        empty_errors = combine_error_frames([])
+        return ValidationResult(valid=df.copy(), errors=empty_errors)
 
-    valid_rows: List[dict[str, Any]] = []
-    errors: List[dict[str, Any]] = []
+    missing_required = sorted(set(_REQUIRED_COLUMNS) - set(df.columns))
+    if missing_required:
+        LOGGER.warning(
+            "Input data is missing required columns: %s", ", ".join(missing_required)
+        )
 
-    def _normalise_error_details(
-        details: Iterable[Mapping[str, Any]],
-    ) -> list[dict[str, Any]]:
-        normalised: list[dict[str, Any]] = []
-        for entry in details:
-            clean_entry = dict(entry)
-            ctx = clean_entry.get("ctx")
-            if isinstance(ctx, dict):
-                clean_entry["ctx"] = {key: str(value) for key, value in ctx.items()}
-            normalised.append(clean_entry)
-        return normalised
-
-    for index, row in df.iterrows():
-        payload = _coerce_record(row)
-        try:
-            record = schema(**payload)
-        except ValidationError as exc:
-            LOGGER.warning("Validation error for row %s: %s", index, exc)
-            errors.append(
-                {
-                    "index": int(index),
-                    "errors": _normalise_error_details(exc.errors()),
-                    "row": payload,
-                }
+    coerced = coerce_dataframe(df)
+    error_frames: list[pd.DataFrame] = []
+    if missing_required:
+        missing_mask = pd.Series(True, index=coerced.index)
+        for column in missing_required:
+            placeholder = pd.Series(pd.NA, index=coerced.index)
+            error_frames.append(
+                build_error_frame(
+                    placeholder,
+                    missing_mask,
+                    column=column,
+                    message="column is required",
+                    error_type="missing_error",
+                )
             )
-            continue
-        valid_rows.append(record.model_dump())
+    error_frames.extend(_coerce_assay_identifier(coerced))
+    error_frames.extend(_coerce_document_identifier(coerced))
+    error_frames.extend(_coerce_required_assay_count(coerced))
+    for column in _OPTIONAL_INT_COLUMNS:
+        error_frames.extend(_coerce_optional_int(coerced, column))
 
-    if errors:
-        errors_path.parent.mkdir(parents=True, exist_ok=True)
-        with errors_path.open("w", encoding="utf-8") as handle:
-            json.dump(errors, handle, ensure_ascii=False, indent=2)
-        LOGGER.info("Validation produced %d error records", len(errors))
-    elif errors_path.exists():
-        errors_path.unlink()
+    errors = combine_error_frames(error_frames)
+    serialise_errors(errors, coerced, errors_path=errors_path)
 
-    return pd.DataFrame(valid_rows)
+    if errors.empty:
+        valid = coerced.reset_index(drop=True)
+    else:
+        invalid_indices = pd.Index(errors["index"].unique())
+        mask_valid = ~coerced.index.isin(invalid_indices)
+        valid = coerced.loc[mask_valid].reset_index(drop=True)
+
+    return ValidationResult(valid=valid, errors=errors)
+
+
+__all__ = ["validate_assays", "ValidationResult", "AssaysSchema"]
