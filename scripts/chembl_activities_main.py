@@ -105,7 +105,9 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--user-agent", default=None, help="User-Agent header (defaults to config)"
     )
-    parser.add_argument("--sep", default=None, help="CSV delimiter (defaults to config)")
+    parser.add_argument(
+        "--sep", default=None, help="CSV delimiter (defaults to config)"
+    )
     parser.add_argument(
         "--encoding", default=None, help="CSV encoding (defaults to config)"
     )
@@ -283,8 +285,10 @@ def _prepare_activity_chunk(
     normalised = normalize_activities(chunk)
 
     temp_errors = errors_path.with_name(f"{errors_path.name}.part")
-    validated = validate_activities(normalised, errors_path=temp_errors)
+    validation_result = validate_activities(normalised, errors_path=temp_errors)
     error_accumulator.extend(_consume_error_file(temp_errors))
+
+    validated = validation_result.valid
 
     if validated.empty:
         return pd.DataFrame(), ordered_columns, None

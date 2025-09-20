@@ -4,7 +4,7 @@ import importlib
 import sys
 from pathlib import Path
 
-from typing import Any, Sequence, Iterable
+from typing import Any, Iterable, Mapping, Sequence
 
 import pandas as pd
 import pytest
@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
 
 chembl_assays_main = importlib.import_module("scripts.chembl_assays_main")
 cli_common = importlib.import_module("library.cli_common")
+ValidationResult = importlib.import_module("library.validation_core").ValidationResult
 
 
 def test_run_pipeline_preserves_numeric_dtypes(
@@ -66,9 +67,10 @@ def test_run_pipeline_preserves_numeric_dtypes(
         schema: Any | None = None,
         *,
         errors_path: Path,
-    ) -> pd.DataFrame:
+    ) -> ValidationResult:
         _ = schema
-        return df.copy()
+        _ = errors_path
+        return ValidationResult(valid=df.copy(), errors=pd.DataFrame())
 
     original_serialise = cli_common.serialise_dataframe
 
@@ -100,10 +102,10 @@ def test_run_pipeline_preserves_numeric_dtypes(
         namespace: Any,
         command_parts: Sequence[str] | None = None,
         meta_path: Path | None = None,
-
         status: str = "success",
         error: str | None = None,
         warnings: Sequence[str] | None = None,
+        extra: Mapping[str, Any] | None = None,
     ) -> Path:
         captured["metadata"] = {
             "command_parts": tuple(command_parts or ()),
@@ -114,6 +116,7 @@ def test_run_pipeline_preserves_numeric_dtypes(
             "status": status,
             "error": error,
             "warnings": list(warnings or []),
+            "extra": extra,
         }
 
         return output_path.with_name(f"{output_path.name}.meta.yaml")
@@ -163,4 +166,3 @@ def test_run_pipeline_preserves_numeric_dtypes(
     assert metadata["command_parts"] == tuple(["chembl_assays_main.py", *argv])
     assert metadata["row_count"] == 1
     assert metadata["column_count"] == len(validated_frame.columns)
-

@@ -270,6 +270,8 @@ def test_activities_parse_args_allows_cli_overrides(tmp_path: Path) -> None:
     assert args.encoding == "utf-16"
     assert args.list_format == "json"
     assert args.chunk_size == 11
+
+
 def test_normalize_activities() -> None:
     raw = pd.DataFrame(
         [
@@ -329,7 +331,8 @@ def test_validate_activities_writes_errors(tmp_path: Path) -> None:
     )
 
     errors_path = tmp_path / "errors.json"
-    validated = validate_activities(df, errors_path=errors_path)
+    result = validate_activities(df, errors_path=errors_path)
+    validated = result.valid
 
     assert len(validated) == 1
     assert not validated["activity_chembl_id"].isna().any()
@@ -352,7 +355,8 @@ def test_validate_activities_handles_numpy_payloads(tmp_path: Path) -> None:
     )
 
     errors_path = tmp_path / "errors.json"
-    validated = validate_activities(df, errors_path=errors_path)
+    result = validate_activities(df, errors_path=errors_path)
+    validated = result.valid
 
     assert not errors_path.exists()
     assert validated.loc[0, "activity_properties"] == []
