@@ -3,25 +3,32 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import shlex
 import sys
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Sequence
+from typing import Any, cast
 
 import pandas as pd
+import yaml
 
 if __package__ in {None, ""}:
-    from _path_utils import ensure_project_root as _ensure_project_root
+    from _path_utils import ensure_project_root as _ensure_project_root  # type: ignore[import-not-found]
 
     _ensure_project_root()
 
 from library.assay_postprocessing import postprocess_assays
 from library.assay_validation import AssaysSchema, validate_assays
 from library.chembl_client import ChemblClient
-from library.chembl_library import get_assays
-from library.cli_common import resolve_cli_sidecar_paths, serialise_dataframe
+from library.chembl_library import stream_assays
+from library.cli_common import (
+    ListFormat,
+    resolve_cli_sidecar_paths,
+    serialise_dataframe,
+)
 from library.data_profiling import analyze_table_quality
 from library.io import read_ids
 from library.io_utils import CsvConfig
@@ -131,6 +138,146 @@ def _prepare_configuration(namespace: argparse.Namespace) -> dict[str, object]:
     return config
 
 
+def _load_existing_metadata(meta_path: Path) -> dict[str, Any]:
+    """Load and normalise metadata from previous runs if available."""
+
+    if not meta_path.exists():
+        return {}
+    try:
+        with meta_path.open("r", encoding="utf-8") as handle:
+            payload = yaml.safe_load(handle) or {}
+    except FileNotFoundError:
+        return {}
+    except yaml.YAMLError as exc:
+        LOGGER.warning("Failed to parse metadata file %s: %s", meta_path, exc)
+        return {}
+    if isinstance(payload, Mapping):
+        return dict(payload)
+    LOGGER.warning("Metadata file %s does not contain a mapping", meta_path)
+    return {}
+
+
+def _load_existing_errors(errors_path: Path) -> list[dict[str, Any]]:
+    """Load validation errors persisted by a previous run."""
+
+    if not errors_path.exists():
+        return []
+    try:
+        with errors_path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except FileNotFoundError:
+        return []
+    except json.JSONDecodeError as exc:
+        LOGGER.warning("Failed to parse validation report %s: %s", errors_path, exc)
+        return []
+    if isinstance(payload, list):
+        return [record for record in payload if isinstance(record, dict)]
+    LOGGER.warning("Validation report %s is not a list; ignoring", errors_path)
+    return []
+
+
+def _consume_error_file(path: Path) -> list[dict[str, Any]]:
+    """Consume and delete a temporary validation error file."""
+
+    if not path.exists():
+        return []
+    errors = _load_existing_errors(path)
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    return errors
+
+
+def _skip_processed_ids(
+    loader: Callable[[], Iterable[str]], last_processed: str | None
+) -> Iterator[str]:
+    """Advance ``loader`` past ``last_processed`` for resumable downloads."""
+
+    if last_processed is None:
+        yield from loader()
+        return
+
+    iterator = iter(loader())
+    for identifier in iterator:
+        if identifier == last_processed:
+            LOGGER.info(
+                "Resuming after previously processed identifier %s", last_processed
+            )
+            break
+    else:
+        LOGGER.warning(
+            "Previously processed identifier %s not found; restarting from the beginning",
+            last_processed,
+        )
+        yield from loader()
+        return
+
+    for identifier in iterator:
+        yield identifier
+
+
+def _prepare_assay_chunk(
+    chunk: pd.DataFrame,
+    *,
+    list_format: ListFormat,
+    errors_path: Path,
+    error_accumulator: list[dict[str, Any]],
+    ordered_columns: list[str] | None,
+) -> tuple[pd.DataFrame, list[str] | None, str | None]:
+    """Normalise, validate, and serialise a chunk of assay records."""
+
+    if chunk.empty:
+        return pd.DataFrame(), ordered_columns, None
+
+    processed = postprocess_assays(chunk)
+    normalised = normalize_assays(processed)
+
+    temp_errors = errors_path.with_name(f"{errors_path.name}.part")
+    validated = validate_assays(normalised, errors_path=temp_errors)
+    error_accumulator.extend(_consume_error_file(temp_errors))
+
+    if validated.empty:
+        return pd.DataFrame(), ordered_columns, None
+
+    if ordered_columns is None:
+        schema_columns = [
+            column
+            for column in AssaysSchema.ordered_columns()
+            if column in validated.columns
+        ]
+        extra_columns = sorted(
+            [column for column in validated.columns if column not in schema_columns]
+        )
+        ordered_columns = schema_columns + extra_columns
+    else:
+        missing_columns = [
+            column for column in validated.columns if column not in ordered_columns
+        ]
+        if missing_columns:
+            ordered_columns = [*ordered_columns, *sorted(missing_columns)]
+
+    prepared = validated.reindex(
+        columns=ordered_columns, fill_value=cast(object, pd.NA)
+    )
+
+    sort_columns = [
+        column
+        for column in ["document_chembl_id", "target_chembl_id", "assay_chembl_id"]
+        if column in prepared.columns
+    ]
+    if sort_columns:
+        prepared = prepared.sort_values(sort_columns).reset_index(drop=True)
+
+    serialised = serialise_dataframe(prepared, list_format, inplace=True)
+
+    last_identifier: str | None = None
+    if "assay_chembl_id" in serialised.columns and not serialised.empty:
+        last_identifier = str(serialised["assay_chembl_id"].iloc[-1])
+
+    return serialised, ordered_columns, last_identifier
+
+
 def run_pipeline(
     args: argparse.Namespace, *, command_parts: Sequence[str] | None = None
 ) -> int:
@@ -158,10 +305,47 @@ def run_pipeline(
         errors_output=args.errors_output,
     )
 
-    csv_cfg = CsvConfig(
-        sep=args.sep, encoding=args.encoding, list_format=args.list_format
-    )
-    assay_ids = read_ids(input_path, args.column, csv_cfg)
+    list_format = cast(ListFormat, args.list_format)
+
+    csv_cfg = CsvConfig(sep=args.sep, encoding=args.encoding, list_format=list_format)
+
+    def id_loader() -> Iterable[str]:
+        return read_ids(input_path, args.column, csv_cfg)
+
+    existing_metadata = _load_existing_metadata(meta_path)
+    progress_meta = existing_metadata.get("progress")
+    resume_id: str | None = None
+    ordered_columns: list[str] | None = None
+    if isinstance(progress_meta, Mapping):
+        raw_last = progress_meta.get("last_id")
+        if isinstance(raw_last, str) and raw_last:
+            resume_id = raw_last
+        column_order = progress_meta.get("column_order")
+        if isinstance(column_order, list) and all(
+            isinstance(item, str) for item in column_order
+        ):
+            ordered_columns = list(column_order)
+
+    total_rows = existing_metadata.get("rows")
+    if not isinstance(total_rows, int) or resume_id is None:
+        total_rows = 0
+
+    aggregated_errors = _load_existing_errors(errors_path)
+    last_identifier = resume_id
+
+    if resume_id is None:
+        aggregated_errors = []
+        if errors_path.exists():
+            errors_path.unlink()
+
+    if resume_id is None and output_path.exists():
+        LOGGER.info("Starting fresh run and replacing existing output %s", output_path)
+        output_path.unlink()
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    header_written = output_path.exists() and output_path.stat().st_size > 0
+    if header_written and resume_id is None:
+        header_written = False
 
     client = ChemblClient(
         base_url=args.base_url,
@@ -171,52 +355,110 @@ def run_pipeline(
         retry_penalty_seconds=args.retry_penalty,
     )
 
-    assays_df = get_assays(client, assay_ids, chunk_size=args.chunk_size)
-    if assays_df.empty:
+    identifier_stream = _skip_processed_ids(id_loader, resume_id)
+
+    command_sequence = command_parts if command_parts is not None else tuple(sys.argv)
+    command = " ".join(shlex.quote(part) for part in command_sequence)
+    config = _prepare_configuration(args)
+
+    for chunk in stream_assays(client, identifier_stream, chunk_size=args.chunk_size):
+        serialised, ordered_columns, chunk_last = _prepare_assay_chunk(
+            chunk,
+            list_format=list_format,
+            errors_path=errors_path,
+            error_accumulator=aggregated_errors,
+            ordered_columns=ordered_columns,
+        )
+
+        if serialised.empty:
+            if chunk_last is not None:
+                last_identifier = chunk_last
+            continue
+
+        serialised.to_csv(
+            output_path,
+            mode="a",
+            header=not header_written,
+            index=False,
+            sep=args.sep,
+            encoding=args.encoding,
+        )
+        header_written = True
+        total_rows += int(len(serialised))
+        if chunk_last is not None:
+            last_identifier = chunk_last
+
+        column_count = len(ordered_columns) if ordered_columns is not None else 0
+        progress_payload = {
+            "progress": {
+                "last_id": last_identifier,
+                "column_order": ordered_columns or [],
+            }
+        }
+        write_meta_yaml(
+            output_path,
+            command=command,
+            config=config,
+            row_count=total_rows,
+            column_count=column_count,
+            meta_path=meta_path,
+            extra=progress_payload,
+        )
+
+    if not header_written:
         LOGGER.warning("No assay data retrieved; writing empty output")
-        assays_df = pd.DataFrame(columns=AssaysSchema.ordered_columns())
+        empty_frame = pd.DataFrame(columns=AssaysSchema.ordered_columns())
+        empty_frame.to_csv(
+            output_path,
+            index=False,
+            sep=args.sep,
+            encoding=args.encoding,
+        )
+        ordered_columns = list(empty_frame.columns)
+        column_count = len(ordered_columns)
+        progress_payload = {
+            "progress": {"last_id": last_identifier, "column_order": ordered_columns}
+        }
+        write_meta_yaml(
+            output_path,
+            command=command,
+            config=config,
+            row_count=0,
+            column_count=column_count,
+            meta_path=meta_path,
+            extra=progress_payload,
+        )
+    else:
+        column_count = len(ordered_columns) if ordered_columns is not None else 0
+        progress_payload = {
+            "progress": {
+                "last_id": last_identifier,
+                "column_order": ordered_columns or [],
+            }
+        }
+        write_meta_yaml(
+            output_path,
+            command=command,
+            config=config,
+            row_count=total_rows,
+            column_count=column_count,
+            meta_path=meta_path,
+            extra=progress_payload,
+        )
 
-    processed = postprocess_assays(assays_df)
-    normalised = normalize_assays(processed)
-    validated = validate_assays(normalised, errors_path=errors_path)
+    if aggregated_errors:
+        errors_path.parent.mkdir(parents=True, exist_ok=True)
+        with errors_path.open("w", encoding="utf-8") as handle:
+            json.dump(aggregated_errors, handle, ensure_ascii=False, indent=2)
+    elif errors_path.exists():
+        errors_path.unlink()
 
-    schema_columns = [
-        column
-        for column in AssaysSchema.ordered_columns()
-        if column in validated.columns
-    ]
-    extra_columns = sorted(
-        [column for column in validated.columns if column not in schema_columns]
-    )
-    ordered_columns = schema_columns + extra_columns
-    if ordered_columns:
-        validated = validated[ordered_columns]
-
-    sort_columns = [
-        column
-        for column in ["document_chembl_id", "target_chembl_id", "assay_chembl_id"]
-        if column in validated.columns
-    ]
-    if sort_columns:
-        validated = validated.sort_values(sort_columns).reset_index(drop=True)
-
-    serialised = serialise_dataframe(validated, args.list_format, inplace=True)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    serialised.to_csv(output_path, index=False, sep=args.sep, encoding=args.encoding)
-
-    if command_parts is None:
-        command_parts = sys.argv
-
-    write_meta_yaml(
+    analyze_table_quality(
         output_path,
-        command=" ".join(shlex.quote(part) for part in command_parts),
-        config=_prepare_configuration(args),
-        row_count=int(len(serialised)),
-        column_count=int(len(serialised.columns)),
-        meta_path=meta_path,
+        table_name=str(quality_base),
+        separator=args.sep,
+        encoding=args.encoding,
     )
-
-    analyze_table_quality(serialised, table_name=str(quality_base))
 
     LOGGER.info("Assay table written to %s", output_path)
     return 0
