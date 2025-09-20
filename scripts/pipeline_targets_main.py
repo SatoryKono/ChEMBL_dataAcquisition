@@ -1015,6 +1015,27 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         orthologs_cfg.get("enabled"), context="orthologs.enabled", default=False
     )
 
+    uniprot_cfg = _ensure_mapping(config_data.get("uniprot"), context="uniprot")
+    # ``batch_size`` lives in the configuration file, so honour it when present
+    # to keep CLI defaults aligned with YAML settings.
+    batch_size_default = 50
+    raw_batch_size = uniprot_cfg.get("batch_size")
+    if raw_batch_size is not None:
+        try:
+            batch_size_default = int(raw_batch_size)
+        except (TypeError, ValueError):
+            message = (
+                "Invalid configuration value for 'uniprot.batch_size': expected a "
+                "positive integer"
+            )
+            config_parser.error(message)
+        if batch_size_default <= 0:
+            message = (
+                "Invalid configuration value for 'uniprot.batch_size': the value must "
+                "be a positive integer"
+            )
+            config_parser.error(message)
+
     parser = argparse.ArgumentParser(
         description="Unified target data pipeline",
         parents=[config_parser],
@@ -1056,7 +1077,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=50,
+        default=batch_size_default,
         help="Maximum number of IDs per network request",
     )
     parser.add_argument(

@@ -288,6 +288,7 @@ class UniProtSectionConfig(SectionBase):
     base_url: HttpUrl
     include_isoforms: bool = False
     use_fasta_stream_for_isoform_ids: bool = True
+    batch_size: int | None = Field(default=None, gt=0)
     columns: list[str] = Field(default_factory=list)
     fields: list[str] | None = None
 

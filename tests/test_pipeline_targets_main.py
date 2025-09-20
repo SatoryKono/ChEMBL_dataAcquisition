@@ -1,3 +1,4 @@
+import importlib
 import json
 import sys
 from pathlib import Path
@@ -466,3 +467,32 @@ def test_parse_args_rejects_non_positive_batch_size(
     )
     with pytest.raises(SystemExit):
         parse_args()
+
+
+def test_parse_args_uses_config_batch_size(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The CLI should inherit the ``uniprot.batch_size`` value from YAML files."""
+
+    module: Any = importlib.import_module("scripts.pipeline_targets_main")
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("uniprot:\n  batch_size: 125\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "pipeline_targets_main",
+            "--config",
+            str(config_path),
+            "--input",
+            "input.csv",
+            "--output",
+            "output.csv",
+        ],
+    )
+
+    args = module.parse_args()
+
+    assert args.batch_size == 125
