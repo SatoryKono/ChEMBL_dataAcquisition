@@ -51,10 +51,12 @@ def test_get_assays_batches_requests() -> None:
     calls: List[List[str]] = []
 
     class DummyClient:
-        def fetch_many(self, values: Iterable[str]) -> List[dict[str, str]]:
+        def fetch_many(
+            self, values: Iterable[str]
+        ) -> tuple[List[dict[str, str]], List[str]]:
             batch = list(values)
             calls.append(batch)
-            return [
+            records = [
                 {
                     "assay_chembl_id": assay_id,
                     "document_chembl_id": f"DOC-{assay_id}",
@@ -62,6 +64,7 @@ def test_get_assays_batches_requests() -> None:
                 }
                 for assay_id in batch
             ]
+            return records, []
 
     df = get_assays(DummyClient(), ["CHEMBL1", "CHEMBL2", "CHEMBL3"], chunk_size=2)
     assert list(df["assay_chembl_id"]) == ["CHEMBL1", "CHEMBL2", "CHEMBL3"]

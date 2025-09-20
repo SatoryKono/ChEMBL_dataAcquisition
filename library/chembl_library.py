@@ -10,7 +10,7 @@ import pandas as pd
 try:  # pragma: no cover - allow flat imports during testing
     from .chembl_client import ChemblClient
 except ImportError:  # pragma: no cover
-    from chembl_client import ChemblClient  # type: ignore[no-redef]
+    from chembl_client import ChemblClient  # type: ignore[import-not-found,no-redef]
 
 LOGGER = logging.getLogger(__name__)
 
@@ -30,20 +30,32 @@ def _chunked(values: Iterable[str], chunk_size: int) -> Iterator[List[str]]:
 
 def _fetch_dataframe(
     *,
-    fetch: Callable[[Iterable[str]], List[dict[str, object]]],
+    fetch: Callable[[Iterable[str]], tuple[List[dict[str, object]], List[str]]],
     identifiers: Iterable[str],
     chunk_size: int,
     log_label: str,
     dedupe_column: str,
 ) -> pd.DataFrame:
     records: List[dict[str, object]] = []
+    failed_identifiers: List[str] = []
     for chunk in _chunked(identifiers, chunk_size):
         LOGGER.info("Fetching %d %s from ChEMBL", len(chunk), log_label)
-        records.extend(fetch(chunk))
+        chunk_records, chunk_failed = fetch(chunk)
+        records.extend(chunk_records)
+        failed_identifiers.extend(chunk_failed)
 
     if not records:
         LOGGER.warning("No %s were retrieved from the API", log_label)
         return pd.DataFrame()
+
+    unique_failed = list(dict.fromkeys(failed_identifiers))
+    if unique_failed:
+        LOGGER.warning(
+            "Failed to retrieve %d %s from ChEMBL: %s",
+            len(unique_failed),
+            log_label,
+            unique_failed,
+        )
 
     df = pd.DataFrame(records)
     if dedupe_column in df.columns:

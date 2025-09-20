@@ -22,16 +22,19 @@ def test_get_testitems_batches_requests() -> None:
     calls: List[List[str]] = []
 
     class DummyClient:
-        def fetch_many_molecules(self, values: Iterable[str]) -> List[dict[str, str]]:
+        def fetch_many_molecules(
+            self, values: Iterable[str]
+        ) -> tuple[List[dict[str, str]], List[str]]:
             batch = list(values)
             calls.append(batch)
-            return [
+            records = [
                 {
                     "molecule_chembl_id": molecule_id,
                     "pref_name": f"Name {molecule_id}",
                 }
                 for molecule_id in batch
             ]
+            return records, []
 
     df = get_testitems(DummyClient(), ["CHEMBL1", "CHEMBL2", "CHEMBL3"], chunk_size=2)
     assert list(df["molecule_chembl_id"]) == ["CHEMBL1", "CHEMBL2", "CHEMBL3"]
@@ -140,7 +143,7 @@ def test_add_pubchem_data_handles_network_errors(
 
     enriched = add_pubchem_data(df, http_client_config={"max_retries": 1, "rps": 0.0})
 
-    assert requests_mock.call_count == 2
+    assert requests_mock.call_count == 3
     assert pd.isna(enriched.loc[0, "pubchem_cid"])
 
 
@@ -166,7 +169,7 @@ def test_add_pubchem_data_fetches_cid_after_property_failure(
 
     enriched = add_pubchem_data(df, http_client_config={"max_retries": 1, "rps": 0.0})
 
-    assert requests_mock.call_count == 2
+    assert requests_mock.call_count == 3
     assert enriched.loc[0, "pubchem_cid"] == 123
     assert pd.isna(enriched.loc[0, "pubchem_molecular_formula"])
 

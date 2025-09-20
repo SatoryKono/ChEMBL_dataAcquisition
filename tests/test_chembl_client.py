@@ -17,7 +17,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from library.http_client import HttpClient  # type: ignore  # noqa: E402
-from library.chembl_client import ApiCfg, ChemblClient, get_documents  # type: ignore  # noqa: E402
+from library.chembl_client import (  # type: ignore  # noqa: E402
+    ApiCfg,
+    ChemblBatchFetchError,
+    ChemblClient,
+    get_documents,
+)
 
 
 def test_get_documents_parses_response() -> None:
@@ -236,6 +241,47 @@ def test_get_documents_returns_all_ids_when_chunk_exceeds_default_limit() -> Non
 
     assert recorder.limits == [len(requested_ids)]
     assert df["document_chembl_id"].tolist() == requested_ids
+
+
+def test_fetch_many_collects_failed_identifiers(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client = ChemblClient(http_client=HttpClient(timeout=1.0, max_retries=0, rps=0))
+    caplog.set_level(logging.WARNING)
+
+    def failing_fetch(identifier: str) -> dict[str, str]:
+        if identifier == "CHEMBL_BAD_REQUEST":
+            raise requests.RequestException("boom")
+        if identifier == "CHEMBL_BAD_JSON":
+            raise ValueError("bad json")
+        return {"assay_chembl_id": identifier}
+
+    records, failed = client._fetch_many(  # noqa: SLF001
+        ["CHEMBL_OK", "CHEMBL_BAD_REQUEST", "CHEMBL_BAD_JSON"], failing_fetch
+    )
+
+    assert records == [{"assay_chembl_id": "CHEMBL_OK"}]
+    assert failed == ["CHEMBL_BAD_REQUEST", "CHEMBL_BAD_JSON"]
+    messages = "\n".join(record.message for record in caplog.records)
+    assert "CHEMBL_BAD_REQUEST" in messages
+    assert "CHEMBL_BAD_JSON" in messages
+
+
+def test_fetch_many_raises_when_failures_exceed_threshold() -> None:
+    client = ChemblClient(
+        http_client=HttpClient(timeout=1.0, max_retries=0, rps=0),
+        failed_ids_error_threshold=1,
+    )
+
+    def always_failing(_: str) -> dict[str, str]:
+        raise requests.RequestException("network down")
+
+    with pytest.raises(ChemblBatchFetchError) as excinfo:
+        client._fetch_many(["CHEMBL1", "CHEMBL2"], always_failing)  # noqa: SLF001
+
+    error = excinfo.value
+    assert error.failed_ids == ["CHEMBL1", "CHEMBL2"]
+    assert error.threshold == 1
 
 
 def test_fetch_assay_retries_on_429_without_retry_after(

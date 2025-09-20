@@ -16,10 +16,30 @@ import requests  # type: ignore[import-untyped]
 try:  # pragma: no cover - поддержка импорта без контекста пакета
     from .http_client import CacheConfig, HttpClient
 except ImportError:  # pragma: no cover
-    from http_client import CacheConfig, HttpClient  # type: ignore[no-redef]
+    from http_client import CacheConfig, HttpClient  # type: ignore[import-not-found,no-redef]
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+class ChemblBatchFetchError(RuntimeError):
+    """Raised when too many ChEMBL identifiers fail during batch retrieval.
+
+    Attributes
+    ----------
+    failed_ids:
+        The unique identifiers that could not be retrieved.
+    threshold:
+        The maximum tolerated number of failed identifiers before the
+        exception is raised.
+    """
+
+    def __init__(
+        self, message: str, *, failed_ids: Sequence[str], threshold: int
+    ) -> None:
+        super().__init__(message)
+        self.failed_ids = list(failed_ids)
+        self.threshold = threshold
 
 
 def _is_not_found_error(exception: requests.HTTPError) -> bool:
@@ -128,6 +148,9 @@ class ChemblClient:
         user_agent: The User-Agent header to use for requests.
         cache_config: Optional configuration for caching HTTP requests.
         http_client: Optional pre-configured HttpClient instance.
+        failed_ids_error_threshold: Maximum tolerated number of failed
+            identifiers encountered during batch fetching before raising
+            :class:`ChemblBatchFetchError`.
     """
 
     base_url: str = "https://www.ebi.ac.uk/chembl/api/data"
@@ -138,9 +161,13 @@ class ChemblClient:
     user_agent: str = "ChEMBLDataAcquisition/1.0"
     cache_config: CacheConfig | None = None
     http_client: HttpClient | None = None
+    failed_ids_error_threshold: int = 25
 
     def __post_init__(self) -> None:
         """Initializes the HTTP client."""
+        if self.failed_ids_error_threshold < 0:
+            msg = "failed_ids_error_threshold must be non-negative"
+            raise ValueError(msg)
         self._http = self.http_client or HttpClient(
             timeout=self.timeout,
             max_retries=self.max_retries,
@@ -230,7 +257,7 @@ class ChemblClient:
         self,
         identifiers: Iterable[str],
         fetcher: Callable[[str], Dict[str, Any] | None],
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[List[Dict[str, Any]], List[str]]:
         """Fetches multiple resources from the ChEMBL API.
 
         Args:
@@ -238,47 +265,84 @@ class ChemblClient:
             fetcher: The function to use for fetching each resource.
 
         Returns:
-            A list of dictionaries, where each dictionary contains the data for a resource.
+            A tuple containing the collected resource payloads and the
+            identifiers that failed to be retrieved.
+
+        Raises:
+            ChemblBatchFetchError: If the number of failed identifiers exceeds
+                :attr:`failed_ids_error_threshold`.
         """
         records: List[Dict[str, Any]] = []
+        failed_ids: List[str] = []
         for identifier in identifiers:
-            payload = fetcher(identifier)
+            try:
+                payload = fetcher(identifier)
+            except requests.RequestException as exc:
+                LOGGER.warning("ChEMBL request failed for %s: %s", identifier, exc)
+                failed_ids.append(identifier)
+                continue
+            except ValueError as exc:
+                LOGGER.warning(
+                    "Failed to decode ChEMBL payload for %s: %s", identifier, exc
+                )
+                failed_ids.append(identifier)
+                continue
+
             if payload is not None:
                 records.append(payload)
-        return records
 
-    def fetch_many(self, assay_ids: Iterable[str]) -> List[Dict[str, Any]]:
+        unique_failed = list(dict.fromkeys(failed_ids))
+        if len(unique_failed) > self.failed_ids_error_threshold:
+            msg = (
+                "Exceeded failed identifier threshold while fetching from "
+                "ChEMBL: %d failures (threshold %d)"
+                % (len(unique_failed), self.failed_ids_error_threshold)
+            )
+            raise ChemblBatchFetchError(
+                msg, failed_ids=unique_failed, threshold=self.failed_ids_error_threshold
+            )
+
+        return records, unique_failed
+
+    def fetch_many(
+        self, assay_ids: Iterable[str]
+    ) -> tuple[List[Dict[str, Any]], List[str]]:
         """Fetches multiple assay payloads.
 
         Args:
             assay_ids: An iterable of assay ChEMBL IDs.
 
         Returns:
-            A list of dictionaries, where each dictionary contains the data for an assay.
+            A tuple containing the assay payloads and the identifiers that
+            failed to be retrieved.
         """
         return self._fetch_many(assay_ids, self.fetch_assay)
 
     def fetch_many_activities(
         self, activity_ids: Iterable[str]
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[List[Dict[str, Any]], List[str]]:
         """Fetches multiple activity payloads.
 
         Args:
             activity_ids: An iterable of activity ChEMBL IDs.
 
         Returns:
-            A list of dictionaries, where each dictionary contains the data for an activity.
+            A tuple containing the activity payloads and the identifiers that
+            failed to be retrieved.
         """
         return self._fetch_many(activity_ids, self.fetch_activity)
 
-    def fetch_many_molecules(self, molecule_ids: Iterable[str]) -> List[Dict[str, Any]]:
+    def fetch_many_molecules(
+        self, molecule_ids: Iterable[str]
+    ) -> tuple[List[Dict[str, Any]], List[str]]:
         """Fetches multiple molecule payloads.
 
         Args:
             molecule_ids: An iterable of molecule ChEMBL IDs.
 
         Returns:
-            A list of dictionaries, where each dictionary contains the data for a molecule.
+            A tuple containing the molecule payloads and the identifiers that
+            failed to be retrieved.
         """
         return self._fetch_many(molecule_ids, self.fetch_molecule)
 
@@ -433,4 +497,4 @@ def get_documents(
     return df.reindex(columns=DOCUMENT_COLUMNS)
 
 
-__all__ = ["ApiCfg", "ChemblClient", "get_documents"]
+__all__ = ["ApiCfg", "ChemblBatchFetchError", "ChemblClient", "get_documents"]

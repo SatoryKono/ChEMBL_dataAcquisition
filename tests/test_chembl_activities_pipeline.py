@@ -89,16 +89,19 @@ def test_get_activities_batches_requests() -> None:
     calls: List[List[str]] = []
 
     class DummyClient:
-        def fetch_many_activities(self, values: Iterable[str]) -> List[dict[str, str]]:
+        def fetch_many_activities(
+            self, values: Iterable[str]
+        ) -> tuple[List[dict[str, str]], List[str]]:
             batch = list(values)
             calls.append(batch)
-            return [
+            records = [
                 {
                     "activity_chembl_id": activity_id,
                     "assay_chembl_id": f"ASSAY-{activity_id}",
                 }
                 for activity_id in batch
             ]
+            return records, []
 
     df = get_activities(DummyClient(), ["CHEMBL1", "CHEMBL2", "CHEMBL3"], chunk_size=2)
     assert list(df["activity_chembl_id"]) == ["CHEMBL1", "CHEMBL2", "CHEMBL3"]
