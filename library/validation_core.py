@@ -6,7 +6,7 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, SupportsInt, cast
 
 import numpy as np
 import pandas as pd
@@ -31,6 +31,52 @@ class ValidationResult:
 
     valid: pd.DataFrame
     errors: pd.DataFrame
+
+    def __post_init__(self) -> None:
+        """Ensure ``valid`` and ``errors`` are concrete :class:`DataFrame` instances."""
+
+        object.__setattr__(
+            self,
+            "valid",
+            self._coerce_dataframe(self.valid, field_name="valid"),
+        )
+        object.__setattr__(
+            self,
+            "errors",
+            self._coerce_dataframe(self.errors, field_name="errors"),
+        )
+
+    @classmethod
+    def _coerce_dataframe(cls, value: Any, *, field_name: str) -> pd.DataFrame:
+        """Return ``value`` as a DataFrame, unwrapping nested results when required."""
+
+        seen: set[int] = set()
+        candidate: Any = value
+        while isinstance(candidate, ValidationResult):
+            candidate_id = id(candidate)
+            if candidate_id in seen:
+                raise ValueError("Cyclic ValidationResult detected during coercion")
+            seen.add(candidate_id)
+            candidate = candidate.valid if field_name == "valid" else candidate.errors
+
+        if isinstance(candidate, pd.DataFrame):
+            return candidate
+
+        raise TypeError(
+            "ValidationResult.%s must be a pandas DataFrame, received %s"
+            % (field_name, type(candidate).__name__)
+        )
+
+    @property
+    def empty(self) -> bool:
+        """Return ``True`` when the validated DataFrame contains no rows."""
+
+        return self.valid.empty
+
+    def __bool__(self) -> bool:
+        """Boolean truthiness mirrors whether the validated DataFrame has rows."""
+
+        return not self.empty
 
 
 def _is_missing_scalar(value: Any) -> bool:
@@ -80,7 +126,7 @@ def coerce_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     if df.empty:
         return df.copy()
-    return df.applymap(coerce_value)
+    return df.map(coerce_value)
 
 
 def build_error_frame(
@@ -171,7 +217,11 @@ def serialise_errors(
             for item in group.to_dict("records")
         ]
         payload.append(
-            {"index": int(index), "errors": error_entries, "row": row_payload}
+            {
+                "index": int(cast(SupportsInt, index)),
+                "errors": error_entries,
+                "row": row_payload,
+            }
         )
 
     errors_path.parent.mkdir(parents=True, exist_ok=True)
