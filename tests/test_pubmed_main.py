@@ -325,6 +325,63 @@ def test_run_all_merges_chembl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert df.loc[0, "ChEMBL.document_chembl_id"] == "DOC1"
 
 
+def test_run_chembl_command_writes_quality_reports(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_chembl_command should emit completeness and correlation reports."""
+
+    input_csv = tmp_path / "input.csv"
+    pd.DataFrame({"chembl_id": ["DOC1", "DOC2"]}).to_csv(input_csv, index=False)
+
+    chembl_df = pd.DataFrame(
+        {
+            "document_chembl_id": ["DOC1", "DOC2"],
+            "title": ["Title 1", "Title 2"],
+            "abstract": ["Abstract 1", "Abstract 2"],
+            "doi": ["10.1/doi1", "10.1/doi2"],
+            "year": [2020, 2021],
+            "journal": ["Journal 1", "Journal 2"],
+            "journal_abbrev": ["J1", "J2"],
+            "volume": ["1", "2"],
+            "issue": ["1", "2"],
+            "first_page": ["1", "10"],
+            "last_page": ["5", "20"],
+            "pubmed_id": ["1", "2"],
+            "authors": ["Author A", "Author B"],
+            "source": ["ChEMBL", "ChEMBL"],
+        }
+    )
+
+    def fake_get_documents(
+        ids: Sequence[str], *, cfg: Any, client: Any, chunk_size: int, timeout: float
+    ) -> Iterable[pd.DataFrame]:
+        yield chembl_df
+
+    monkeypatch.setattr(pm, "get_documents", fake_get_documents)
+
+    output_path = tmp_path / "chembl_export.csv"
+    args = _make_args(
+        "chembl", input_path=input_csv, output_path=output_path, column="chembl_id"
+    )
+    config = deepcopy(pm.DEFAULT_CONFIG)
+
+    pm.run_chembl_command(args, config)
+
+    quality_base = output_path.with_name(output_path.stem)
+    quality_report_path = quality_base.with_name(
+        f"{quality_base.name}_quality_report_table.csv"
+    )
+    correlation_path = quality_base.with_name(
+        f"{quality_base.name}_data_correlation_report_table.csv"
+    )
+
+    assert output_path.exists(), "Exported CSV should be written to disk"
+    assert quality_report_path.exists(), "Quality report should be generated"
+    assert correlation_path.exists(), "Correlation report should be generated"
+    assert quality_report_path.stat().st_size > 0
+    assert correlation_path.stat().st_size > 0
+
+
 def test_global_cli_overrides_before_command() -> None:
     """Global CLI flags provided before the command should update the config."""
 
