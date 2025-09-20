@@ -4,6 +4,36 @@ contact:
   email: "chembl-da@example.org"
   user_agent: "chembl-data-acquisition/1.0 (mailto:chembl-da@example.org)"
 
+chembl_assays:
+  base_url: "https://www.ebi.ac.uk/chembl/api/data"
+  user_agent: "ChEMBLDataAcquisition/1.0"
+  chunk_size: 20
+  csv:
+    sep: ","
+    encoding: "utf-8"
+    list_format: json
+  network:
+    timeout_sec: 30
+    max_retries: 3
+    retry_penalty_sec: 1.0
+  rate_limit:
+    rps: 2.0
+
+chembl_activities:
+  base_url: "https://www.ebi.ac.uk/chembl/api/data"
+  user_agent: "ChEMBLDataAcquisition/1.0"
+  chunk_size: 20
+  csv:
+    sep: ","
+    encoding: "utf-8"
+    list_format: json
+  network:
+    timeout_sec: 30
+    max_retries: 3
+    retry_penalty_sec: 1.0
+  rate_limit:
+    rps: 2.0
+
 gtop:
   base_url: "https://www.guidetopharmacology.org/services"
   network:

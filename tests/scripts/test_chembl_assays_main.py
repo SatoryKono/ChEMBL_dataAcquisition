@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import pandas as pd
 import pytest
@@ -86,21 +86,27 @@ def test_run_pipeline_preserves_numeric_dtypes(
         captured["quality_table"] = table_name
         dtypes_capture["values"] = frame.dtypes.copy()
 
-    def fake_write_meta_yaml(
+    def fake_write_cli_metadata(
         output_path: Path,
         *,
-        command: str,
-        config: dict[str, Any],
         row_count: int,
         column_count: int,
+        namespace: Any,
+        command_parts: Sequence[str] | None = None,
         meta_path: Path | None = None,
+        status: str = "success",
+        error: str | None = None,
+        warnings: Sequence[str] | None = None,
     ) -> Path:
         captured["metadata"] = {
-            "command": command,
-            "config": config,
+            "command_parts": tuple(command_parts or ()),
+            "namespace": namespace,
             "row_count": row_count,
             "column_count": column_count,
             "meta_path": meta_path,
+            "status": status,
+            "error": error,
+            "warnings": list(warnings or []),
         }
         return output_path.with_name(f"{output_path.name}.meta.yaml")
 
@@ -110,7 +116,7 @@ def test_run_pipeline_preserves_numeric_dtypes(
     monkeypatch.setattr(module, "postprocess_assays", fake_postprocess)
     monkeypatch.setattr(module, "normalize_assays", fake_normalize)
     monkeypatch.setattr(module, "validate_assays", fake_validate)
-    monkeypatch.setattr(module, "write_meta_yaml", fake_write_meta_yaml)
+    monkeypatch.setattr(module, "write_cli_metadata", fake_write_cli_metadata)
     monkeypatch.setattr(module, "analyze_table_quality", fake_analyze_table_quality)
     monkeypatch.setattr(cli_common, "serialise_dataframe", serialise_spy)
     monkeypatch.setattr(module, "serialise_dataframe", serialise_spy)
@@ -144,3 +150,9 @@ def test_run_pipeline_preserves_numeric_dtypes(
     assert is_integer_dtype(dtypes["confidence_score"])
     assert is_float_dtype(dtypes["pchembl_value"])
     assert is_bool_dtype(dtypes["is_active"])
+
+    metadata = captured["metadata"]
+    assert metadata["namespace"] is args
+    assert metadata["command_parts"] == tuple(["chembl_assays_main.py", *argv])
+    assert metadata["row_count"] == 1
+    assert metadata["column_count"] == len(validated_frame.columns)

@@ -1,6 +1,15 @@
 """Configuration models for configurable scripts and utilities."""
 
 from .contact import ContactConfig, load_contact_config
+from .chembl import (
+    ChemblActivitiesConfig,
+    ChemblAssaysConfig,
+    ChemblCsvConfig,
+    ChemblNetworkConfig,
+    ChemblRateLimitConfig,
+    load_chembl_activities_config,
+    load_chembl_assays_config,
+)
 from .pipeline_targets import (
     GtoPSectionConfig,
     HGNCSectionConfig,
@@ -19,6 +28,13 @@ from .uniprot import (
 )
 
 __all__ = [
+    "ChemblActivitiesConfig",
+    "ChemblAssaysConfig",
+    "ChemblCsvConfig",
+    "ChemblNetworkConfig",
+    "ChemblRateLimitConfig",
+    "load_chembl_activities_config",
+    "load_chembl_assays_config",
     "ConfigError",
     "HttpCacheConfig",
     "OrthologsConfig",

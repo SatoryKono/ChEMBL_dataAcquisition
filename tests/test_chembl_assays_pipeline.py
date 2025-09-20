@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import requests_mock as requests_mock_lib
+import textwrap
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -75,6 +76,87 @@ def test_assay_cli_rejects_non_positive_chunk_sizes(chunk_size: int) -> None:
     assert excinfo.value.code == 2
 
 
+def test_assays_parse_args_reads_defaults_from_config(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        textwrap.dedent(
+            """
+            chembl_assays:
+              base_url: https://chembl.example/api
+              user_agent: ExampleAgent/2.0
+              chunk_size: 9
+              csv:
+                sep: ";"
+                encoding: latin-1
+                list_format: pipe
+              network:
+                timeout_sec: 40
+                max_retries: 6
+                retry_penalty_sec: 2.5
+              rate_limit:
+                rps: 5.5
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    args = chembl_assays_parse_args(["--config", str(config_path)])
+
+    assert args.base_url == "https://chembl.example/api"
+    assert args.user_agent == "ExampleAgent/2.0"
+    assert args.chunk_size == 9
+    assert args.sep == ";"
+    assert args.encoding == "latin-1"
+    assert args.list_format == "pipe"
+    assert args.timeout == 40
+    assert args.max_retries == 6
+    assert args.retry_penalty == pytest.approx(2.5)
+    assert args.rps == pytest.approx(5.5)
+
+
+def test_assays_parse_args_supports_cli_overrides(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        textwrap.dedent(
+            """
+            chembl_assays:
+              base_url: https://chembl.example/api
+              user_agent: ExampleAgent/2.0
+              chunk_size: 9
+              csv:
+                sep: ";"
+                encoding: latin-1
+                list_format: pipe
+              network:
+                timeout_sec: 40
+                max_retries: 6
+                retry_penalty_sec: 2.5
+              rate_limit:
+                rps: 5.5
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    args = chembl_assays_parse_args(
+        [
+            "--config",
+            str(config_path),
+            "--timeout",
+            "55",
+            "--encoding",
+            "utf-32",
+            "--list-format",
+            "json",
+            "--user-agent",
+            "CLI-Agent/1.0",
+        ]
+    )
+
+    assert args.timeout == pytest.approx(55.0)
+    assert args.encoding == "utf-32"
+    assert args.list_format == "json"
+    assert args.user_agent == "CLI-Agent/1.0"
 def test_postprocess_and_normalize() -> None:
     raw = pd.DataFrame(
         [
