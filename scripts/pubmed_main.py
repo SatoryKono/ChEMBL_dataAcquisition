@@ -24,6 +24,7 @@ if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from library.chembl_client import ApiCfg, ChemblClient, get_documents
+from library.cli_common import analyze_table_quality, resolve_cli_sidecar_paths
 from library.document_pipeline import (
     CH_EMBL_COLUMNS,
     DOCUMENT_SCHEMA_COLUMNS,
@@ -761,8 +762,18 @@ def _write_output(
     report["output"] = str(output_path)
     meta_path = output_path.with_name(f"{output_path.name}.meta.json")
     save_quality_report(meta_path, report)
+    _, _, quality_base = resolve_cli_sidecar_paths(output_path)
+    analyze_table_quality(df, table_name=str(quality_base))
+    quality_report_path = quality_base.with_name(
+        f"{quality_base.name}_quality_report_table.csv"
+    )
+    correlation_path = quality_base.with_name(
+        f"{quality_base.name}_data_correlation_report_table.csv"
+    )
     LOGGER.info("Wrote %d rows to %s", len(df), output_path)
     LOGGER.info("Metadata report saved to %s", meta_path)
+    LOGGER.info("Quality report saved to %s", quality_report_path)
+    LOGGER.info("Correlation report saved to %s", correlation_path)
     return report
 
 
@@ -908,7 +919,13 @@ def run_pubmed_command(args: argparse.Namespace, config: Dict[str, Any]) -> None
 
 
 def run_chembl_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
-    """Runs the ChEMBL command, which downloads ChEMBL document metadata.
+    """Download ChEMBL document metadata and profile the resulting table.
+
+    The command streams records from the ChEMBL API directly to ``args.output``
+    to keep memory usage predictable. Once the export completes the function
+    generates column completeness and numeric correlation reports using
+    :func:`library.data_profiling.analyze_table_quality` to mirror the
+    behaviour of other data extraction scripts in the project.
 
     Args:
         args: Parsed command-line options.
@@ -943,6 +960,21 @@ def run_chembl_command(args: argparse.Namespace, config: Dict[str, Any]) -> None
         sep=io_cfg["sep"],
         encoding=io_cfg["encoding"],
     )
+    _, _, quality_base = resolve_cli_sidecar_paths(args.output)
+    analyze_table_quality(
+        args.output,
+        table_name=str(quality_base),
+        separator=io_cfg["sep"],
+        encoding=io_cfg["encoding"],
+    )
+    quality_report_path = quality_base.with_name(
+        f"{quality_base.name}_quality_report_table.csv"
+    )
+    correlation_path = quality_base.with_name(
+        f"{quality_base.name}_data_correlation_report_table.csv"
+    )
+    LOGGER.info("Quality report saved to %s", quality_report_path)
+    LOGGER.info("Correlation report saved to %s", correlation_path)
 
 
 def run_all_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
@@ -1188,6 +1220,7 @@ def build_parser() -> argparse.ArgumentParser:
         "chembl",
         help="Download ChEMBL document metadata",
         parents=[common_parser],
+        aliases=["get_document"],
     )
     chembl_parser.add_argument(
         "--chunk-size",
@@ -1300,6 +1333,8 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     parser = build_parser()
     parsed_args = parser.parse_args(args)
     _validate_chunk_size_options(parser, parsed_args)
+    if parsed_args.command == "get_document":
+        parsed_args.command = "chembl"
     return parsed_args
 
 
