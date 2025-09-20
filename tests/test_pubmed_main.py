@@ -6,7 +6,7 @@ import argparse
 import sys
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Iterable, Sequence
 
 import pandas as pd
 import pytest
@@ -300,8 +300,8 @@ def test_run_all_merges_chembl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 
     def fake_get_documents(
         ids: Sequence[str], *, cfg: Any, client: Any, chunk_size: int, timeout: float
-    ) -> pd.DataFrame:  # type: ignore[override]
-        return chembl_df
+    ) -> Iterable[pd.DataFrame]:  # type: ignore[override]
+        yield chembl_df
 
     def fake_gather(
         pmids: Sequence[str], *, cfg: dict[str, Any]
@@ -469,14 +469,18 @@ def test_semantic_scholar_cli_overrides() -> None:
     assert config["semantic_scholar"]["chunk_size"] == 50
 
 
-def test_semantic_scholar_rps_clamped_without_flag(caplog: pytest.LogCaptureFixture) -> None:
+def test_semantic_scholar_rps_clamped_without_flag(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """High RPS overrides should be clamped unless explicitly enabled."""
 
-    args = pm.parse_args([
-        "--semantic-scholar-rps",
-        "0.9",
-        "scholar",
-    ])
+    args = pm.parse_args(
+        [
+            "--semantic-scholar-rps",
+            "0.9",
+            "scholar",
+        ]
+    )
     config = deepcopy(pm.DEFAULT_CONFIG)
 
     with caplog.at_level("WARNING"):
