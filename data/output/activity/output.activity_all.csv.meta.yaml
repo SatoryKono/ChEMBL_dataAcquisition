@@ -1,0 +1,23 @@
+generated_at: '2025-09-17T07:59:11.847417+00:00'
+command: '''scripts\chembl_activities_main.py'' --input ''data\input\activity2.csv''
+  --output ''data\output\output.activity_all.csv'''
+config:
+  input: data\input\activity2.csv
+  column: activity_chembl_id
+  chunk_size: 20
+  timeout: 30.0
+  max_retries: 3
+  rps: 2.0
+  base_url: https://www.ebi.ac.uk/chembl/api/data
+  user_agent: ChEMBLDataAcquisition/1.0
+  sep: ','
+  encoding: utf-8
+  list_format: json
+  log_level: INFO
+  limit: null
+  dictionary: null
+  dry_run: false
+output: data\output\output.activity_all.csv
+sha256: fc54805f10c5553edc6d7296471d5fff07650a1041a94ae82b509592ed2caba2
+rows: 145950
+columns: 49

@@ -1,0 +1,86 @@
+generated_at: '2025-09-20T12:01:38.962592+00:00'
+command: scripts/chembl_activities_main.py --output 'data\output\output.activities.csv'
+  --column activity_chembl_id --limit 1000 --chunk-size 100 --log-level DEBUG --log-format
+  json --input 'data\input\short\activity.csv'
+config:
+  config: config.yaml
+  input: data\input\short\activity.csv
+  column: activity_chembl_id
+  chunk_size: 100
+  timeout: 30.0
+  max_retries: 3
+  rps: 2.0
+  retry_penalty: 1.0
+  base_url: https://www.ebi.ac.uk/chembl/api/data
+  user_agent: ChEMBLDataAcquisition/1.0
+  sep: ','
+  encoding: utf-8
+  list_format: json
+  log_level: DEBUG
+  log_format: json
+  limit: 1000
+  dictionary: null
+  dry_run: false
+output: data\output\output.activities.csv
+rows: 36
+columns: 48
+status: success
+progress:
+  last_id: '22391384'
+  column_order:
+  - activity_chembl_id
+  - assay_chembl_id
+  - molecule_chembl_id
+  - parent_molecule_chembl_id
+  - document_chembl_id
+  - target_chembl_id
+  - record_id
+  - activity_id
+  - standard_type
+  - standard_relation
+  - standard_units
+  - standard_value
+  - standard_upper_value
+  - pchembl_value
+  - potential_duplicate
+  - data_validity_comment
+  - data_validity_warning
+  - activity_comment
+  - type
+  - relation
+  - units
+  - action_type
+  - activity_properties
+  - assay_description
+  - assay_type
+  - assay_variant_accession
+  - assay_variant_mutation
+  - bao_endpoint
+  - bao_format
+  - bao_label
+  - canonical_smiles
+  - data_validity_description
+  - document_journal
+  - document_year
+  - ligand_efficiency
+  - molecule_pref_name
+  - qudt_units
+  - src_id
+  - standard_flag
+  - standard_text_value
+  - target_organism
+  - target_pref_name
+  - target_tax_id
+  - text_value
+  - toid
+  - uo_units
+  - upper_value
+  - value
+sha256: 927dcdfbdc3853abdeb7be3778ac7198aec1b92bf351b919cf035602160bdcce
+determinism:
+  baseline_sha256: d75a7f926c202479aa8c0d9779fa6120e9744fed67fdf3aa039682fdd53b8fa1
+  previous_sha256: 927dcdfbdc3853abdeb7be3778ac7198aec1b92bf351b919cf035602160bdcce
+  current_sha256: 927dcdfbdc3853abdeb7be3778ac7198aec1b92bf351b919cf035602160bdcce
+  matches_previous: true
+  checked_at: '2025-09-20T12:01:38.963117+00:00'
+  check_count: 4

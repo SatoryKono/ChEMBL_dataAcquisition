@@ -1,0 +1,64 @@
+generated_at: '2025-09-20T12:04:25.984180+00:00'
+command: scripts/chembl_assays_main.py --output 'data\output\output.assay.csv' --column
+  assay_chembl_id --chunk-size 10 --log-level DEBUG --log-format json --input 'data\input\short\assay1.csv'
+config:
+  config: config.yaml
+  input: data\input\short\assay1.csv
+  column: assay_chembl_id
+  chunk_size: 10
+  timeout: 30.0
+  max_retries: 3
+  rps: 2.0
+  retry_penalty: 1.0
+  base_url: https://www.ebi.ac.uk/chembl/api/data
+  user_agent: ChEMBLDataAcquisition/1.0
+  sep: ','
+  encoding: utf-8
+  list_format: json
+  log_level: DEBUG
+  log_format: json
+output: data\output\output.assay.csv
+rows: 10
+columns: 30
+status: success
+progress:
+  last_id: CHEMBL1000360
+  column_order:
+  - assay_chembl_id
+  - document_chembl_id
+  - target_chembl_id
+  - assay_category
+  - assay_group
+  - assay_type
+  - assay_type_description
+  - assay_organism
+  - assay_test_type
+  - assay_cell_type
+  - assay_tissue
+  - assay_tax_id
+  - assay_with_same_target
+  - confidence_score
+  - confidence_description
+  - relationship_type
+  - relationship_description
+  - bao_format
+  - bao_label
+  - aidx
+  - assay_classifications
+  - assay_parameters
+  - assay_strain
+  - assay_subcellular_fraction
+  - cell_chembl_id
+  - description
+  - src_assay_id
+  - src_id
+  - tissue_chembl_id
+  - variant_sequence
+sha256: 61cb172190d00f7bc7606bb552ec1fa81f0ca3fc870777e9fe71fedc0d193f82
+determinism:
+  baseline_sha256: dfec20654a679da73a2558ec4242315ccb22e308f43bb5480144b8765d679494
+  previous_sha256: 61cb172190d00f7bc7606bb552ec1fa81f0ca3fc870777e9fe71fedc0d193f82
+  current_sha256: 61cb172190d00f7bc7606bb552ec1fa81f0ca3fc870777e9fe71fedc0d193f82
+  matches_previous: true
+  checked_at: '2025-09-20T12:04:25.984606+00:00'
+  check_count: 3

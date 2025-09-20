@@ -1,0 +1,36 @@
+generated_at: '2025-09-19T08:28:21.023303+00:00'
+command: scripts/pipeline_targets_main.py --input data/input/target1.csv --output
+  data/output/final_targets.csv --with-orthologs --with-isoforms --iuphar-target 'dictionary\_target\_IUPHAR\_IUPHAR_target.csv'
+  --iuphar-family 'dictionary\_target\_IUPHAR\_IUPHAR_family.csv'
+config:
+  config: config.yaml
+  input: data/input/target1.csv
+  id_column: target_chembl_id
+  log_level: INFO
+  log_format: human
+  sep: ','
+  encoding: utf-8-sig
+  list_format: null
+  species: null
+  affinity_parameter: pKi
+  approved_only: null
+  primary_target_only: null
+  with_isoforms: true
+  with_orthologs: true
+  iuphar_target: dictionary\_target\_IUPHAR\_IUPHAR_target.csv
+  iuphar_family: dictionary\_target\_IUPHAR\_IUPHAR_family.csv
+  batch_size: 50
+  timeout_sec: null
+  retries: null
+  rate_limit_rps: null
+output: E:\github\ChEMBL_dataAcquisition\data\output\final_targets.csv
+sha256: ac1538763d4f1c27c876c0c4559634cc93eaeca88cbeb0b2d52c8d25e7a2fbbb
+rows: 6
+columns: 95
+determinism:
+  baseline_sha256: 3c8ae7be1471b1359756c2ae19aa96bd464033520ad4cca46bc1517bee04c01c
+  previous_sha256: 3c8ae7be1471b1359756c2ae19aa96bd464033520ad4cca46bc1517bee04c01c
+  current_sha256: ac1538763d4f1c27c876c0c4559634cc93eaeca88cbeb0b2d52c8d25e7a2fbbb
+  matches_previous: false
+  checked_at: '2025-09-19T08:28:21.061307+00:00'
+  check_count: 2

@@ -23,3 +23,6 @@ scripts/.Rhistory
 /dictionary/uniprot
 1.xlsx
 ~$1.xlsx
+data/input/Book1.xlsm
+data/output/document/document.postprocessing.xlsx
+data/input/pairs_independent.csv

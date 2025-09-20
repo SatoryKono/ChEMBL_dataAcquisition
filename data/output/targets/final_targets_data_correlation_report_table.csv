@@ -1,0 +1,8 @@
+﻿index,taxon_id,sequence_length,gtop_natural_ligands_n,gtop_interactions_n,uniprot_version,tax_id,species_group_flag
+taxon_id,,,,,,,
+sequence_length,,1.0,-0.08887258609626604,0.5006422816417773,0.8112953180074821,,
+gtop_natural_ligands_n,,-0.08887258609626604,1.0,0.019822394114938247,0.34859573626447604,,
+gtop_interactions_n,,0.5006422816417773,0.019822394114938247,1.0,0.5355251605041664,,
+uniprot_version,,0.8112953180074821,0.34859573626447604,0.5355251605041664,1.0,,
+tax_id,,,,,,,
+species_group_flag,,,,,,,

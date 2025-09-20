@@ -1,0 +1,15 @@
+{
+  "error_counts": {
+    "OpenAlex.Error": 0,
+    "PubMed.Error": 0,
+    "crossref.Error": 0,
+    "scholar.Error": 0
+  },
+  "file_sha256": "d0aa0f8c821979f3b9051ac6b99e8dc402f0470fde41c1aa4fce0ae2ede8bf48",
+  "missing_doi": 0,
+  "output": "data\\output\\output.document_20250920.csv",
+  "publication_class_distribution": {
+    "experimental": 6
+  },
+  "row_count": 6
+}
