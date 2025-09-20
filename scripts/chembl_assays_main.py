@@ -23,12 +23,12 @@ from library.assay_postprocessing import postprocess_assays
 from library.assay_validation import AssaysSchema, validate_assays
 from library.chembl_client import ChemblClient
 
-from library.chembl_library import get_assays
+from library.chembl_library import stream_assays
 from library.cli_common import (
+    ListFormat,
     resolve_cli_sidecar_paths,
     serialise_dataframe,
     write_cli_metadata,
-
 )
 from library.data_profiling import analyze_table_quality
 from library.io import read_ids
@@ -106,7 +106,9 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--user-agent", default=None, help="User-Agent header (defaults to config)"
     )
-    parser.add_argument("--sep", default=None, help="CSV delimiter (defaults to config)")
+    parser.add_argument(
+        "--sep", default=None, help="CSV delimiter (defaults to config)"
+    )
     parser.add_argument(
         "--encoding", default=None, help="CSV encoding (defaults to config)"
     )
@@ -164,7 +166,6 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     if parsed_args.chunk_size <= 0:
         parser.error("--chunk-size must be a positive integer")
     return parsed_args
-
 
 
 def _prepare_configuration(namespace: argparse.Namespace) -> dict[str, object]:
@@ -275,8 +276,10 @@ def _prepare_assay_chunk(
     normalised = normalize_assays(processed)
 
     temp_errors = errors_path.with_name(f"{errors_path.name}.part")
-    validated = validate_assays(normalised, errors_path=temp_errors)
+    validation_result = validate_assays(normalised, errors_path=temp_errors)
     error_accumulator.extend(_consume_error_file(temp_errors))
+
+    validated = validation_result.valid
 
     if validated.empty:
         return pd.DataFrame(), ordered_columns, None
@@ -317,7 +320,6 @@ def _prepare_assay_chunk(
         last_identifier = str(serialised["assay_chembl_id"].iloc[-1])
 
     return serialised, ordered_columns, last_identifier
-
 
 
 def run_pipeline(
@@ -400,10 +402,6 @@ def run_pipeline(
 
     identifier_stream = _skip_processed_ids(id_loader, resume_id)
 
-    command_sequence = command_parts if command_parts is not None else tuple(sys.argv)
-    command = " ".join(shlex.quote(part) for part in command_sequence)
-    config = _prepare_configuration(args)
-
     for chunk in stream_assays(client, identifier_stream, chunk_size=args.chunk_size):
         serialised, ordered_columns, chunk_last = _prepare_assay_chunk(
             chunk,
@@ -418,14 +416,6 @@ def run_pipeline(
                 last_identifier = chunk_last
             continue
 
-
-    write_cli_metadata(
-        output_path,
-        row_count=int(len(serialised)),
-        column_count=int(len(serialised.columns)),
-        namespace=args,
-        command_parts=command_parts,
-        meta_path=meta_path,
         serialised.to_csv(
             output_path,
             mode="a",
@@ -446,12 +436,12 @@ def run_pipeline(
                 "column_order": ordered_columns or [],
             }
         }
-        write_meta_yaml(
+        write_cli_metadata(
             output_path,
-            command=command,
-            config=config,
             row_count=total_rows,
             column_count=column_count,
+            namespace=args,
+            command_parts=command_parts,
             meta_path=meta_path,
             extra=progress_payload,
         )
@@ -470,12 +460,12 @@ def run_pipeline(
         progress_payload = {
             "progress": {"last_id": last_identifier, "column_order": ordered_columns}
         }
-        write_meta_yaml(
+        write_cli_metadata(
             output_path,
-            command=command,
-            config=config,
             row_count=0,
             column_count=column_count,
+            namespace=args,
+            command_parts=command_parts,
             meta_path=meta_path,
             extra=progress_payload,
         )
@@ -487,12 +477,12 @@ def run_pipeline(
                 "column_order": ordered_columns or [],
             }
         }
-        write_meta_yaml(
+        write_cli_metadata(
             output_path,
-            command=command,
-            config=config,
             row_count=total_rows,
             column_count=column_count,
+            namespace=args,
+            command_parts=command_parts,
             meta_path=meta_path,
             extra=progress_payload,
         )
@@ -509,7 +499,6 @@ def run_pipeline(
         table_name=str(quality_base),
         separator=args.sep,
         encoding=args.encoding,
-
     )
 
     LOGGER.info("Assay table written to %s", output_path)
