@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import tracemalloc
 import sys
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import pandas as pd
 import pytest
 import requests  # type: ignore[import-untyped]
 import requests_mock
@@ -46,7 +48,9 @@ def test_get_documents_parses_response() -> None:
         m.get(f"{base}&document_chembl_id__in=DOC1", json=sample)
         http = HttpClient(timeout=1.0, max_retries=1, rps=0)
         client = ChemblClient(http_client=http)
-        df = get_documents(["DOC1"], cfg=cfg, client=client)
+        chunks = list(get_documents(["DOC1"], cfg=cfg, client=client))
+    assert len(chunks) == 1
+    df = pd.concat(chunks, ignore_index=True)
     assert df.loc[0, "document_chembl_id"] == "DOC1"
     assert df.loc[0, "pubmed_id"] == "1"
 
@@ -167,11 +171,13 @@ def test_get_documents_batches_requests_and_filters_duplicates() -> None:
     client = ChemblClient(http_client=HttpClient(timeout=1.0, max_retries=1, rps=0))
     client.request_json = recorder.request_json  # type: ignore[assignment]
 
-    df = get_documents(
-        ["DOC1", "DOC2", "DOC3", "DOC1", "", "#N/A"],
-        cfg=cfg,
-        client=client,
-        chunk_size=2,
+    chunks = list(
+        get_documents(
+            ["DOC1", "DOC2", "DOC3", "DOC1", "", "#N/A"],
+            cfg=cfg,
+            client=client,
+            chunk_size=2,
+        )
     )
 
     assert [",".join(item["ids"]) for item in recorder.calls] == [
@@ -179,6 +185,8 @@ def test_get_documents_batches_requests_and_filters_duplicates() -> None:
         "DOC3",
     ]
     assert [item["limit"] for item in recorder.calls] == [2, 1]
+    assert len(chunks) == 2
+    df = pd.concat(chunks, ignore_index=True)
     assert df["document_chembl_id"].tolist() == ["DOC1", "DOC2", "DOC3"]
 
 
@@ -227,15 +235,79 @@ def test_get_documents_returns_all_ids_when_chunk_exceeds_default_limit() -> Non
     client = ChemblClient(http_client=HttpClient(timeout=1.0, max_retries=1, rps=0))
     client.request_json = recorder.request_json  # type: ignore[assignment]
 
-    df = get_documents(
-        requested_ids,
-        cfg=cfg,
-        client=client,
-        chunk_size=len(requested_ids),
+    chunks = list(
+        get_documents(
+            requested_ids,
+            cfg=cfg,
+            client=client,
+            chunk_size=len(requested_ids),
+        )
     )
 
     assert recorder.limits == [len(requested_ids)]
+    assert len(chunks) == 1
+    df = pd.concat(chunks, ignore_index=True)
     assert df["document_chembl_id"].tolist() == requested_ids
+
+
+def test_get_documents_memory_usage_stable() -> None:
+    """Fetching many IDs should not leak memory across chunks."""
+
+    cfg = ApiCfg()
+    total_ids = 1000
+    chunk_size = 50
+
+    class _Recorder:
+        def request_json(
+            self, url: str, *, cfg: ApiCfg, timeout: float
+        ) -> dict[str, Any]:
+            parsed = urlparse(url)
+            params = parse_qs(parsed.query)
+            ids_raw = params.get("document_chembl_id__in", [""])[0]
+            identifiers = [value for value in ids_raw.split(",") if value]
+            return {
+                "documents": [
+                    {
+                        "document_chembl_id": doc_id,
+                        "title": f"Title {doc_id}",
+                        "abstract": f"Abstract {doc_id}",
+                        "doi": f"10.{doc_id}/doi{doc_id}",
+                        "year": 2024,
+                        "journal_full_title": "Journal",
+                        "journal": "J",
+                        "volume": "1",
+                        "issue": "1",
+                        "first_page": "1",
+                        "last_page": "2",
+                        "pubmed_id": doc_id,
+                        "authors": "Author",
+                    }
+                    for doc_id in identifiers
+                ]
+            }
+
+    recorder = _Recorder()
+    client = ChemblClient(http_client=HttpClient(timeout=1.0, max_retries=1, rps=0))
+    client.request_json = recorder.request_json  # type: ignore[assignment]
+
+    ids = (f"DOC{i}" for i in range(total_ids))
+    current = peak = 0
+    tracemalloc.start()
+    try:
+        total_rows = 0
+        for chunk in get_documents(
+            ids,
+            cfg=cfg,
+            client=client,
+            chunk_size=chunk_size,
+        ):
+            total_rows += len(chunk)
+        current, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert total_rows == total_ids
+    assert peak - current < 5_000_000
 
 
 def test_fetch_assay_retries_on_429_without_retry_after(

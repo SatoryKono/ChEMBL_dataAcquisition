@@ -6,7 +6,7 @@ import logging
 
 import re
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List
 
@@ -344,11 +344,28 @@ class ChemblClient:
             raise
 
 
-def _chunked(seq: Sequence[str], size: int) -> Iterable[List[str]]:
-    """Вернуть последовательность по частям размера ``size``."""
+def _chunked(values: Iterable[str], size: int) -> Iterator[List[str]]:
+    """Yield ``values`` in lists of length up to ``size``.
 
-    for i in range(0, len(seq), size):
-        yield list(seq[i : i + size])
+    Args:
+        values: An iterable of pre-filtered identifier strings.
+        size: The desired batch size.
+
+    Yields:
+        Lists containing up to ``size`` identifiers preserving the source order.
+    """
+
+    if size <= 0:
+        raise ValueError("size must be a positive integer")
+
+    chunk: List[str] = []
+    for value in values:
+        chunk.append(value)
+        if len(chunk) == size:
+            yield chunk
+            chunk = []
+    if chunk:
+        yield chunk
 
 
 DOCUMENT_COLUMNS = [
@@ -369,6 +386,21 @@ DOCUMENT_COLUMNS = [
 ]
 
 
+def _iter_unique_identifiers(ids: Iterable[str]) -> Iterator[str]:
+    """Yield unique, non-empty identifiers from ``ids`` preserving order."""
+
+    invalid_markers = {"", "#N/A"}
+    seen: set[str] = set()
+    for raw in ids:
+        text = str(raw)
+        if text in invalid_markers:
+            continue
+        if text in seen:
+            continue
+        seen.add(text)
+        yield text
+
+
 def get_documents(
     ids: Iterable[str],
     *,
@@ -376,30 +408,25 @@ def get_documents(
     client: ChemblClient,
     chunk_size: int = 5,
     timeout: float | None = None,
-) -> pd.DataFrame:
-    """Retrieves document records for the given IDs from the ChEMBL API.
+) -> Iterator[pd.DataFrame]:
+    """Stream document records for ``ids`` from the ChEMBL API.
 
     Args:
-        ids: An iterable of document ChEMBL IDs.
+        ids: An iterable (including generators) yielding document identifiers.
         cfg: The API configuration.
         client: The ChEMBL client.
         chunk_size: The number of IDs to include in each API request.
-        timeout: The timeout for the request in seconds.
+        timeout: Optional timeout override for the request in seconds.
 
-    Returns:
-        A pandas DataFrame containing the document records.
+    Yields:
+        DataFrame chunks containing the retrieved document records. Each chunk
+        includes the columns listed in :data:`DOCUMENT_COLUMNS`.
     """
-
-    valid = [i for i in ids if i not in {"", "#N/A"}]
-    unique_ids = list(dict.fromkeys(valid))
-    if not unique_ids:
-        return pd.DataFrame(columns=DOCUMENT_COLUMNS)
 
     base = f"{cfg.chembl_base.rstrip('/')}/document.json?format=json"
     effective_timeout = timeout if timeout is not None else cfg.timeout_read
-    records: list[dict[str, Any]] = []
 
-    for chunk in _chunked(unique_ids, chunk_size):
+    for chunk in _chunked(_iter_unique_identifiers(ids), chunk_size):
         # Align the ``limit`` parameter with the chunk size so the API returns
         # all requested records even when the server-side default is smaller.
         limit = len(chunk)
@@ -407,6 +434,7 @@ def get_documents(
         url = f"{base}&document_chembl_id__in={ids_param}&limit={limit}"
         data = client.request_json(url, cfg=cfg, timeout=effective_timeout)
         items = data.get("documents") or data.get("document") or []
+        records: list[dict[str, Any]] = []
         for item in items:
             record = {
                 "document_chembl_id": item.get("document_chembl_id"),
@@ -425,12 +453,10 @@ def get_documents(
                 "source": "ChEMBL",
             }
             records.append(record)
-
-    if not records:
-        return pd.DataFrame(columns=DOCUMENT_COLUMNS)
-
-    df = pd.DataFrame(records)
-    return df.reindex(columns=DOCUMENT_COLUMNS)
+        if not records:
+            continue
+        df = pd.DataFrame(records)
+        yield df.reindex(columns=DOCUMENT_COLUMNS)
 
 
 __all__ = ["ApiCfg", "ChemblClient", "get_documents"]

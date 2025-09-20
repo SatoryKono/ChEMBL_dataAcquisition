@@ -11,7 +11,8 @@ import sys
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, MutableMapping, Sequence, cast
+from itertools import chain
+from typing import Any, Dict, Iterator, List, Mapping, MutableMapping, Sequence, cast
 
 import pandas as pd
 import requests
@@ -568,6 +569,183 @@ def _gather_openalex_sources(
     return placeholders, openalex_records, crossref_records
 
 
+class _QualityAccumulator:
+    """Accumulate CSV quality metrics incrementally during streaming writes."""
+
+    def __init__(self) -> None:
+        self.row_count: int = 0
+        self.doi_missing: int = 0
+        self.publication_class_counts: Dict[str, int] = {}
+        self.error_counts: Dict[str, int] = {}
+        self._error_columns_seen: set[str] = set()
+
+    def update(self, df: pd.DataFrame) -> None:
+        """Update the aggregated metrics with ``df``.
+
+        Args:
+            df: A DataFrame chunk already converted to string columns.
+        """
+
+        chunk_size = len(df)
+        self.row_count += chunk_size
+        if chunk_size == 0:
+            return
+
+        doi_columns = [
+            col
+            for col in (
+                "PubMed.DOI",
+                "scholar.DOI",
+                "OpenAlex.DOI",
+                "crossref.DOI",
+                "ChEMBL.doi",
+            )
+            if col in df.columns
+        ]
+        if doi_columns:
+            doi_present = pd.Series(False, index=df.index, dtype=bool)
+            for column in doi_columns:
+                values = df[column].fillna("").astype(str).str.strip()
+                doi_present = doi_present | values.ne("")
+            self.doi_missing += int((~doi_present).sum())
+        else:
+            self.doi_missing += chunk_size
+
+        if "publication_class" in df.columns:
+            values = df["publication_class"].astype("string")
+            counts = values.value_counts(dropna=False)
+            for key, count in counts.items():
+                text_key = str(key)
+                self.publication_class_counts[text_key] = (
+                    self.publication_class_counts.get(text_key, 0) + int(count)
+                )
+
+        error_columns = [col for col in df.columns if col.endswith(".Error")]
+        for column in error_columns:
+            self._error_columns_seen.add(column)
+            lengths = df[column].fillna("").astype(str).str.len()
+            count = int((lengths > 0).sum())
+            self.error_counts[column] = self.error_counts.get(column, 0) + count
+
+    def as_dict(self) -> Dict[str, Any]:
+        """Return the accumulated metrics as a serialisable dictionary."""
+
+        error_summary = {
+            column: self.error_counts.get(column, 0)
+            for column in sorted(self._error_columns_seen)
+        }
+        return {
+            "row_count": self.row_count,
+            "missing_doi": self.doi_missing,
+            "publication_class_distribution": {
+                key: int(value) for key, value in self.publication_class_counts.items()
+            },
+            "error_counts": error_summary,
+        }
+
+
+def _write_progress(progress_path: Path, processed_rows: int) -> None:
+    """Persist the current number of processed rows to ``progress_path``."""
+
+    progress_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"processed_rows": int(processed_rows)}
+    progress_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _prepare_chembl_chunk(chunk: pd.DataFrame) -> pd.DataFrame:
+    """Normalise a ChEMBL chunk to the exported column schema."""
+
+    if chunk.empty:
+        return pd.DataFrame(columns=CH_EMBL_COLUMNS)
+
+    renamed = chunk.rename(
+        columns={
+            "document_chembl_id": "ChEMBL.document_chembl_id",
+            "title": "ChEMBL.title",
+            "abstract": "ChEMBL.abstract",
+            "doi": "ChEMBL.doi",
+            "year": "ChEMBL.year",
+            "journal": "ChEMBL.journal",
+            "journal_abbrev": "ChEMBL.journal_abbrev",
+            "volume": "ChEMBL.volume",
+            "issue": "ChEMBL.issue",
+            "first_page": "ChEMBL.first_page",
+            "last_page": "ChEMBL.last_page",
+            "pubmed_id": "ChEMBL.pubmed_id",
+            "authors": "ChEMBL.authors",
+            "source": "ChEMBL.source",
+        }
+    )
+    for column in CH_EMBL_COLUMNS:
+        if column not in renamed.columns:
+            renamed[column] = pd.NA
+    return renamed.reindex(columns=CH_EMBL_COLUMNS)
+
+
+def _write_chunked_chembl_output(
+    chunks: Iterator[pd.DataFrame],
+    *,
+    output_path: Path,
+    sep: str,
+    encoding: str,
+) -> Dict[str, Any]:
+    """Stream ChEMBL chunks to ``output_path`` and return the metadata report."""
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    progress_path = output_path.with_name(f"{output_path.name}.progress.json")
+    accumulator = _QualityAccumulator()
+    header_written = False
+    total_rows = 0
+
+    for raw_chunk in chunks:
+        prepared = dataframe_to_strings(_prepare_chembl_chunk(raw_chunk))
+        accumulator.update(prepared)
+        if prepared.empty:
+            continue
+        mode = "w" if not header_written else "a"
+        prepared.to_csv(
+            output_path,
+            sep=sep,
+            index=False,
+            mode=mode,
+            header=not header_written,
+            encoding=encoding,
+        )
+        header_written = True
+        total_rows += len(prepared)
+        _write_progress(progress_path, total_rows)
+
+    if not header_written:
+        empty = dataframe_to_strings(pd.DataFrame(columns=CH_EMBL_COLUMNS))
+        empty.to_csv(output_path, sep=sep, index=False, encoding=encoding)
+        _write_progress(progress_path, total_rows)
+
+    checksum = compute_file_hash(output_path)
+    report = accumulator.as_dict()
+    report["file_sha256"] = checksum
+    report["output"] = str(output_path)
+    meta_path = output_path.with_name(f"{output_path.name}.meta.json")
+    save_quality_report(meta_path, report)
+    LOGGER.info("Wrote %d rows to %s", total_rows, output_path)
+    LOGGER.info("Metadata report saved to %s", meta_path)
+    LOGGER.info("Progress stored in %s", progress_path)
+    return report
+
+
+def _collect_document_chunks(chunks: Iterator[pd.DataFrame]) -> pd.DataFrame:
+    """Materialise ``chunks`` into a single DataFrame while preserving order."""
+
+    iterator = iter(chunks)
+    try:
+        first = next(iterator)
+    except StopIteration:
+        return pd.DataFrame()
+
+    columns = list(first.columns)
+    combined = pd.concat(chain((first,), iterator), ignore_index=True)
+    return combined.reindex(columns=columns)
+
+
 def _write_output(
     df: pd.DataFrame,
     *,
@@ -752,42 +930,18 @@ def run_chembl_command(args: argparse.Namespace, config: Dict[str, Any]) -> None
         )
     )
     cfg_obj = ApiCfg(timeout_read=float(chem_cfg.get("timeout", 30.0)))
-    chem_df = get_documents(
+    chunks = get_documents(
         ids,
         cfg=cfg_obj,
         client=chem_client,
         chunk_size=int(chem_cfg.get("chunk_size", 10)),
         timeout=float(chem_cfg.get("timeout", 30.0)),
     )
-    if chem_df.empty:
-        df = pd.DataFrame(columns=CH_EMBL_COLUMNS)
-    else:
-        df = chem_df.rename(
-            columns={
-                "document_chembl_id": "ChEMBL.document_chembl_id",
-                "title": "ChEMBL.title",
-                "abstract": "ChEMBL.abstract",
-                "doi": "ChEMBL.doi",
-                "year": "ChEMBL.year",
-                "journal": "ChEMBL.journal",
-                "journal_abbrev": "ChEMBL.journal_abbrev",
-                "volume": "ChEMBL.volume",
-                "issue": "ChEMBL.issue",
-                "first_page": "ChEMBL.first_page",
-                "last_page": "ChEMBL.last_page",
-                "pubmed_id": "ChEMBL.pubmed_id",
-                "authors": "ChEMBL.authors",
-                "source": "ChEMBL.source",
-            }
-        )
-        for column in CH_EMBL_COLUMNS:
-            if column not in df.columns:
-                df[column] = pd.NA
-        df = df.reindex(columns=CH_EMBL_COLUMNS)
-    df = dataframe_to_strings(df)
-    df = df.sort_values("ChEMBL.document_chembl_id").reset_index(drop=True)
-    _write_output(
-        df, output_path=args.output, sep=io_cfg["sep"], encoding=io_cfg["encoding"]
+    _write_chunked_chembl_output(
+        chunks,
+        output_path=args.output,
+        sep=io_cfg["sep"],
+        encoding=io_cfg["encoding"],
     )
 
 
@@ -814,13 +968,14 @@ def run_all_command(args: argparse.Namespace, config: Dict[str, Any]) -> None:
         )
     )
     cfg_obj = ApiCfg(timeout_read=float(chem_cfg.get("timeout", 30.0)))
-    chem_df = get_documents(
+    chem_chunks = get_documents(
         ids,
         cfg=cfg_obj,
         client=chem_client,
         chunk_size=int(chem_cfg.get("chunk_size", 10)),
         timeout=float(chem_cfg.get("timeout", 30.0)),
     )
+    chem_df = _collect_document_chunks(chem_chunks)
     pmids = [
         str(value).strip()
         for value in chem_df.get("pubmed_id", pd.Series(dtype="string")).fillna("")
