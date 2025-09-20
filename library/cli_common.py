@@ -241,6 +241,7 @@ def write_cli_metadata(
     status: Literal["success", "error"] = "success",
     error: str | None = None,
     warnings: Sequence[str] | None = None,
+    extra: Mapping[str, Any] | None = None,
 ) -> Path:
     """Persists a `.meta.yaml` companion file next to the output file.
 
@@ -262,6 +263,9 @@ def write_cli_metadata(
         warnings: Optional sequence of warning messages to persist alongside the
             core metadata. Use this to surface non-fatal issues to downstream
             consumers.
+        extra: Additional mapping merged into the metadata payload. This is
+            typically used to store progress checkpoints such as the last
+            processed identifier for resumable jobs.
 
     Returns:
         The path to the written metadata file.
@@ -282,4 +286,5 @@ def write_cli_metadata(
         error=error,
         include_hash=include_hash,
         warnings=warnings,
+        extra=extra,
     )

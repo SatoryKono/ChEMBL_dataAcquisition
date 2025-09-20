@@ -110,6 +110,7 @@ def write_meta_yaml(
     error: str | None = None,
     include_hash: bool = True,
     warnings: Sequence[str] | None = None,
+    extra: Mapping[str, Any] | None = None,
 ) -> Path:
     """Writes dataset metadata to a YAML file next to the output file.
 
@@ -139,6 +140,10 @@ def write_meta_yaml(
         Optional collection of warning messages emitted during execution. The
         sequence is preserved as provided and intended for non-fatal issues that
         should be visible to downstream consumers of the metadata.
+    extra:
+        Additional key-value pairs appended to the metadata record. This is
+        useful for storing progress checkpoints that allow long-running jobs to
+        resume without starting from scratch.
     """
 
     default_meta_path = output_path.with_name(f"{output_path.name}.meta.yaml")
@@ -162,10 +167,15 @@ def write_meta_yaml(
     if warnings:
         metadata["warnings"] = list(warnings)
 
+    if extra:
+        for key, value in extra.items():
+            metadata[key] = value
+
     if include_hash:
         metadata["sha256"] = _file_sha256(output_path)
         metadata["determinism"] = _determinism_record(
-            current_sha=metadata["sha256"], previous_metadata=previous_metadata
+            current_sha=str(metadata["sha256"]),
+            previous_metadata=previous_metadata,
         )
     else:
         metadata["sha256"] = None
