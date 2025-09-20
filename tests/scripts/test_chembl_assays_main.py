@@ -3,7 +3,8 @@ from __future__ import annotations
 import importlib
 import sys
 from pathlib import Path
-from typing import Any, Sequence
+
+from typing import Any, Sequence, Iterable
 
 import pandas as pd
 import pytest
@@ -39,7 +40,7 @@ def test_run_pipeline_preserves_numeric_dtypes(
         }
     )
 
-    captured: dict[str, Any] = {}
+    captured: dict[str, Any] = {"serialise_calls": [], "metadata": []}
     dtypes_capture: dict[str, pd.Series] = {}
 
     class DummyClient:  # pragma: no cover - simple stub
@@ -49,8 +50,10 @@ def test_run_pipeline_preserves_numeric_dtypes(
     def fake_read_ids(*_: object) -> list[str]:
         return ["CHEMBL1"]
 
-    def fake_get_assays(_client: Any, *_: object, **__: object) -> pd.DataFrame:
-        return validated_frame.copy()
+    def fake_stream_assays(
+        _client: Any, *_: object, **__: object
+    ) -> Iterable[pd.DataFrame]:
+        yield validated_frame.copy()
 
     def fake_postprocess(df: pd.DataFrame) -> pd.DataFrame:
         return df.copy()
@@ -65,7 +68,6 @@ def test_run_pipeline_preserves_numeric_dtypes(
         errors_path: Path,
     ) -> pd.DataFrame:
         _ = schema
-        captured["errors_path"] = errors_path
         return df.copy()
 
     original_serialise = cli_common.serialise_dataframe
@@ -73,18 +75,22 @@ def test_run_pipeline_preserves_numeric_dtypes(
     def serialise_spy(
         df: pd.DataFrame, list_format: str, *, inplace: bool = False
     ) -> pd.DataFrame:
-        captured["serialise_call"] = {
+        call_snapshot = {
             "inplace": inplace,
             "list_format": list_format,
             "input_id": id(df),
         }
         result = original_serialise(df, list_format, inplace=inplace)
-        captured["serialise_call"]["result_id"] = id(result)
+        call_snapshot["result_id"] = id(result)
+        captured["serialise_calls"].append(call_snapshot)
         return result
 
-    def fake_analyze_table_quality(frame: pd.DataFrame, table_name: str) -> None:
+    def fake_analyze_table_quality(
+        frame: pd.DataFrame | Path | str, table_name: str, **_: object
+    ) -> None:
         captured["quality_table"] = table_name
-        dtypes_capture["values"] = frame.dtypes.copy()
+        actual = pd.read_csv(frame) if not isinstance(frame, pd.DataFrame) else frame
+        dtypes_capture["values"] = actual.dtypes.copy()
 
     def fake_write_cli_metadata(
         output_path: Path,
@@ -94,6 +100,7 @@ def test_run_pipeline_preserves_numeric_dtypes(
         namespace: Any,
         command_parts: Sequence[str] | None = None,
         meta_path: Path | None = None,
+
         status: str = "success",
         error: str | None = None,
         warnings: Sequence[str] | None = None,
@@ -108,11 +115,12 @@ def test_run_pipeline_preserves_numeric_dtypes(
             "error": error,
             "warnings": list(warnings or []),
         }
+
         return output_path.with_name(f"{output_path.name}.meta.yaml")
 
     monkeypatch.setattr(module, "ChemblClient", DummyClient)
     monkeypatch.setattr(module, "read_ids", fake_read_ids)
-    monkeypatch.setattr(module, "get_assays", fake_get_assays)
+    monkeypatch.setattr(module, "stream_assays", fake_stream_assays)
     monkeypatch.setattr(module, "postprocess_assays", fake_postprocess)
     monkeypatch.setattr(module, "normalize_assays", fake_normalize)
     monkeypatch.setattr(module, "validate_assays", fake_validate)
@@ -138,12 +146,11 @@ def test_run_pipeline_preserves_numeric_dtypes(
 
     assert exit_code == 0
     assert output_csv.exists()
-    assert captured["serialise_call"]["inplace"] is True
-    assert captured["serialise_call"]["list_format"] == args.list_format
-    assert (
-        captured["serialise_call"]["input_id"]
-        == captured["serialise_call"]["result_id"]
-    )
+    assert captured["serialise_calls"]
+    first_call = captured["serialise_calls"][0]
+    assert first_call["inplace"] is True
+    assert first_call["list_format"] == args.list_format
+    assert first_call["input_id"] == first_call["result_id"]
 
     dtypes = dtypes_capture["values"]
     assert is_integer_dtype(dtypes["assay_with_same_target"])
@@ -156,3 +163,4 @@ def test_run_pipeline_preserves_numeric_dtypes(
     assert metadata["command_parts"] == tuple(["chembl_assays_main.py", *argv])
     assert metadata["row_count"] == 1
     assert metadata["column_count"] == len(validated_frame.columns)
+

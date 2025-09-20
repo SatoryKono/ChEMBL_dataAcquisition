@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, Iterable, Iterator, List
+from typing import Callable, Iterable, Iterator, List, Sequence
 
 import pandas as pd
 
 try:  # pragma: no cover - allow flat imports during testing
-    from .chembl_client import ChemblClient
+    from .chembl_client import ChemblClient  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover
-    from chembl_client import ChemblClient  # type: ignore[no-redef]
+    from chembl_client import ChemblClient  # type: ignore[import-not-found, no-redef]
 
 LOGGER = logging.getLogger(__name__)
 
@@ -35,21 +35,56 @@ def _fetch_dataframe(
     chunk_size: int,
     log_label: str,
     dedupe_column: str,
-) -> pd.DataFrame:
-    records: List[dict[str, object]] = []
+) -> Iterator[pd.DataFrame]:
+    """Yield records retrieved from ChEMBL in DataFrame chunks.
+
+    The helper streams API responses by requesting ``chunk_size`` identifiers at
+    a time and yielding each batch as a :class:`pandas.DataFrame`.  Records are
+    deduplicated according to ``dedupe_column`` so that downstream consumers can
+    append results directly to CSV files without introducing duplicate rows.
+
+    Args:
+        fetch: Callable performing the API request for a batch of identifiers.
+        identifiers: Iterable producing ChEMBL identifiers.
+        chunk_size: Maximum number of identifiers passed to ``fetch`` per
+            request.
+        log_label: Human readable label used in progress messages.
+        dedupe_column: Column name identifying unique records in the response.
+
+    Yields:
+        DataFrames containing at most ``chunk_size`` records that are unique with
+        respect to ``dedupe_column``.  Empty DataFrames are skipped.
+    """
+
+    seen: set[str] = set()
     for chunk in _chunked(identifiers, chunk_size):
         LOGGER.info("Fetching %d %s from ChEMBL", len(chunk), log_label)
-        records.extend(fetch(chunk))
+        payload = fetch(chunk)
+        if not payload:
+            continue
+        df = pd.DataFrame(payload)
+        if dedupe_column in df.columns:
+            df = df.drop_duplicates(subset=[dedupe_column])
+            if seen:
+                df = df[~df[dedupe_column].isin(seen)]
+        if df.empty:
+            continue
+        if dedupe_column in df.columns:
+            values = df[dedupe_column].dropna().map(str).tolist()
+            seen.update(values)
+            df = df.sort_values(dedupe_column)
+        df.reset_index(drop=True, inplace=True)
+        yield df
 
-    if not records:
-        LOGGER.warning("No %s were retrieved from the API", log_label)
+
+def _collect_frames(frames: Sequence[pd.DataFrame]) -> pd.DataFrame:
+    """Materialise ``frames`` into a single DataFrame preserving column order."""
+
+    if not frames:
         return pd.DataFrame()
-
-    df = pd.DataFrame(records)
-    if dedupe_column in df.columns:
-        df = df.drop_duplicates(subset=[dedupe_column]).sort_values(dedupe_column)
-    df.reset_index(drop=True, inplace=True)
-    return df
+    if len(frames) == 1:
+        return frames[0].reset_index(drop=True)
+    return pd.concat(frames, ignore_index=True)
 
 
 def get_assays(
@@ -69,13 +104,16 @@ def get_assays(
         A pandas DataFrame containing the assay metadata.
     """
 
-    return _fetch_dataframe(
-        fetch=client.fetch_many,
-        identifiers=assay_ids,
-        chunk_size=chunk_size,
-        log_label="assays",
-        dedupe_column="assay_chembl_id",
+    frames = list(
+        _fetch_dataframe(
+            fetch=client.fetch_many,
+            identifiers=assay_ids,
+            chunk_size=chunk_size,
+            log_label="assays",
+            dedupe_column="assay_chembl_id",
+        )
     )
+    return _collect_frames(frames)
 
 
 def get_activities(
@@ -95,13 +133,16 @@ def get_activities(
         A pandas DataFrame containing the activity metadata.
     """
 
-    return _fetch_dataframe(
-        fetch=client.fetch_many_activities,
-        identifiers=activity_ids,
-        chunk_size=chunk_size,
-        log_label="activities",
-        dedupe_column="activity_chembl_id",
+    frames = list(
+        _fetch_dataframe(
+            fetch=client.fetch_many_activities,
+            identifiers=activity_ids,
+            chunk_size=chunk_size,
+            log_label="activities",
+            dedupe_column="activity_chembl_id",
+        )
     )
+    return _collect_frames(frames)
 
 
 def get_testitems(
@@ -121,7 +162,61 @@ def get_testitems(
         A pandas DataFrame containing the molecule metadata.
     """
 
-    return _fetch_dataframe(
+    frames = list(
+        _fetch_dataframe(
+            fetch=client.fetch_many_molecules,
+            identifiers=molecule_ids,
+            chunk_size=chunk_size,
+            log_label="molecules",
+            dedupe_column="molecule_chembl_id",
+        )
+    )
+    return _collect_frames(frames)
+
+
+def stream_assays(
+    client: ChemblClient,
+    assay_ids: Iterable[str],
+    *,
+    chunk_size: int = 20,
+) -> Iterator[pd.DataFrame]:
+    """Stream assay metadata from ChEMBL in DataFrame chunks."""
+
+    yield from _fetch_dataframe(
+        fetch=client.fetch_many,
+        identifiers=assay_ids,
+        chunk_size=chunk_size,
+        log_label="assays",
+        dedupe_column="assay_chembl_id",
+    )
+
+
+def stream_activities(
+    client: ChemblClient,
+    activity_ids: Iterable[str],
+    *,
+    chunk_size: int = 20,
+) -> Iterator[pd.DataFrame]:
+    """Stream activity metadata from ChEMBL in DataFrame chunks."""
+
+    yield from _fetch_dataframe(
+        fetch=client.fetch_many_activities,
+        identifiers=activity_ids,
+        chunk_size=chunk_size,
+        log_label="activities",
+        dedupe_column="activity_chembl_id",
+    )
+
+
+def stream_testitems(
+    client: ChemblClient,
+    molecule_ids: Iterable[str],
+    *,
+    chunk_size: int = 20,
+) -> Iterator[pd.DataFrame]:
+    """Stream molecule metadata from ChEMBL in DataFrame chunks."""
+
+    yield from _fetch_dataframe(
         fetch=client.fetch_many_molecules,
         identifiers=molecule_ids,
         chunk_size=chunk_size,
