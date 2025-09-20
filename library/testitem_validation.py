@@ -1,226 +1,223 @@
-"""Validation schema for normalised ChEMBL test item tables."""
+"""Vectorised validation schema for normalised ChEMBL test item tables."""
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Iterable
 
-import numpy as np
 import pandas as pd
-from pandas.api.types import is_scalar
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
+
+from .validation_core import (
+    ValidationResult,
+    build_error_frame,
+    coerce_dataframe,
+    combine_error_frames,
+    serialise_errors,
+)
 
 LOGGER = logging.getLogger(__name__)
 
-
-class TestitemsSchema(BaseModel):
-    """Pydantic model describing a validated molecule record."""
-
-    model_config = ConfigDict(extra="allow")
-
-    molecule_chembl_id: str
-    canonical_smiles: str
-    standard_inchi_key: str
-    pref_name: str | None = None
-    molecule_type: str | None = None
-    structure_type: str | None = None
-    salt_chembl_id: str | None = None
-    parent_chembl_id: str | None = None
-    max_phase: int | None = None
-    chembl_full_mwt: float | None = None
-    chembl_alogp: float | None = None
-    chembl_num_ro5_violations: int | None = None
-    chembl_molecular_species: str | None = None
-    pubchem_cid: int | None = None
-    pubchem_molecular_formula: str | None = None
-    pubchem_molecular_weight: float | None = None
-    pubchem_tpsa: float | None = None
-    pubchem_x_log_p: float | None = None
-    pubchem_h_bond_donor_count: int | None = None
-    pubchem_h_bond_acceptor_count: int | None = None
-    pubchem_rotatable_bond_count: int | None = None
-
-    @field_validator(
-        "molecule_chembl_id", "canonical_smiles", "standard_inchi_key", mode="before"
-    )
-    @classmethod
-    def _ensure_non_empty(cls, value: Any) -> str:
-        if value is None:
-            raise ValueError("value must not be empty")
-        if isinstance(value, str):
-            stripped = value.strip()
-            if not stripped:
-                raise ValueError("value must not be empty")
-            return stripped
-        return str(value)
-
-    @field_validator("max_phase", mode="before")
-    @classmethod
-    def _coerce_phase(cls, value: Any) -> int | None:
-        if value is None:
-            return None
-        if isinstance(value, str):
-            stripped = value.strip()
-            if not stripped:
-                return None
-            try:
-                int_value = int(float(stripped))
-            except ValueError as exc:  # pragma: no cover - defensive branch
-                raise ValueError("max_phase must be an integer") from exc
-
-            return int_value
-        try:
-            int_value = int(value)
-        except (TypeError, ValueError) as exc:  # pragma: no cover - defensive branch
-            raise ValueError("max_phase must be an integer") from exc
-        if int_value < 0:
-            raise ValueError("max_phase must be non-negative")
-        return int_value
-
-    @field_validator(
-        "chembl_full_mwt",
-        "chembl_alogp",
-        "chembl_num_ro5_violations",
-        "pubchem_cid",
-        "pubchem_molecular_weight",
-        "pubchem_tpsa",
-        "pubchem_x_log_p",
-        "pubchem_h_bond_donor_count",
-        "pubchem_h_bond_acceptor_count",
-        "pubchem_rotatable_bond_count",
-        mode="before",
-    )
-    @classmethod
-    def _coerce_numeric(cls, value: Any) -> Any:
-        if value is None:
-            return None
-        if isinstance(value, (int, float)):
-            if isinstance(value, float) and np.isnan(value):
-                return None
-            return value
-        if isinstance(value, str):
-            stripped = value.strip()
-            if not stripped:
-                return None
-            try:
-                if any(char in stripped for char in [".", "e", "E"]):
-                    return float(stripped)
-                return int(stripped)
-            except ValueError:
-                return stripped
-        return value
-
-    @classmethod
-    def ordered_columns(cls) -> list[str]:
-        """Return the columns defined by the schema in declaration order."""
-
-        return list(cls.model_fields.keys())
+_REQUIRED_STR_COLUMNS = ("molecule_chembl_id", "canonical_smiles", "standard_inchi_key")
+_INT_COLUMNS = (
+    "chembl_num_ro5_violations",
+    "pubchem_cid",
+    "pubchem_h_bond_donor_count",
+    "pubchem_h_bond_acceptor_count",
+    "pubchem_rotatable_bond_count",
+)
+_FLOAT_COLUMNS = (
+    "chembl_full_mwt",
+    "chembl_alogp",
+    "pubchem_molecular_weight",
+    "pubchem_tpsa",
+    "pubchem_x_log_p",
+)
 
 
-def _is_missing_scalar(value: Any) -> bool:
-    try:
-        result = pd.isna(value)
-    except (TypeError, ValueError):
-        return False
-    if isinstance(result, (bool, np.bool_)):
-        return bool(result)
-    return False
+class TestitemsSchema:
+    """Lightweight schema placeholder retaining the historical column order."""
+
+    @staticmethod
+    def ordered_columns() -> list[str]:
+        """Return the ordered column list from the legacy schema."""
+
+        return [
+            "molecule_chembl_id",
+            "canonical_smiles",
+            "standard_inchi_key",
+            "pref_name",
+            "molecule_type",
+            "structure_type",
+            "salt_chembl_id",
+            "parent_chembl_id",
+            "max_phase",
+            "chembl_full_mwt",
+            "chembl_alogp",
+            "chembl_num_ro5_violations",
+            "chembl_molecular_species",
+            "pubchem_cid",
+            "pubchem_molecular_formula",
+            "pubchem_molecular_weight",
+            "pubchem_tpsa",
+            "pubchem_x_log_p",
+            "pubchem_h_bond_donor_count",
+            "pubchem_h_bond_acceptor_count",
+            "pubchem_rotatable_bond_count",
+        ]
 
 
-def _coerce_value(value: Any) -> Any:
-    if value is None:
-        return None
-    if isinstance(value, np.ndarray):
-        if value.size == 0:
-            return []
-        if value.ndim > 1:
-            flattened = value.flatten()
-            if flattened.size == 0:
-                return []
-            if flattened.size == 1:
-                return _coerce_value(flattened.item())
-            return [_coerce_value(item) for item in flattened.tolist()]
-        if value.size == 1:
-            return _coerce_value(value.item())
-        return [_coerce_value(item) for item in value.tolist()]
-    if isinstance(value, np.generic):
-        scalar_value = value.item()
-        return None if _is_missing_scalar(scalar_value) else scalar_value
-    if is_scalar(value):
-        return None if _is_missing_scalar(value) else value
-    return value
+def _ensure_required_strings(df: pd.DataFrame) -> Iterable[pd.DataFrame]:
+    for column in _REQUIRED_STR_COLUMNS:
+        if column not in df.columns:
+            continue
+        original = df[column]
+        flattened = original.apply(
+            lambda value: (
+                value[0] if isinstance(value, list) and len(value) == 1 else value
+            )
+        )
+        series = flattened.astype("string")
+        stripped = series.str.strip()
+        mask = stripped.isna() | stripped.eq("")
+        df[column] = stripped.mask(mask, other=pd.NA)
+        yield build_error_frame(
+            original,
+            mask.fillna(False),
+            column=column,
+            message="value must not be empty",
+        )
 
 
-def _coerce_record(row: pd.Series) -> dict[str, Any]:
-    clean: dict[str, Any] = {}
-    for key, value in row.items():
-        clean[key] = _coerce_value(value)
-    return clean
+def _coerce_optional_int(df: pd.DataFrame, column: str) -> Iterable[pd.DataFrame]:
+    if column not in df.columns:
+        return []
+    original = df[column]
+    numeric = pd.to_numeric(original, errors="coerce")
+    mask_invalid = original.notna() & numeric.isna()
+    result = pd.Series(pd.NA, index=df.index, dtype="Int64")
+    valid_numeric = numeric.dropna()
+    if not valid_numeric.empty:
+        result.loc[valid_numeric.index] = valid_numeric.astype(int)
+    df[column] = result
+    return [
+        build_error_frame(
+            original,
+            mask_invalid.fillna(False),
+            column=column,
+            message="value must be an integer",
+        )
+    ]
 
 
-def validate_testitems(
-    df: pd.DataFrame,
-    schema: type[TestitemsSchema] = TestitemsSchema,
-    *,
-    errors_path: Path,
-) -> pd.DataFrame:
-    """Validates rows in a DataFrame against the given schema and writes failures to a file.
+def _coerce_optional_float(df: pd.DataFrame, column: str) -> Iterable[pd.DataFrame]:
+    if column not in df.columns:
+        return []
+    original = df[column]
+    numeric = pd.to_numeric(original, errors="coerce")
+    mask_invalid = original.notna() & numeric.isna()
+    df[column] = numeric.astype("Float64")
+    return [
+        build_error_frame(
+            original,
+            mask_invalid.fillna(False),
+            column=column,
+            message="value must be numeric",
+        )
+    ]
 
-    Args:
-        df: The pandas DataFrame to validate.
-        schema: The Pydantic schema to validate against.
-        errors_path: The path to the file where validation errors will be written.
 
-    Returns:
-        A new DataFrame containing only the valid rows.
+def _coerce_max_phase(df: pd.DataFrame) -> Iterable[pd.DataFrame]:
+    column = "max_phase"
+    if column not in df.columns:
+        return []
+    original = df[column]
+    numeric = pd.to_numeric(original, errors="coerce")
+    mask_invalid = original.notna() & numeric.isna()
+    ints = pd.Series(pd.NA, index=df.index, dtype="Int64")
+    valid_numeric = numeric.dropna()
+    if not valid_numeric.empty:
+        ints.loc[valid_numeric.index] = valid_numeric.astype(int)
+    mask_negative = ints < 0
+    df[column] = ints.mask(mask_negative, other=pd.NA)
+    return [
+        build_error_frame(
+            original,
+            mask_invalid.fillna(False),
+            column=column,
+            message="value must be an integer",
+        ),
+        build_error_frame(
+            original,
+            mask_negative.fillna(False),
+            column=column,
+            message="value must be non-negative",
+        ),
+    ]
+
+
+def validate_testitems(df: pd.DataFrame, *, errors_path: Path) -> ValidationResult:
+    """Validate the provided DataFrame and write a legacy JSON error report.
+
+    Parameters
+    ----------
+    df:
+        DataFrame containing normalised ChEMBL test item records.
+    errors_path:
+        Destination for the JSON error report. Existing files are overwritten on
+        success and removed when the validation is clean.
+
+    Returns
+    -------
+    ValidationResult
+        Object containing the filtered DataFrame with valid rows and the
+        aggregated error report.
     """
 
     if df.empty:
         LOGGER.info("Validation skipped because the DataFrame is empty")
-        return df
+        empty_errors = combine_error_frames([])
+        return ValidationResult(valid=df.copy(), errors=empty_errors)
 
-    valid_rows: list[dict[str, Any]] = []
-    errors: list[dict[str, Any]] = []
+    missing_required = sorted(set(_REQUIRED_STR_COLUMNS) - set(df.columns))
+    if missing_required:
+        LOGGER.warning(
+            "Input data is missing required columns: %s", ", ".join(missing_required)
+        )
 
-    def _normalise_error_details(
-        details: Iterable[Mapping[str, Any]],
-    ) -> list[dict[str, Any]]:
-        normalised: list[dict[str, Any]] = []
-        for entry in details:
-            clean_entry = dict(entry)
-            ctx = clean_entry.get("ctx")
-            if isinstance(ctx, dict):
-                clean_entry["ctx"] = {key: str(value) for key, value in ctx.items()}
-            normalised.append(clean_entry)
-        return normalised
-
-    for index, row in df.iterrows():
-        payload = _coerce_record(row)
-        try:
-            record = schema(**payload)
-        except ValidationError as exc:
-            LOGGER.warning("Validation error for row %s: %s", index, exc)
-            errors.append(
-                {
-                    "index": int(index),
-                    "errors": _normalise_error_details(exc.errors()),
-                    "row": payload,
-                }
+    coerced = coerce_dataframe(df)
+    error_frames: list[pd.DataFrame] = []
+    if missing_required:
+        missing_mask = pd.Series(True, index=coerced.index)
+        for column in missing_required:
+            placeholder = pd.Series(pd.NA, index=coerced.index)
+            error_frames.append(
+                build_error_frame(
+                    placeholder,
+                    missing_mask,
+                    column=column,
+                    message="column is required",
+                    error_type="missing_error",
+                )
             )
-            continue
-        valid_rows.append(record.model_dump())
+    error_frames.extend(_ensure_required_strings(coerced))
+    error_frames.extend(_coerce_max_phase(coerced))
+    for column in _INT_COLUMNS:
+        error_frames.extend(_coerce_optional_int(coerced, column))
+    for column in _FLOAT_COLUMNS:
+        error_frames.extend(_coerce_optional_float(coerced, column))
 
-    if errors:
-        errors_path.parent.mkdir(parents=True, exist_ok=True)
-        with errors_path.open("w", encoding="utf-8") as handle:
-            json.dump(errors, handle, ensure_ascii=False, indent=2)
-        LOGGER.info("Validation produced %d error records", len(errors))
-    elif errors_path.exists():
-        errors_path.unlink()
+    errors = combine_error_frames(error_frames)
+    serialise_errors(errors, coerced, errors_path=errors_path)
 
-    return pd.DataFrame(valid_rows)
+    if errors.empty:
+        valid = coerced.reset_index(drop=True)
+    else:
+        invalid_indices = pd.Index(errors["index"].unique())
+        mask_valid = ~coerced.index.isin(invalid_indices)
+        valid = coerced.loc[mask_valid].reset_index(drop=True)
+
+    return ValidationResult(valid=valid, errors=errors)
 
 
-__all__ = ["validate_testitems", "TestitemsSchema"]
+__all__ = ["validate_testitems", "ValidationResult", "TestitemsSchema"]
