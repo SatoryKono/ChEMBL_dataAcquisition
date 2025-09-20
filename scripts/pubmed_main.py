@@ -762,8 +762,18 @@ def _write_output(
     report["output"] = str(output_path)
     meta_path = output_path.with_name(f"{output_path.name}.meta.json")
     save_quality_report(meta_path, report)
+    _, _, quality_base = resolve_cli_sidecar_paths(output_path)
+    analyze_table_quality(df, table_name=str(quality_base))
+    quality_report_path = quality_base.with_name(
+        f"{quality_base.name}_quality_report_table.csv"
+    )
+    correlation_path = quality_base.with_name(
+        f"{quality_base.name}_data_correlation_report_table.csv"
+    )
     LOGGER.info("Wrote %d rows to %s", len(df), output_path)
     LOGGER.info("Metadata report saved to %s", meta_path)
+    LOGGER.info("Quality report saved to %s", quality_report_path)
+    LOGGER.info("Correlation report saved to %s", correlation_path)
     return report
 
 
@@ -1210,6 +1220,7 @@ def build_parser() -> argparse.ArgumentParser:
         "chembl",
         help="Download ChEMBL document metadata",
         parents=[common_parser],
+        aliases=["get_document"],
     )
     chembl_parser.add_argument(
         "--chunk-size",
@@ -1322,6 +1333,8 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     parser = build_parser()
     parsed_args = parser.parse_args(args)
     _validate_chunk_size_options(parser, parsed_args)
+    if parsed_args.command == "get_document":
+        parsed_args.command = "chembl"
     return parsed_args
 
 

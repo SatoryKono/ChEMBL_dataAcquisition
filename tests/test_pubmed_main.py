@@ -147,6 +147,15 @@ def test_run_pubmed_creates_output_directory(
     assert df.loc[0, "crossref.Subtype"] == "clinical-trial"
     assert df.loc[0, "crossref.Subtitle"] == "Part A|Part B"
     assert df.loc[0, "crossref.Subject"] == "Biology|Chemistry"
+    quality_base = output_path.with_name(output_path.stem)
+    quality_report_path = quality_base.with_name(
+        f"{quality_base.name}_quality_report_table.csv"
+    )
+    correlation_path = quality_base.with_name(
+        f"{quality_base.name}_data_correlation_report_table.csv"
+    )
+    assert quality_report_path.exists()
+    assert correlation_path.exists()
 
 
 def test_run_openalex_command_exports_openalex_only(
@@ -452,6 +461,14 @@ def test_default_command_when_omitted() -> None:
 
     assert args.command == pm.DEFAULT_COMMAND
     assert args.workers is None
+
+
+def test_parse_args_supports_get_document_alias() -> None:
+    """The historic 'get_document' command should map to the ChEMBL export."""
+
+    args = pm.parse_args(["get_document"])
+
+    assert args.command == "chembl"
 
 
 def test_run_semantic_scholar_command(
