@@ -34,6 +34,7 @@ from library.io import read_ids
 from library.io_utils import CsvConfig
 from library.normalize_activities import normalize_activities
 from library.logging_utils import configure_logging
+from library.config.chembl import load_chembl_activities_config
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_LOG_FORMAT = "human"
@@ -57,6 +58,11 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
+        "--config",
+        default="config.yaml",
+        help="Path to the YAML file providing the chembl_activities section",
+    )
+    parser.add_argument(
         "--input", default="input.csv", help="Path to the input CSV file"
     )
     parser.add_argument(
@@ -70,22 +76,22 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--chunk-size",
         type=int,
-        default=20,
-        help="Number of IDs fetched per batch (must be positive)",
+        default=None,
+        help="Number of IDs fetched per batch (defaults to config)",
     )
     parser.add_argument(
-        "--timeout", type=float, default=30.0, help="HTTP timeout in seconds"
+        "--timeout", type=float, default=None, help="HTTP timeout in seconds"
     )
     parser.add_argument(
-        "--max-retries", type=int, default=3, help="Maximum retry attempts"
+        "--max-retries", type=int, default=None, help="Maximum retry attempts"
     )
     parser.add_argument(
-        "--rps", type=float, default=2.0, help="Maximum requests per second"
+        "--rps", type=float, default=None, help="Maximum requests per second"
     )
     parser.add_argument(
         "--retry-penalty",
         type=float,
-        default=1.0,
+        default=None,
         help=(
             "Fallback sleep in seconds applied after 429 responses without a"
             " Retry-After header"
@@ -93,19 +99,21 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--base-url",
-        default="https://www.ebi.ac.uk/chembl/api/data",
-        help="ChEMBL API root",
+        default=None,
+        help="ChEMBL API root (defaults to config)",
     )
     parser.add_argument(
-        "--user-agent", default="ChEMBLDataAcquisition/1.0", help="User-Agent header"
+        "--user-agent", default=None, help="User-Agent header (defaults to config)"
     )
-    parser.add_argument("--sep", default=",", help="CSV delimiter")
-    parser.add_argument("--encoding", default="utf-8", help="CSV encoding")
+    parser.add_argument("--sep", default=None, help="CSV delimiter (defaults to config)")
+    parser.add_argument(
+        "--encoding", default=None, help="CSV encoding (defaults to config)"
+    )
     parser.add_argument(
         "--list-format",
         choices=["json", "pipe"],
-        default="json",
-        help="Serialization format for list columns",
+        default=None,
+        help="Serialization format for list columns (defaults to config)",
     )
     parser.add_argument(
         "--log-level", default="INFO", help="Logging level (e.g. INFO, DEBUG)"
@@ -139,6 +147,35 @@ def parse_args(args: Sequence[str] | None = None) -> argparse.Namespace:
         help="Read and validate the input file without fetching or writing output",
     )
     parsed_args = parser.parse_args(args)
+
+    try:
+        cfg = load_chembl_activities_config(parsed_args.config)
+    except FileNotFoundError as exc:
+        parser.error(f"Configuration file not found: {exc}")
+    except ValueError as exc:
+        parser.error(f"Failed to load configuration: {exc}")
+
+    if parsed_args.chunk_size is None:
+        parsed_args.chunk_size = cfg.chunk_size
+    if parsed_args.timeout is None:
+        parsed_args.timeout = cfg.network.timeout_sec
+    if parsed_args.max_retries is None:
+        parsed_args.max_retries = cfg.network.max_retries
+    if parsed_args.retry_penalty is None:
+        parsed_args.retry_penalty = cfg.network.retry_penalty_sec
+    if parsed_args.rps is None:
+        parsed_args.rps = cfg.rate_limit.rps
+    if parsed_args.base_url is None:
+        parsed_args.base_url = cfg.base_url
+    if parsed_args.user_agent is None:
+        parsed_args.user_agent = cfg.user_agent
+    if parsed_args.sep is None:
+        parsed_args.sep = cfg.csv.sep
+    if parsed_args.encoding is None:
+        parsed_args.encoding = cfg.csv.encoding
+    if parsed_args.list_format is None:
+        parsed_args.list_format = cfg.csv.list_format
+
     if parsed_args.chunk_size <= 0:
         parser.error("--chunk-size must be a positive integer")
     return parsed_args

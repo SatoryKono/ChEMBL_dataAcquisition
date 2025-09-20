@@ -217,6 +217,29 @@ python scripts/pipeline_targets_main.py --input data/input/targets.csv --output 
 
 Always define the environment variables in the shell session before launching the CLI so that the overrides are visible to the Python process.
 
+#### `chembl_assays` and `chembl_activities` sections
+
+The `scripts/chembl_assays_main.py` and `scripts/chembl_activities_main.py` entry points
+now read their defaults from the dedicated `chembl_assays` and
+`chembl_activities` sections in `config.yaml`. Each section exposes the
+following keys:
+
+* `base_url` and `user_agent` configure the HTTP client used to reach the
+  ChEMBL REST API.
+* `chunk_size` controls the number of identifiers fetched per request cycle.
+* `csv` groups the delimiter, encoding, and list serialisation strategy for
+  generated CSV files.
+* `network` declares request timeouts, retry budgets, and the penalty applied
+  when the API responds with `429 Too Many Requests`.
+* `rate_limit.rps` defines the steady-state request-per-second budget enforced
+  by the shared HTTP client.
+
+The CLI arguments continue to accept explicit overrides for these settings. If
+both the configuration file and the CLI provide a value, the CLI flag wins.
+Environment variables using the `CHEMBL_DA__CHEMBL_ASSAYS__...` or
+`CHEMBL_DA__CHEMBL_ACTIVITIES__...` prefixes remain available for ad-hoc
+customisation.
+
 #### HTTP retry configuration
 
 Network-bound scripts rely on `library.http_client.HttpClient`, which retries transient HTTP errors listed in `status_forcelist`. The default value, exposed as `library.http_client.DEFAULT_STATUS_FORCELIST`, targets rate limits and server-side failures (408, 409, 429, 500, 502, 503, 504) and intentionally skips `404 Not Found`. Retrying missing resources usually wastes the retry budget and slows down processing, so only opt in when a specific API is known to return temporary 404 responses. To enable this behaviour, provide a custom list in the configuration file, for example:

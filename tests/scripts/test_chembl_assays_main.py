@@ -3,7 +3,8 @@ from __future__ import annotations
 import importlib
 import sys
 from pathlib import Path
-from typing import Any, Iterable
+
+from typing import Any, Sequence, Iterable
 
 import pandas as pd
 import pytest
@@ -91,26 +92,30 @@ def test_run_pipeline_preserves_numeric_dtypes(
         actual = pd.read_csv(frame) if not isinstance(frame, pd.DataFrame) else frame
         dtypes_capture["values"] = actual.dtypes.copy()
 
-    def fake_write_meta_yaml(
+    def fake_write_cli_metadata(
         output_path: Path,
         *,
-        command: str,
-        config: dict[str, Any],
         row_count: int,
         column_count: int,
+        namespace: Any,
+        command_parts: Sequence[str] | None = None,
         meta_path: Path | None = None,
-        extra: dict[str, Any] | None = None,
+
+        status: str = "success",
+        error: str | None = None,
+        warnings: Sequence[str] | None = None,
     ) -> Path:
-        captured["metadata"].append(
-            {
-                "command": command,
-                "config": config,
-                "row_count": row_count,
-                "column_count": column_count,
-                "meta_path": meta_path,
-                "extra": extra,
-            }
-        )
+        captured["metadata"] = {
+            "command_parts": tuple(command_parts or ()),
+            "namespace": namespace,
+            "row_count": row_count,
+            "column_count": column_count,
+            "meta_path": meta_path,
+            "status": status,
+            "error": error,
+            "warnings": list(warnings or []),
+        }
+
         return output_path.with_name(f"{output_path.name}.meta.yaml")
 
     monkeypatch.setattr(module, "ChemblClient", DummyClient)
@@ -119,7 +124,7 @@ def test_run_pipeline_preserves_numeric_dtypes(
     monkeypatch.setattr(module, "postprocess_assays", fake_postprocess)
     monkeypatch.setattr(module, "normalize_assays", fake_normalize)
     monkeypatch.setattr(module, "validate_assays", fake_validate)
-    monkeypatch.setattr(module, "write_meta_yaml", fake_write_meta_yaml)
+    monkeypatch.setattr(module, "write_cli_metadata", fake_write_cli_metadata)
     monkeypatch.setattr(module, "analyze_table_quality", fake_analyze_table_quality)
     monkeypatch.setattr(cli_common, "serialise_dataframe", serialise_spy)
     monkeypatch.setattr(module, "serialise_dataframe", serialise_spy)
@@ -153,9 +158,9 @@ def test_run_pipeline_preserves_numeric_dtypes(
     assert is_float_dtype(dtypes["pchembl_value"])
     assert is_bool_dtype(dtypes["is_active"])
 
-    assert captured["metadata"], "metadata writes should be recorded"
-    last_meta = captured["metadata"][-1]
-    assert last_meta["row_count"] == 1
-    assert last_meta["column_count"] == validated_frame.shape[1]
-    assert last_meta["extra"] is not None
-    assert last_meta["extra"]["progress"]["last_id"] == "CHEMBL1"
+    metadata = captured["metadata"]
+    assert metadata["namespace"] is args
+    assert metadata["command_parts"] == tuple(["chembl_assays_main.py", *argv])
+    assert metadata["row_count"] == 1
+    assert metadata["column_count"] == len(validated_frame.columns)
+
